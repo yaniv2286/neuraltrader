@@ -92,11 +92,11 @@ def download_ticker(ticker, description):
     print(f"\n📊 Downloading {ticker} ({description})...")
     
     try:
-        # Build request URL
+        # Build request URL - fetch maximum historical data
         url = f"{BASE_URL}/{ticker}/prices"
         params = {
             'token': TIINGO_TOKEN,
-            'startDate': '2004-01-01',
+            'startDate': '1980-01-01',  # Maximum historical data (46 years)
             'endDate': datetime.now().strftime('%Y-%m-%d'),
             'format': 'csv'
         }
@@ -106,7 +106,7 @@ def download_ticker(ticker, description):
         
         if response.status_code == 200:
             # Save to file
-            filename = f"{ticker.replace('-', '_')}_1d_20y_{datetime.now().strftime('%Y%m%d')}.csv"
+            filename = f"{ticker.replace('-', '_')}_1d_full_{datetime.now().strftime('%Y%m%d')}.csv"
             filepath = os.path.join(CACHE_DIR, filename)
             
             with open(filepath, 'w') as f:
