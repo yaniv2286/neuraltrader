@@ -1,0 +1,17 @@
+[project]
+name = "neural-trader"
+version = "2.0.0"
+description = "AI-powered trading system with neural network models"
+authors = [{name = "NeuralTrader Team"}]
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "xgboost>=2.0.0",
+    "torch>=2.0.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "ta>=0.10.2",
+    "PyYAML>=6.0.2",
+]

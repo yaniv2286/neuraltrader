@@ -1,0 +1,70 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.manifest
+*.spec
+
+# === Virtual Environment ===
+venv/
+.venv/
+env/
+.env/
+
+# === Streamlit ===
+.cache/
+.streamlit/
+
+# === Logs & Debug ===
+*.log
+*.tmp
+
+# === Jupyter Notebooks ===
+.ipynb_checkpoints
+
+# === Data Files ===
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.json
+*.parquet
+*.feather
+*.db
+*.sqlite
+
+# === Model Files ===
+*.h5
+*.hdf5
+*.ckpt
+*.pb
+*.tflite
+*.pth
+*.joblib
+*.sav
+*.zip
+
+# === TensorBoard ===
+logs/
+events.out.tfevents.*
+
+# === VS Code ===
+.vscode/
+*.code-workspace
+
+# === OS Files ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Environment Variables ===
+.env
+.env.*
+
+# === Test Cache ===
+.pytest_cache/
+__pypackages__/

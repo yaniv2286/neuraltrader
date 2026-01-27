@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+
+# VS Code settings
+.vscode/
+
+# Jupyter Notebooks (if any)
+.ipynb_checkpoints/
+
+# Logs and temp files
+*.log
+logs/
+*.tmp
+*.bak
+
+# Mac/Linux hidden files
+.DS_Store
+
+# Python specific cache
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment files
+.env
+.env.*
+
+# Models or large data (optional)
+*.h5
+*.pt
+*.pkl
+*.joblib
+
+# Docker
+*.container
