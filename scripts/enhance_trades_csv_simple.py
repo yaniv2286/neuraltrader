@@ -18,7 +18,7 @@ def enhance_trades_csv():
     
     # Load the original CSV
     input_file = os.path.join(os.path.dirname(__file__), '..', 'tests', 'phase5_final_trades.csv')
-    output_file = os.path.join(os.path.dirname(__file__), '..', 'tests', 'phase5_trades_analysis.xlsx')
+    output_file = os.path.join(os.path.dirname(__file__), '..', 'tests', 'phase5_complete_analysis.xlsx')
     
     df = pd.read_csv(input_file)
     
@@ -397,11 +397,66 @@ Remember: Your system achieves 99%+ win rate with 260% annual returns. Trust the
     # Adjust guide column width
     guide_ws.column_dimensions['A'].width = 100
     
+    # Create Ticker Analysis sheet
+    ticker_ws = wb.create_sheet("Ticker Analysis")
+    
+    # Group by ticker - only use SELL trades for P&L since BUY trades have NaN
+    sell_trades = df[df['action'] == 'SELL']
+    ticker_stats = sell_trades.groupby('ticker').agg({
+        'pnl_pct': ['count', 'sum', 'mean'],
+        'signal': 'mean'
+    }).round(2)
+    
+    ticker_stats.columns = ['Winning Trades', 'Total P&L %', 'Avg P&L %', 'Avg Signal']
+    ticker_stats = ticker_stats.sort_values('Total P&L %', ascending=False)
+    
+    # Write ticker analysis headers
+    ticker_headers = ['Ticker', 'Winning Trades', 'Total P&L %', 'Avg P&L %', 'Avg Signal']
+    for col_num, header in enumerate(ticker_headers, 1):
+        cell = ticker_ws.cell(row=1, column=col_num, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = thin_border
+    
+    # Write ticker data
+    for row_num, (ticker, stats) in enumerate(ticker_stats.iterrows(), 2):
+        ticker_ws.cell(row=row_num, column=1, value=ticker).border = thin_border
+        ticker_ws.cell(row=row_num, column=2, value=stats['Winning Trades']).border = thin_border
+        ticker_ws.cell(row=row_num, column=3, value=stats['Total P&L %']).border = thin_border
+        ticker_ws.cell(row=row_num, column=4, value=stats['Avg P&L %']).border = thin_border
+        ticker_ws.cell(row=row_num, column=5, value=stats['Avg Signal']).border = thin_border
+        
+        # Color code performance
+        pnl_pct = stats['Total P&L %']
+        pnl_cell = ticker_ws.cell(row=row_num, column=3)
+        if pnl_pct > 0:
+            # Scale the color based on log of the value to handle large numbers
+            import math
+            scaled_value = min(1.0, max(0.0, math.log10(max(1, pnl_pct)) / 4))  # Scale 0-1 based on log10
+            green_intensity = int(255 - scaled_value * 100)  # Lighter green for higher values
+            pnl_cell.fill = PatternFill(start_color=f"00{green_intensity:02x}00", end_color=f"00{green_intensity:02x}00", fill_type="solid")
+        elif pnl_pct < 0:
+            # Red for negative values
+            pnl_cell.fill = PatternFill(start_color="FF6666", end_color="FF6666", fill_type="solid")
+    
+    # Auto-filter ticker sheet
+    ticker_ws.auto_filter.ref = f"A1:E{len(ticker_stats) + 1}"
+    ticker_ws.freeze_panes = "A2"
+    
+    # Adjust ticker column widths
+    ticker_ws.column_dimensions['A'].width = 8
+    ticker_ws.column_dimensions['B'].width = 14
+    ticker_ws.column_dimensions['C'].width = 12
+    ticker_ws.column_dimensions['D'].width = 12
+    ticker_ws.column_dimensions['E'].width = 12
+    
     # Save the workbook
     wb.save(output_file)
     
     print(f"✅ Enhanced Excel file created: {output_file}")
     print(f"\n📊 Features:")
+    print(f"   • 4 tabs: Trade Analysis, Summary, Guide, Ticker Analysis")
     print(f"   • Frozen header row")
     print(f"   • Auto-filter on all columns")
     print(f"   • Color-coded trades:")
@@ -413,6 +468,8 @@ Remember: Your system achieves 99%+ win rate with 260% annual returns. Trust the
     print(f"     - Strong Buy (>5%): Dark Green")
     print(f"     - Strong Sell (<-5%): Dark Red")
     print(f"   • Summary sheet with key metrics")
+    print(f"   • Ticker Analysis with performance by stock")
+    print(f"   • Guide tab with complete documentation")
     print(f"   • All columns have borders and proper width")
     
     return output_file
