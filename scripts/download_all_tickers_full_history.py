@@ -26,16 +26,16 @@ def get_existing_tickers():
 
 def download_ticker_full_history(ticker):
     """
-    Download FULL historical data for a ticker from Tiingo (1980-2026)
+    Download MAXIMUM historical data for a ticker from Tiingo (1970-2026)
     """
     print(f"\n📊 Downloading {ticker} (FULL HISTORY)...")
     
     try:
-        # Build request URL - fetch maximum historical data
+        # Build request URL - fetch maximum possible historical data
         url = f"{BASE_URL}/{ticker}/prices"
         params = {
             'token': TIINGO_TOKEN,
-            'startDate': '1980-01-01',  # Maximum historical data
+            'startDate': '1970-01-01',  # Try to get maximum possible data (54+ years)
             'endDate': datetime.now().strftime('%Y-%m-%d'),
             'format': 'csv'
         }
@@ -50,7 +50,7 @@ def download_ticker_full_history(ticker):
                 return False, 0
             
             # Save to file
-            filename = f"{ticker.replace('-', '_')}_1d_full_{datetime.now().strftime('%Y%m%d')}.csv"
+            filename = f"{ticker.replace('-', '_')}_1d_max_{datetime.now().strftime('%Y%m%d')}.csv"
             filepath = os.path.join(CACHE_DIR, filename)
             
             with open(filepath, 'w') as f:
@@ -70,7 +70,7 @@ def download_ticker_full_history(ticker):
                 print(f"   📅 Date range: {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
                 
                 # Delete old files for this ticker
-                old_files = glob.glob(os.path.join(CACHE_DIR, f"{ticker.replace('-', '_')}_1d_20y_*.csv"))
+                old_files = glob.glob(os.path.join(CACHE_DIR, f"{ticker.replace('-', '_')}_1d_*.csv"))
                 for old_file in old_files:
                     try:
                         os.remove(old_file)
@@ -111,7 +111,8 @@ def main():
     
     print(f"\n🎯 Found {len(existing_tickers)} existing tickers")
     print(f"📁 Cache directory: {CACHE_DIR}")
-    print(f"📅 Fetching data from 1980-01-01 to {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"📅 Fetching data from 1970-01-01 to {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"📈 Attempting to get MAXIMUM possible historical data (54+ years)")
     print(f"⏱️ This will take approximately {len(existing_tickers)} minutes...")
     
     success_count = 0

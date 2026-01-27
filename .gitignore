@@ -27,10 +27,6 @@ env/
 .ipynb_checkpoints
 
 # === Data Files ===
-*.csv
-*.tsv
-*.xlsx
-*.xls
 *.json
 *.parquet
 *.feather
