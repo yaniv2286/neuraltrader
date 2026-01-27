@@ -60,11 +60,26 @@ def enhance_trades_csv():
     # Write data
     for row_num, row_data in enumerate(dataframe_to_rows(df, index=False, header=False), 2):
         for col_num, value in enumerate(row_data, 1):
-            cell = ws.cell(row=row_num, column=col_num, value=value)
+            col_name = headers[col_num-1]
+            
+            # Format values based on column type
+            if col_name in ['price', 'cost', 'proceeds', 'pnl']:
+                if pd.notna(value):
+                    formatted_value = f"${value:,.4f}"
+                else:
+                    formatted_value = value
+            elif col_name in ['signal', 'pnl_pct']:
+                if pd.notna(value):
+                    formatted_value = f"{value:.4f}"
+                else:
+                    formatted_value = value
+            else:
+                formatted_value = value
+            
+            cell = ws.cell(row=row_num, column=col_num, value=formatted_value)
             cell.border = thin_border
             
             # Apply conditional formatting based on content
-            col_name = headers[col_num-1]
             
             # Color code BUY/SELL actions
             if col_name == 'action':
@@ -149,25 +164,25 @@ def enhance_trades_csv():
         ["NeuralTrader - Trade Analysis Summary", ""],
         ["", ""],
         ["Trade Statistics", ""],
-        ["Total Trades", total_trades],
-        ["Buy Trades", buy_trades],
-        ["Sell Trades", sell_trades],
+        ["Total Trades", f"{total_trades:,}"],
+        ["Buy Trades", f"{buy_trades:,}"],
+        ["Sell Trades", f"{sell_trades:,}"],
         ["", ""],
         ["Performance Metrics", ""],
-        ["Win Rate", f"{win_rate:.2f}%"],
-        ["Total P&L", f"${total_pnl:,.2f}"],
-        ["Average Win", f"{avg_win:.2f}%"],
-        ["Average Loss", f"{avg_loss:.2f}%"],
-        ["Profit Factor", f"{profit_factor:.2f}"],
+        ["Win Rate", f"{win_rate:.4f}%"],
+        ["Total P&L", f"${total_pnl:,.4f}"],
+        ["Average Win", f"{avg_win:.4f}%"],
+        ["Average Loss", f"{avg_loss:.4f}%"],
+        ["Profit Factor", f"{profit_factor:.4f}"],
         ["", ""],
         ["Risk Management", ""],
-        ["Stop Loss Trades", stop_loss_trades],
-        ["Signal-Based Exits", signal_trades],
-        ["Stop Loss Rate", f"{(stop_loss_trades/sell_trades*100):.2f}%"],
+        ["Stop Loss Trades", f"{stop_loss_trades:,}"],
+        ["Signal-Based Exits", f"{signal_trades:,}"],
+        ["Stop Loss Rate", f"{(stop_loss_trades/sell_trades*100):.4f}%"],
         ["", ""],
         ["Signal Analysis", ""],
-        ["Strong Buy Signals (>5%)", len(df[(df['signal'] > 0.05) & (df['action'] == 'BUY')])],
-        ["Strong Sell Signals (<-5%)", len(df[(df['signal'] < -0.05) & (df['action'] == 'SELL')])],
+        ["Strong Buy Signals (>5%)", f"{len(df[(df['signal'] > 0.05) & (df['action'] == 'BUY')]):,}"],
+        ["Strong Sell Signals (<-5%)", f"{len(df[(df['signal'] < -0.05) & (df['action'] == 'SELL')]):,}"],
         ["", ""],
         ["Color Legend", ""],
         ["BUY", "Light Green"],
@@ -423,9 +438,9 @@ Remember: Your system achieves 99%+ win rate with 260% annual returns. Trust the
     for row_num, (ticker, stats) in enumerate(ticker_stats.iterrows(), 2):
         ticker_ws.cell(row=row_num, column=1, value=ticker).border = thin_border
         ticker_ws.cell(row=row_num, column=2, value=stats['Winning Trades']).border = thin_border
-        ticker_ws.cell(row=row_num, column=3, value=stats['Total P&L %']).border = thin_border
-        ticker_ws.cell(row=row_num, column=4, value=stats['Avg P&L %']).border = thin_border
-        ticker_ws.cell(row=row_num, column=5, value=stats['Avg Signal']).border = thin_border
+        ticker_ws.cell(row=row_num, column=3, value=f"{stats['Total P&L %']:.4f}%").border = thin_border
+        ticker_ws.cell(row=row_num, column=4, value=f"{stats['Avg P&L %']:.4f}%").border = thin_border
+        ticker_ws.cell(row=row_num, column=5, value=f"{stats['Avg Signal']:.4f}").border = thin_border
         
         # Color code performance
         pnl_pct = stats['Total P&L %']
