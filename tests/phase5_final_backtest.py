@@ -1,5 +1,5 @@
 """
-Phase 5 Final: Complete 20-Year Backtest on All 45 Tickers
+Phase 5 Final: Complete Backtest on All Tickers with Full Historical Data
 Ultimate validation with visual charts
 """
 
@@ -31,15 +31,15 @@ print(f"\n📊 Found {len(ALL_TICKERS)} tickers in cache: {', '.join(ALL_TICKERS
 
 def run_final_backtest():
     """
-    Run complete 20-year backtest on all 45 tickers
+    Run complete backtest on all available tickers with full historical data
     """
     print("="*70)
-    print("PHASE 5 FINAL: 20-YEAR BACKTEST ON ALL 45 TICKERS")
+    print("PHASE 5 FINAL: FULL HISTORICAL DATA BACKTEST ON ALL TICKERS")
     print("="*70)
     
     print("\n🎯 This is the ultimate test:")
-    print("   - 20 years of data (2004-2024)")
-    print("   - All 45 tickers")
+    print("   - Full historical data (maximum available)")
+    print("   - All available tickers")
     print("   - Includes 2008 crisis, 2020 COVID, 2022 bear")
     print("   - Real transaction costs")
     print("   - Risk management")
@@ -57,7 +57,7 @@ def run_final_backtest():
     
     # Run backtest
     print(f"\n⏳ This will take a few minutes...")
-    print(f"   Training 45 models on 20 years of data...")
+    print(f"   Training models on full historical data...")
     
     results = backtester.run_complete_backtest(
         tickers=ALL_TICKERS,

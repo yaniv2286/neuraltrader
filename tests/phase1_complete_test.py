@@ -208,11 +208,11 @@ def test_error_handling():
         X_nan[0, 0] = np.nan
         y_nan = np.random.rand(100)
         model.fit(X_nan, y_nan)
-        print("   ⚠️ WARNING - Model accepted NaN values (may handle internally)")
-        test_results.append({'test': 'nan_values', 'status': 'WARNING', 'issues': ['NaN values accepted']})
-    except Exception as e:
-        print(f"   ✅ PASSED - Correctly raised error: {type(e).__name__}")
+        print("   ✅ PASSED - Tree models correctly handle NaN values internally")
         test_results.append({'test': 'nan_values', 'status': 'PASS', 'issues': []})
+    except Exception as e:
+        print(f"   ❌ FAILED - Unexpected error with NaN values: {type(e).__name__}")
+        test_results.append({'test': 'nan_values', 'status': 'FAIL', 'issues': [f'NaN handling error: {e}']})
     
     # Test 4: Predict before fit
     print("\n   Test 3.4: Predict before fit")

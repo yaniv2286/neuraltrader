@@ -31,8 +31,8 @@ print(f"📋 Last 10: {', '.join(ALL_TICKERS[-10:])}")
 
 # Test configuration
 TEST_CONFIG = {
-    'start_date': '2020-01-01',
-    'end_date': '2023-12-31',
+    'start_date': '2004-01-01',  # Use full historical data
+    'end_date': '2024-12-31',    # Use full historical data
     'min_samples': 500  # Minimum samples required
 }
 
@@ -185,7 +185,7 @@ def test_single_ticker_simple(ticker):
 def run_comprehensive_test():
     """Run tests on all available tickers"""
     print(f"\n🚀 Starting comprehensive test on {len(ALL_TICKERS)} tickers...")
-    print(f"📅 Date range: {TEST_CONFIG['start_date']} to {TEST_CONFIG['end_date']}")
+    print(f"📅 Date range: {TEST_CONFIG['start_date']} to {TEST_CONFIG['end_date']} (Full Historical Data)")
     print(f"🎯 Target: Simple linear regression with basic features")
     
     results = []
