@@ -150,8 +150,12 @@ class FeatureEngineer:
             # Volatility features
             df_features = calculate_volatility_features(df_features)
             
-            # Market regime
-            df_features = detect_market_regime(df_features)
+            # Market regime (returns tuple of regime and strength)
+            regime, regime_strength = detect_market_regime(df_features)
+            # Encode regime as numeric: BULL=1, SIDEWAYS=0, BEAR=-1
+            regime_numeric = regime.map({'BULL': 1, 'SIDEWAYS': 0, 'BEAR': -1}).fillna(0)
+            df_features['market_regime'] = regime_numeric
+            df_features['regime_strength'] = regime_strength
             
         except Exception as e:
             print(f"⚠️ Error in feature modules: {e}")
@@ -160,6 +164,11 @@ class FeatureEngineer:
         
         # Additional custom features (always available)
         df_features = self._add_custom_features(df_features)
+        
+        # Remove redundant features to prevent overfitting
+        from features.feature_selector import FeatureSelector
+        selector = FeatureSelector()
+        df_features = selector.remove_redundant_features(df_features)
         
         # Store feature names for reference
         self.feature_names = [col for col in df_features.columns if col not in df.columns]

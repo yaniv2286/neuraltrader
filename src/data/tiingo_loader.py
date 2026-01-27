@@ -19,29 +19,41 @@ class TiingoDataLoader:
     
     def __init__(self, cache_dir: str = None):
         if cache_dir is None:
-            # Default to project's data cache
-            self.cache_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data_cache', 'tiingo')
+            # Default to src/data/cache directory
+            self.cache_dir = os.path.join(os.path.dirname(__file__), 'cache')
         else:
             self.cache_dir = cache_dir
         
         self.available_tickers = self._scan_available_tickers()
     
     def _scan_available_tickers(self) -> List[str]:
-        """Scan for available ticker data files"""
+        """Scan for available ticker data files - prioritize 20-year files"""
         if not os.path.exists(self.cache_dir):
             print(f"⚠️ Cache directory not found: {self.cache_dir}")
             return []
         
+        # Scan for all CSV files in cache directory AND tiingo subdirectory
         csv_files = glob.glob(os.path.join(self.cache_dir, "*.csv"))
-        tickers = []
+        csv_files.extend(glob.glob(os.path.join(self.cache_dir, "tiingo", "*.csv")))
+        tickers = set()
         
         for file_path in csv_files:
             filename = os.path.basename(file_path)
+            
+            # Skip non-data files
+            if filename in ['data_summary.txt']:
+                continue
+            
             # Extract ticker from filename (handle various naming patterns)
-            ticker = filename.split('_')[0].split('.')[0]
-            tickers.append(ticker)
+            # Examples: AAPL_1d_20y.csv, AAPL_1d_hash.csv, AAPL.csv
+            parts = filename.split('_')
+            if len(parts) > 0:
+                ticker = parts[0].upper()
+                # Only add valid ticker symbols (2-5 characters, all uppercase)
+                if 2 <= len(ticker) <= 5 and ticker.isalpha():
+                    tickers.add(ticker)
         
-        return sorted(list(set(tickers)))
+        return sorted(list(tickers))
     
     def load_ticker_data(self, ticker: str, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
         """
@@ -55,53 +67,95 @@ class TiingoDataLoader:
         Returns:
             DataFrame with OHLCV data or None if not found
         """
-        # Find the data file
-        file_patterns = [
-            f"{ticker}_1d_20y.csv",
-            f"{ticker}_1d.csv", 
-            f"{ticker}.csv"
+        # Find the data file - prioritize 20-year files for maximum historical data
+        data_file = None
+        
+        # Search for files matching ticker pattern - PRIORITIZE 20-year data
+        # Check both cache root and tiingo subdirectory
+        search_patterns = [
+            f"{ticker}_1d_20y.csv",      # 20-year data (PRIORITY for bull/bear cycles)
+            f"{ticker}_1d_*.csv",        # Hash-suffixed files
+            f"{ticker}_1d.csv",          # Standard daily
+            f"{ticker}.csv"              # Fallback
         ]
         
-        data_file = None
-        for pattern in file_patterns:
-            potential_file = os.path.join(self.cache_dir, pattern)
-            if os.path.exists(potential_file):
-                data_file = potential_file
-                break
+        search_dirs = [
+            os.path.join(self.cache_dir, "tiingo"),  # Check tiingo subdirectory first
+            self.cache_dir                            # Then check cache root
+        ]
+        
+        for search_dir in search_dirs:
+            if not os.path.exists(search_dir):
+                continue
+            for pattern in search_patterns:
+                matches = glob.glob(os.path.join(search_dir, pattern))
+                if matches:
+                    # Use the first match and stop searching
+                    data_file = matches[0]
+                    break
+            if data_file:
+                break  # Found a file, stop searching other directories
         
         if data_file is None:
             print(f"❌ No data file found for {ticker}")
             return None
         
         try:
-            # Load the data
-            df = pd.read_csv(data_file, index_col=0, parse_dates=True)
+            # Load the data - skip the Ticker row (row 1) if it exists
+            df = pd.read_csv(data_file, skiprows=[1], index_col=0)
             
-            # Standardize column names
-            col_mapping = {}
+            # Convert index to datetime first (handles timezone-aware strings)
+            df.index = pd.to_datetime(df.index, errors='coerce', utc=True)
+            
+            # Remove timezone info (make timezone-naive for consistency)
+            if hasattr(df.index, 'tz') and df.index.tz is not None:
+                df.index = df.index.tz_localize(None)
+            
+            # Remove any rows with invalid dates
+            df = df[df.index.notna()]
+            
+            # Remove rows where index string contains 'datetime' (header artifacts)
+            # This must be done after datetime conversion to avoid Series ambiguity
+            try:
+                valid_dates_mask = ~df.index.to_series().astype(str).str.contains('datetime', case=False, na=False).values
+                df = df.iloc[valid_dates_mask]
+            except Exception as e:
+                # If this fails, just skip the datetime filtering
+                pass
+            
+            # Standardize column names to lowercase first
+            df.columns = [col.lower() for col in df.columns]
+            
+            # Remove duplicate columns (keep first occurrence)
+            df = df.loc[:, ~df.columns.duplicated()]
+            
+            # Try to find OHLCV columns with various naming patterns
+            ohlcv_map = {}
+            for base_col in ['open', 'high', 'low', 'close', 'volume']:
+                # Look for exact match first
+                if base_col in df.columns:
+                    ohlcv_map[base_col] = base_col
+                # Look for prefixed version (e.g., '1d_open')
+                elif f'1d_{base_col}' in df.columns:
+                    ohlcv_map[f'1d_{base_col}'] = base_col
+            
+            # Select and rename only the OHLCV columns we found
+            if len(ohlcv_map) == 5:
+                df = df[list(ohlcv_map.keys())].copy()
+                df = df.rename(columns=ohlcv_map)
+            else:
+                # Fallback: just keep columns that match OHLCV names
+                available_cols = [col for col in ['open', 'high', 'low', 'close', 'volume'] if col in df.columns]
+                if len(available_cols) == 5:
+                    df = df[available_cols].copy()
+                else:
+                    print(f"⚠️ Could not find all OHLCV columns for {ticker}")
+                    print(f"   Available columns: {list(df.columns)}")
+                    return None
+            
+            # Convert all columns to numeric
             for col in df.columns:
-                col_lower = col.lower()
-                if 'close' in col_lower and 'close' not in df.columns:
-                    col_mapping['close'] = col
-                elif 'open' in col_lower and 'open' not in df.columns:
-                    col_mapping['open'] = col
-                elif 'high' in col_lower and 'high' not in df.columns:
-                    col_mapping['high'] = col
-                elif 'low' in col_lower and 'low' not in df.columns:
-                    col_mapping['low'] = col
-                elif 'volume' in col_lower and 'volume' not in df.columns:
-                    col_mapping['volume'] = col
-            
-            if col_mapping:
-                df = df.rename(columns=col_mapping)
-            
-            # Ensure we have required columns
-            required_cols = ['open', 'high', 'low', 'close', 'volume']
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            
-            if missing_cols:
-                print(f"⚠️ Missing columns for {ticker}: {missing_cols}")
-                return None
+                df[col] = pd.to_numeric(df[col], errors='coerce')
             
             # Filter by date range if specified
             if start_date:

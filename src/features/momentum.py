@@ -1,6 +1,47 @@
 import pandas as pd
 import numpy as np
 
+def calculate_rsi(df, price_col='close', period=14):
+    """Calculate RSI indicator"""
+    delta = df[price_col].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_macd(df, price_col='close', fast=12, slow=26, signal=9):
+    """Calculate MACD indicator"""
+    exp1 = df[price_col].ewm(span=fast).mean()
+    exp2 = df[price_col].ewm(span=slow).mean()
+    macd = exp1 - exp2
+    macd_signal = macd.ewm(span=signal).mean()
+    macd_hist = macd - macd_signal
+    return macd, macd_signal, macd_hist
+
+def calculate_momentum_features(df, price_col='close'):
+    """Calculate comprehensive momentum features"""
+    df = df.copy()
+    
+    # RSI
+    df['rsi'] = calculate_rsi(df, price_col)
+    df['rsi_above_50'] = (df['rsi'] > 50).astype(int)
+    
+    # MACD
+    df['macd'], df['macd_signal'], df['macd_hist'] = calculate_macd(df, price_col)
+    df['macd_bullish'] = (df['macd'] > df['macd_signal']).astype(int)
+    
+    # Moving averages
+    df['sma_20'] = df[price_col].rolling(window=20).mean()
+    df['sma_50'] = df[price_col].rolling(window=50).mean()
+    df['sma_200'] = df[price_col].rolling(window=200).mean()
+    
+    df['above_sma_20'] = (df[price_col] > df['sma_20']).astype(int)
+    df['above_sma_50'] = (df[price_col] > df['sma_50']).astype(int)
+    df['above_sma_200'] = (df[price_col] > df['sma_200']).astype(int)
+    
+    return df
+
 def add_momentum_features(df, price_col='close'):
     """Add momentum/trend features to help with market timing"""
     # 200-day SMA for long-term trend

@@ -53,6 +53,24 @@ class BaseCPUModel(ABC):
                 self.feature_names = X.columns.tolist()
             X = X.values
         
+        # Data validation
+        if np.isnan(X).any():
+            nan_count = np.isnan(X).sum()
+            total_values = X.size
+            nan_pct = (nan_count / total_values) * 100
+            
+            # XGBoost and RandomForest can handle NaN, but warn if excessive
+            if nan_pct > 10:
+                import warnings
+                warnings.warn(
+                    f"High percentage of NaN values in features: {nan_pct:.2f}%. "
+                    f"Model will handle these internally, but consider imputation for better performance.",
+                    UserWarning
+                )
+        
+        if np.isinf(X).any():
+            raise ValueError("Input contains infinite values. Please clean your data.")
+        
         # Scale features
         if fit_scaler:
             X_scaled = self.scaler.fit_transform(X)
@@ -73,6 +91,26 @@ class BaseCPUModel(ABC):
         Returns:
             Self
         """
+        # Input validation
+        if X is None or (hasattr(X, 'size') and X.size == 0):
+            raise ValueError("X cannot be empty")
+        
+        if y is None or (hasattr(y, 'size') and y.size == 0):
+            raise ValueError("y cannot be empty")
+        
+        # Convert to numpy arrays if needed
+        if isinstance(X, pd.DataFrame):
+            X = X.values
+        if isinstance(y, pd.Series):
+            y = y.values
+        
+        # Check dimensions match
+        if len(X) != len(y):
+            raise ValueError(
+                f"X and y must have the same number of samples. "
+                f"Got X: {len(X)}, y: {len(y)}"
+            )
+        
         # Create model if not exists
         if self.model is None:
             self._create_model(**self.model_params)
