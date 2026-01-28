@@ -1,8 +1,9 @@
-# Complete Ticker List for NeuralTrader - 100+ tickers
+# Complete Ticker List for NeuralTrader - 150 tickers
+# Comprehensive US sector representation + International ETFs
 # Ready for download when API limits reset
 # Use with: scripts/download_all_tickers_fixed.py
 
-# TECH (15)
+# TECH (20)
 AMD
 AMZN
 CSCO
@@ -18,8 +19,13 @@ PYPL
 ADBE
 CRM
 ZM
+AVGO
+NOW
+PLTR
+RBLX
+SNAP
 
-# FINANCE (15)
+# FINANCE (16)
 AXP
 BAC
 BLK
@@ -35,6 +41,7 @@ MA
 AIG
 MET
 PRU
+BRK-B
 
 # HEALTHCARE (12)
 ABBV
@@ -50,7 +57,7 @@ BMY
 GILD
 CVS
 
-# CONSUMER (10)
+# CONSUMER (14)
 COST
 HD
 MCD
@@ -61,6 +68,10 @@ KO
 PEP
 TGT
 LOW
+UBER
+LYFT
+ROKU
+SPOT
 
 # ENERGY (5)
 CVX
@@ -79,7 +90,22 @@ DE
 UPS
 RTX
 
-# ETFs (10)
+# EV & AUTOMOTIVE (6)
+TSLA
+NIO
+XPEV
+LI
+RIVN
+LCID
+
+# CRYPTO (5)
+COIN
+BTC
+ETH
+ADA
+SOL
+
+# ETFs (14)
 GLD
 IWM
 QQQ
@@ -90,15 +116,12 @@ VTI
 VOO
 IVV
 AGG
+ACWI
+VT
+EFA
+VEA
 
-# CRYPTO (5)
-BNB
-BTC
-ETH
-ADA
-SOL
-
-# OTHER (35)
+# OTHER (30)
 AAL
 ADI
 AMAT
@@ -129,9 +152,11 @@ USO
 UUP
 VIX
 VXX
-TSLA
-NFLX
-PYPL
-ADBE
-CRM
-ZM
+ZS
+CRWD
+MELI
+SQ
+SHOP
+DOCU
+PINS
+TWTR

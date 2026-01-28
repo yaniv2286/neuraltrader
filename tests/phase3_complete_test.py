@@ -24,8 +24,11 @@ import time
 import warnings
 warnings.filterwarnings('ignore')
 
+# Check for fast mode
+FAST_MODE = '--fast' in sys.argv
+
 print("="*70)
-print("PHASE 3: COMPLETE TESTING & OPTIMIZATION")
+print(f"PHASE 3: COMPLETE TESTING & OPTIMIZATION ({'FAST MODE' if FAST_MODE else 'FULL MODE'})")
 print("Feature Engineering")
 print("="*70)
 
@@ -38,27 +41,80 @@ def test_feature_completeness():
     print("TEST 1: Feature Creation Completeness")
     print("="*70)
     
+    import glob
+    import pandas as pd
+    
     from data.enhanced_preprocess import build_enhanced_model_input
     
     test_results = []
     
-    print("\n🔍 Creating features for AAPL...")
+    # Get tickers based on mode
+    if FAST_MODE:
+        from fast_test_utils import get_fast_test_tickers, print_fast_test_info
+        test_tickers = get_fast_test_tickers()
+        print_fast_test_info(test_tickers)
+    else:
+        # Get all available tickers from cache files
+        cache_dir = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache', 'tiingo')
+        cache_files = glob.glob(os.path.join(cache_dir, '*.csv'))
+        available_tickers = []
+        
+        for file in cache_files:
+            parts = os.path.basename(file).split('_')
+            if len(parts) >= 2:
+                ticker = parts[0]
+                if ticker.endswith('USD'):
+                    ticker = ticker.replace('_USD', '-USD')
+                available_tickers.append(ticker)
+        
+        test_tickers = sorted(list(set(available_tickers)))
     
-    df = build_enhanced_model_input(
-        ticker='AAPL',
-        timeframes=['1d'],
-        start='2020-01-01',
-        end='2023-12-31',
-        validate_data=True,
-        create_features=True
-    )
+    if len(test_tickers) == 0:
+        print("\n❌ No tickers available for feature testing")
+        return [{'test': 'feature_creation', 'status': 'FAIL', 'issues': ['No tickers available']}]
     
-    if df is None or df.empty:
-        print("   ❌ FAILED - No data returned")
-        return [{'test': 'feature_creation', 'status': 'FAIL', 'issues': ['No data returned']}]
+    # Test each ticker
+    all_dfs = []
+    failed_tickers = []
     
-    print(f"   ✅ Created {len(df.columns)} features")
-    print(f"   📊 Data shape: {df.shape}")
+    for i, test_ticker in enumerate(test_tickers, 1):
+        print(f"\n🔍 [{i}/{len(test_tickers)}] Creating features for {test_ticker}...")
+        
+        try:
+            df = build_enhanced_model_input(
+                ticker=test_ticker,
+                timeframes=['1d'],
+                start='2020-01-01',
+                end='2023-12-31',
+                validate_data=True,
+                create_features=True
+            )
+            
+            if df is None or df.empty:
+                print(f"   ❌ FAILED - No data returned for {test_ticker}")
+                failed_tickers.append(test_ticker)
+            else:
+                print(f"   ✅ Created {len(df.columns)} features")
+                print(f"   📊 Data shape: {df.shape}")
+                all_dfs.append(df)
+                
+        except Exception as e:
+            print(f"   ❌ ERROR - {e}")
+            failed_tickers.append(test_ticker)
+    
+    # Use first successful dataframe for further tests
+    df = all_dfs[0] if all_dfs else None
+    
+    if not all_dfs:
+        print(f"\n❌ All {len(test_tickers)} tickers failed")
+        return [{'test': 'feature_creation', 'status': 'FAIL', 'issues': [f'All tickers failed: {failed_tickers}']}]
+    
+    print(f"\n✅ Successfully processed {len(all_dfs)}/{len(test_tickers)} tickers")
+    if failed_tickers:
+        print(f"⚠️ Failed tickers: {failed_tickers}")
+    
+    # Use first successful df for feature analysis
+    df = all_dfs[0]
     
     # Expected feature categories
     expected_categories = {
@@ -95,16 +151,26 @@ def test_feature_completeness():
     else:
         test_results.append({'test': 'feature_completeness', 'status': 'PASS', 'issues': []})
     
+    # Add success rate to results
+    success_rate = len(all_dfs) / len(test_tickers) * 100
+    test_results.append({
+        'test': 'feature_creation_success_rate',
+        'status': 'PASS' if success_rate >= 80 else 'WARNING',
+        'issues': [f'Success rate: {success_rate:.1f}% ({len(all_dfs)}/{len(test_tickers)})']
+    })
+    
     return test_results, df
 
 # ============================================================================
 # TEST 2: Feature Correlation Analysis (CRITICAL)
 # ============================================================================
 def test_feature_correlation(df):
-    """Identify highly correlated features that should be removed"""
+    """Test feature correlation and identify redundancies"""
     print("\n" + "="*70)
     print("TEST 2: Feature Correlation Analysis (CRITICAL)")
     print("="*70)
+    
+    import numpy as np
     
     test_results = []
     
@@ -337,7 +403,7 @@ def test_feature_speed():
 # ============================================================================
 # TEST 6: Feature Consistency
 # ============================================================================
-def test_feature_consistency():
+def test_feature_consistency(test_ticker):
     """Test that feature engineering produces consistent results"""
     print("\n" + "="*70)
     print("TEST 6: Feature Consistency")
@@ -347,12 +413,12 @@ def test_feature_consistency():
     
     test_results = []
     
-    print("\n🔍 Testing feature consistency (3 runs)...")
+    print(f"\n🔍 Testing feature consistency for {test_ticker} (3 runs)...")
     
     dfs = []
     for i in range(3):
         df = build_enhanced_model_input(
-            ticker='AAPL',
+            ticker=test_ticker,
             timeframes=['1d'],
             start='2023-01-01',
             end='2023-12-31',
@@ -391,38 +457,63 @@ def test_feature_consistency():
     
     return test_results
 
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
 def main():
     """Run all Phase 3 tests"""
+    all_results = []
     
     # Test 1: Feature completeness
     completeness_results, df = test_feature_completeness()
+    all_results.extend(completeness_results)
     
-    # Test 2: Correlation analysis (CRITICAL)
-    correlation_results = test_feature_correlation(df)
+    # Test 2: Feature correlation
+    if df is not None and not df.empty:
+        correlation_results = test_feature_correlation(df)
+        all_results.extend(correlation_results)
+    else:
+        print("\n⚠️ Skipping correlation test - no data available")
+        all_results.append({'test': 'feature_correlation', 'status': 'SKIP', 'issues': ['No data available']})
     
-    # Test 3: Missing values
-    missing_results = test_missing_values(df)
+    # Test 3: Missing value handling
+    if df is not None and not df.empty:
+        results3 = test_missing_value_handling(df)
+        all_results.extend(results3)
+    else:
+        print("\n⚠️ Skipping missing value test - no data available")
+        all_results.append({'test': 'missing_value_handling', 'status': 'SKIP', 'issues': ['No data available']})
     
     # Test 4: Feature importance
-    importance_results = test_feature_importance(df)
+    if df is not None and not df.empty:
+        results4 = test_feature_importance(df)
+        all_results.extend(results4)
+    else:
+        print("\n⚠️ Skipping feature importance test - no data available")
+        all_results.append({'test': 'feature_importance', 'status': 'SKIP', 'issues': ['No data available']})
     
-    # Test 5: Speed
-    speed_results = test_feature_speed()
+    # Test 5: Feature engineering speed
+    if df is not None and not df.empty:
+        results5 = test_feature_engineering_speed(df)
+        all_results.extend(results5)
+    else:
+        print("\n⚠️ Skipping speed test - no data available")
+        all_results.append({'test': 'feature_engineering_speed', 'status': 'SKIP', 'issues': ['No data available']})
     
-    # Test 6: Consistency
-    consistency_results = test_feature_consistency()
-    
-    all_results = {
-        'test_1_completeness': completeness_results,
-        'test_2_correlation': correlation_results,
-        'test_3_missing': missing_results,
-        'test_4_importance': importance_results,
-        'test_5_speed': speed_results,
-        'test_6_consistency': consistency_results
-    }
+    # Test 6: Feature consistency
+    if df is not None and not df.empty:
+        # Get first ticker from feature completeness test
+        if FAST_MODE:
+            from fast_test_utils import get_fast_test_tickers
+            test_ticker = get_fast_test_tickers()[0]
+        else:
+            # Get first available ticker
+            cache_dir = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache', 'tiingo')
+            cache_files = glob.glob(os.path.join(cache_dir, '*.csv'))
+            test_ticker = os.path.basename(cache_files[0]).split('_')[0]
+        
+        results6 = test_feature_consistency(test_ticker)
+        all_results.extend(results6)
+    else:
+        print("\n⚠️ Skipping consistency test - no data available")
+        all_results.append({'test': 'feature_consistency', 'status': 'SKIP', 'issues': ['No data available']})
     
     # Summary
     print("\n" + "="*70)

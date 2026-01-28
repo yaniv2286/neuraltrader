@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Download Only Missing Tickers Script
-Downloads only the tickers we don't have yet (smart approach)
+Universal Download Script - Downloads all 150 tickers
+Skips existing files and downloads only missing ones
 """
 
 import requests
@@ -20,7 +20,7 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache'
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def get_target_tickers():
-    """Get the complete target list of 116 tickers"""
+    """Get the complete target list of 150 tickers"""
     ticker_list_path = os.path.join(CACHE_DIR, 'info', 'lists', 'tickers_to_download.txt')
     
     tickers = []
@@ -48,14 +48,6 @@ def get_existing_tickers():
     
     return existing_tickers
 
-def get_missing_tickers():
-    """Get only the tickers we need to download"""
-    target_tickers = get_target_tickers()
-    existing_tickers = get_existing_tickers()
-    
-    missing_tickers = [t for t in target_tickers if t not in existing_tickers]
-    return missing_tickers
-
 def validate_response_content(response_text):
     """Validate that response contains valid CSV data"""
     # Check for API error messages
@@ -80,9 +72,9 @@ def validate_response_content(response_text):
     
     return True, "Valid CSV data"
 
-def download_ticker_full_history(ticker):
-    """Download full historical data for a ticker with validation"""
-    print(f"📊 Downloading {ticker} (FULL HISTORY)...")
+def download_ticker(ticker):
+    """Download ticker with full history"""
+    print(f"📊 {ticker}...", end="")
     
     # Format ticker for API (handle crypto)
     api_ticker = ticker
@@ -107,7 +99,7 @@ def download_ticker_full_history(ticker):
             is_valid, validation_msg = validate_response_content(response.text)
             
             if not is_valid:
-                print(f"   ❌ Invalid response: {validation_msg}")
+                print(f" ❌ {validation_msg}")
                 return False, validation_msg
             
             # Create filename with today's date
@@ -122,63 +114,49 @@ def download_ticker_full_history(ticker):
             try:
                 df = pd.read_csv(filepath)
                 df['date'] = pd.to_datetime(df['date'])
-                df = df.set_index('date')
-                
-                years = (df.index.max() - df.index.min()).days / 365.25
-                print(f"   ✅ Downloaded {len(df)} days ({years:.1f} years)")
-                print(f"   📅 Date range: {df.index.min().date()} to {df.index.max().date()}")
-                
-                # Clean up old files for this ticker
-                old_files = glob.glob(os.path.join(CACHE_DIR, f"{ticker.replace('-', '_')}_1d_*.csv"))
-                for old_file in old_files:
-                    if old_file != filepath:
-                        os.remove(old_file)
-                
+                years = (df['date'].max() - df['date'].min()).days / 365.25
+                print(f" ✅ {len(df)} days ({years:.1f} years)")
                 return True, years
                 
             except Exception as e:
-                print(f"   ❌ Error parsing data: {e}")
+                print(f" ❌ Parse error: {e}")
                 # Remove invalid file
                 if os.path.exists(filepath):
                     os.remove(filepath)
                 return False, f"Parse error: {e}"
                 
         else:
-            print(f"   ❌ Error: HTTP {response.status_code}")
+            print(f" ❌ HTTP {response.status_code}")
             return False, 0
             
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f" ❌ Error: {e}")
         return False, 0
 
 def main():
-    """Download only missing tickers"""
+    """Download all 150 tickers - skip existing ones"""
     print("="*70)
-    print("DOWNLOADING ONLY MISSING TICKERS (SMART APPROACH)")
+    print("UNIVERSAL DOWNLOAD - ALL 150 TICKERS")
     print("="*70)
     
-    # Get all tickers and check status
+    # Get tickers and check status
     target_tickers = get_target_tickers()
     existing_tickers = get_existing_tickers()
     
     print(f"\n📊 Target tickers: {len(target_tickers)}")
     print(f"✅ Have tickers: {len(existing_tickers)}")
     
-    # Check each ticker and print status
-    missing_tickers = []
-    for ticker in target_tickers:
-        if ticker in existing_tickers:
-            print(f"✅ {ticker}: Data already exists")
-        else:
-            missing_tickers.append(ticker)
-    
-    print(f"❌ Missing tickers: {len(missing_tickers)}")
+    # Find missing tickers only
+    missing_tickers = [t for t in target_tickers if t not in existing_tickers]
     
     if len(missing_tickers) == 0:
-        print("\n🎉 All tickers already downloaded!")
+        print("\n🎉 All 150 tickers already downloaded!")
         return
     
-    print(f"\n🎯 Downloading only the {len(missing_tickers)} missing tickers:")
+    print(f"❌ Missing tickers: {len(missing_tickers)}")
+    print(f"📈 Progress: {len(existing_tickers)}/150 ({len(existing_tickers)/150:.1%})")
+    
+    print(f"\n🎯 Downloading missing {len(missing_tickers)} tickers:")
     print(f"   First 10: {', '.join(missing_tickers[:10])}")
     if len(missing_tickers) > 10:
         print(f"   ... and {len(missing_tickers) - 10} more")
@@ -194,8 +172,8 @@ def main():
     max_api_failures = 2
     
     for i, ticker in enumerate(missing_tickers, 1):
-        print(f"\n[{i}/{len(missing_tickers)}]", end=" ")
-        success, years = download_ticker_full_history(ticker)
+        print(f"[{i}/{len(missing_tickers)}] ", end="")
+        success, years = download_ticker(ticker)
         
         if success:
             success_count += 1
@@ -206,15 +184,12 @@ def main():
             # Check if this was an API error
             if "API error" in str(years) or "allocation" in str(years):
                 api_failure_count += 1
-                print(f"\n🚨 API FAILURE #{api_failure_count}")
                 
                 if api_failure_count >= max_api_failures:
                     print(f"\n🛑 STOPPING - {max_api_failures} consecutive API failures")
                     print(f"   Reason: API not responding")
                     print(f"   Recommendation: Try again later")
                     break
-                else:
-                    print(f"   Will retry (failure {api_failure_count}/{max_api_failures})")
         
         # Rate limiting - wait 1 second between requests
         if i < len(missing_tickers) and api_failure_count < max_api_failures:
@@ -225,30 +200,33 @@ def main():
     print(f"{'='*70}")
     
     if api_failure_count >= max_api_failures:
-        print(f"\n🚨 DOWNLOAD STOPPED - API NOT RESPONDING")
-        print(f"   ✅ Successfully downloaded: {success_count} tickers")
-        print(f"   ❌ Failed: {fail_count} tickers (API error)")
-        print(f"   📊 Average history: {total_years/success_count:.1f} years per ticker" if success_count > 0 else "")
-        print(f"   🔄 Try again later when API is working")
+        print(f"\n DOWNLOAD STOPPED - API NOT RESPONDING")
+        print(f"   Successfully downloaded: {success_count} tickers")
+        print(f"   Failed: {fail_count} tickers (API error)")
+        if success_count > 0:
+            print(f"   Average history: {total_years/success_count:.1f} years per ticker")
+        print(f"   Try again later when API is working")
     else:
-        print(f"\n✅ All missing tickers downloaded successfully!")
-        print(f"   ✅ Successfully downloaded: {success_count} tickers")
-        print(f"   ❌ Failed: {fail_count} tickers")
-        print(f"   📊 Average history: {total_years/success_count:.1f} years per ticker" if success_count > 0 else "")
+        print(f"\n All missing tickers downloaded successfully!")
+        print(f"   Successfully downloaded: {success_count} tickers")
+        print(f"   Failed: {fail_count} tickers")
+        if success_count > 0:
+            print(f"   Average history: {total_years/success_count:.1f} years per ticker")
     
     # Final status
     final_existing = len(get_existing_tickers())
-    target_count = len(get_target_tickers())
+    target_count = len(target_tickers)
+    
     print(f"\n🎯 FINAL STATUS:")
     print(f"   📊 Total tickers in cache: {final_existing}")
     print(f"   🎯 Target tickers: {target_count}")
     print(f"   📈 Progress: {final_existing}/{target_count} ({final_existing/target_count:.1%})")
     
-    if final_existing >= len(get_target_tickers()):
-        print(f"   🎉 COMPLETE! All {len(get_target_tickers())} tickers downloaded!")
+    if final_existing >= target_count:
+        print(f"   🎉 COMPLETE! All {target_count} tickers downloaded!")
         print(f"   🚀 Ready for comprehensive Phase 2 testing!")
     else:
-        remaining = len(get_target_tickers()) - final_existing
+        remaining = target_count - final_existing
         print(f"   ⏳ Remaining: {remaining} tickers")
 
 if __name__ == "__main__":

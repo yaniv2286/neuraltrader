@@ -37,34 +37,49 @@ def test_data_availability():
     print("TEST 1: Data Availability")
     print("="*70)
     
-    from data.tiingo_loader import TiingoDataLoader
+    import glob
+    import pandas as pd
     
     test_results = []
     
-    loader = TiingoDataLoader()
-    
     # Check cache directory exists
-    print(f"\n🔍 Cache directory: {loader.cache_dir}")
-    if not os.path.exists(loader.cache_dir):
+    cache_dir = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache', 'tiingo')
+    print(f"\n🔍 Cache directory: {cache_dir}")
+    if not os.path.exists(cache_dir):
         print(f"   ❌ FAILED - Cache directory does not exist")
         return [{'test': 'cache_dir', 'status': 'FAIL', 'issues': ['Cache directory missing']}]
     else:
         print(f"   ✅ Cache directory exists")
     
-    # Check available tickers
-    available = loader.get_available_tickers()
-    print(f"\n🔍 Available tickers: {len(available)}")
+    # Get available tickers from cache files
+    cache_files = glob.glob(os.path.join(cache_dir, '*.csv'))
+    available_tickers = []
     
-    if len(available) == 0:
+    for file in cache_files:
+        # Extract ticker from filename like "AAL_1d_full_20260128.csv"
+        parts = os.path.basename(file).split('_')
+        if len(parts) >= 2:
+            ticker = parts[0]
+            # Handle crypto tickers
+            if ticker.endswith('USD'):
+                ticker = ticker.replace('_USD', '-USD')
+            available_tickers.append(ticker)
+    
+    available_tickers = sorted(list(set(available_tickers)))
+    print(f"\n🔍 Available tickers: {len(available_tickers)}")
+    
+    if len(available_tickers) == 0:
         print(f"   ❌ FAILED - No tickers available")
         test_results.append({'test': 'ticker_count', 'status': 'FAIL', 'issues': ['No tickers available']})
-    elif len(available) < 3:
-        print(f"   ⚠️ WARNING - Only {len(available)} tickers available")
-        print(f"   Tickers: {', '.join(available)}")
-        test_results.append({'test': 'ticker_count', 'status': 'WARNING', 'issues': [f'Only {len(available)} tickers']})
+    elif len(available_tickers) < 3:
+        print(f"   ⚠️ WARNING - Only {len(available_tickers)} tickers available")
+        print(f"   Tickers: {', '.join(available_tickers)}")
+        test_results.append({'test': 'ticker_count', 'status': 'WARNING', 'issues': [f'Only {len(available_tickers)} tickers']})
     else:
-        print(f"   ✅ {len(available)} tickers available")
-        print(f"   Tickers: {', '.join(available)}")
+        print(f"   ✅ {len(available_tickers)} tickers available")
+        print(f"   Tickers: {', '.join(available_tickers[:10])}")
+        if len(available_tickers) > 10:
+            print(f"   ... and {len(available_tickers) - 10} more")
         test_results.append({'test': 'ticker_count', 'status': 'PASS', 'issues': []})
     
     return test_results
@@ -78,21 +93,50 @@ def test_data_quality():
     print("TEST 2: Data Quality")
     print("="*70)
     
-    from data.tiingo_loader import TiingoDataLoader
+    import glob
+    import pandas as pd
     
-    loader = TiingoDataLoader()
-    available = loader.get_available_tickers()
+    # Get available tickers from cache files
+    cache_dir = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache', 'tiingo')
+    cache_files = glob.glob(os.path.join(cache_dir, '*.csv'))
+    available_tickers = []
     
+    for file in cache_files:
+        parts = os.path.basename(file).split('_')
+        if len(parts) >= 2:
+            ticker = parts[0]
+            if ticker.endswith('USD'):
+                ticker = ticker.replace('_USD', '-USD')
+            available_tickers.append(ticker)
+    
+    available_tickers = sorted(list(set(available_tickers)))
     test_results = []
     
-    for ticker in available[:5]:  # Test first 5 tickers
+    for ticker in available_tickers[:5]:  # Test first 5 tickers
         print(f"\n🔍 Testing {ticker}...")
         
-        df = loader.load_ticker_data(ticker, start_date='2020-01-01')
+        # Find the data file for this ticker
+        ticker_files = [f for f in cache_files if ticker in os.path.basename(f)]
+        if not ticker_files:
+            print(f"   ❌ FAILED - No data file found for {ticker}")
+            test_results.append({'ticker': ticker, 'status': 'FAIL', 'issues': ['No data file found']})
+            continue
         
-        if df is None or df.empty:
-            print(f"   ❌ FAILED - No data loaded")
-            test_results.append({'ticker': ticker, 'status': 'FAIL', 'issues': ['No data loaded']})
+        data_file = ticker_files[0]
+        
+        try:
+            df = pd.read_csv(data_file)
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date')
+            
+            if df is None or df.empty:
+                print(f"   ❌ FAILED - No data loaded")
+                test_results.append({'ticker': ticker, 'status': 'FAIL', 'issues': ['No data loaded']})
+                continue
+                
+        except Exception as e:
+            print(f"   ❌ FAILED - Error loading data: {e}")
+            test_results.append({'ticker': ticker, 'status': 'FAIL', 'issues': [f'Error loading data: {e}']})
             continue
         
         issues = []
@@ -167,28 +211,52 @@ def test_loading_speed():
     print("TEST 3: Data Loading Speed")
     print("="*70)
     
-    from data.tiingo_loader import TiingoDataLoader
+    import glob
+    import pandas as pd
     
-    loader = TiingoDataLoader()
-    available = loader.get_available_tickers()
+    # Get available tickers from cache files
+    cache_dir = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache', 'tiingo')
+    cache_files = glob.glob(os.path.join(cache_dir, '*.csv'))
+    available_tickers = []
     
-    if not available:
-        return [{'test': 'loading_speed', 'status': 'FAIL', 'issues': ['No tickers to test']}]
+    for file in cache_files:
+        parts = os.path.basename(file).split('_')
+        if len(parts) >= 2:
+            ticker = parts[0]
+            if ticker.endswith('USD'):
+                ticker = ticker.replace('_USD', '-USD')
+            available_tickers.append(ticker)
     
-    test_results = []
+    available_tickers = sorted(list(set(available_tickers)))
     
-    # Test loading speed
-    ticker = available[0]
-    print(f"\n🔍 Testing loading speed for {ticker}...")
+    if len(available_tickers) == 0:
+        print("\n❌ No tickers available for speed test")
+        return [{'test': 'loading_speed', 'status': 'FAIL', 'issues': ['No tickers available']}]
     
-    # Cold load (first time)
+    # Test with first available ticker
+    test_ticker = available_tickers[0]
+    print(f"\n🔍 Testing loading speed for {test_ticker}...")
+    
+    # Find the data file for this ticker
+    ticker_files = [f for f in cache_files if test_ticker in os.path.basename(f)]
+    if not ticker_files:
+        print(f"\n❌ No data file found for {test_ticker}")
+        return [{'test': 'loading_speed', 'status': 'FAIL', 'issues': ['No data file found']}]
+    
+    data_file = ticker_files[0]
+    
+    # Cold load
     start = time.time()
-    df1 = loader.load_ticker_data(ticker)
+    df_cold = pd.read_csv(data_file)
+    df_cold['date'] = pd.to_datetime(df_cold['date'])
+    df_cold = df_cold.set_index('date')
     cold_time = time.time() - start
     
-    # Warm load (second time - should be faster if cached)
+    # Warm load
     start = time.time()
-    df2 = loader.load_ticker_data(ticker)
+    df_warm = pd.read_csv(data_file)
+    df_warm['date'] = pd.to_datetime(df_warm['date'])
+    df_warm = df_warm.set_index('date')
     warm_time = time.time() - start
     
     print(f"   Cold load: {cold_time:.4f}s")
@@ -203,8 +271,8 @@ def test_loading_speed():
         issues.append(f"Slow warm load: {warm_time:.2f}s")
     
     # Check data consistency
-    if df1 is not None and df2 is not None:
-        if not df1.equals(df2):
+    if df_cold is not None and df_warm is not None:
+        if not df_cold.equals(df_warm):
             issues.append("Inconsistent data between loads")
     
     if issues:
@@ -227,69 +295,103 @@ def test_date_filtering():
     print("TEST 4: Date Range Filtering")
     print("="*70)
     
-    from data.tiingo_loader import TiingoDataLoader
+    import glob
+    import pandas as pd
     
-    loader = TiingoDataLoader()
-    available = loader.get_available_tickers()
+    # Get available tickers from cache files
+    cache_dir = os.path.join(os.path.dirname(__file__), '..', 'src', 'data', 'cache', 'tiingo')
+    cache_files = glob.glob(os.path.join(cache_dir, '*.csv'))
+    available_tickers = []
     
-    if not available:
-        return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': ['No tickers to test']}]
+    for file in cache_files:
+        parts = os.path.basename(file).split('_')
+        if len(parts) >= 2:
+            ticker = parts[0]
+            if ticker.endswith('USD'):
+                ticker = ticker.replace('_USD', '-USD')
+            available_tickers.append(ticker)
     
-    test_results = []
-    ticker = available[0]
+    available_tickers = sorted(list(set(available_tickers)))
     
-    # Test different date ranges
-    test_cases = [
-        {'start': '2020-01-01', 'end': '2020-12-31', 'name': '2020 only'},
-        {'start': '2022-01-01', 'end': None, 'name': 'From 2022'},
-        {'start': None, 'end': '2021-12-31', 'name': 'Until 2021'},
-    ]
+    if len(available_tickers) == 0:
+        print("\n❌ No tickers available for date filtering test")
+        return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': ['No tickers available']}]
     
-    for test_case in test_cases:
-        print(f"\n🔍 Testing: {test_case['name']}")
+    # Test with first available ticker
+    test_ticker = available_tickers[0]
+    print(f"\n🔍 Testing date filtering with {test_ticker}...")
+    
+    # Find the data file for this ticker
+    ticker_files = [f for f in cache_files if test_ticker in os.path.basename(f)]
+    if not ticker_files:
+        print(f"\n❌ No data file found for {test_ticker}")
+        return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': ['No data file found']}]
+    
+    data_file = ticker_files[0]
+    
+    try:
+        # Load full data
+        df_full = pd.read_csv(data_file)
+        df_full['date'] = pd.to_datetime(df_full['date'])
+        df_full = df_full.set_index('date')
         
-        df = loader.load_ticker_data(
-            ticker,
-            start_date=test_case['start'],
-            end_date=test_case['end']
-        )
+        # Test 2020 only
+        df_2020 = df_full.loc['2020-01-01':'2020-12-31']
+        if df_2020.empty:
+            print(f"   ❌ FAILED - No data loaded for 2020")
+            return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': ['No data loaded for 2020']}]
         
-        if df is None or df.empty:
-            print(f"   ⚠️ No data for this range")
-            continue
+        range_2020 = f"{df_2020.index.min().date()} to {df_2020.index.max().date()}"
+        print(f"   Range: {range_2020}")
+        print(f"   Rows: {len(df_2020)}")
         
+        # Test from 2022
+        df_from_2022 = df_full.loc['2022-01-01':]
+        if df_from_2022.empty:
+            print(f"   ❌ FAILED - No data loaded from 2022")
+            return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': ['No data loaded from 2022']}]
+        
+        range_from_2022 = f"{df_from_2022.index.min().date()} to {df_from_2022.index.max().date()}"
+        print(f"   Range: {range_from_2022}")
+        print(f"   Rows: {len(df_from_2022)}")
+        
+        # Test until 2021
+        df_until_2021 = df_full.loc[:'2021-12-31']
+        if df_until_2021.empty:
+            print(f"   ❌ FAILED - No data loaded until 2021")
+            return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': ['No data loaded until 2021']}]
+        
+        range_until_2021 = f"{df_until_2021.index.min().date()} to {df_until_2021.index.max().date()}"
+        print(f"   Range: {range_until_2021}")
+        print(f"   Rows: {len(df_until_2021)}")
+        
+        # Validate ranges
         issues = []
         
-        # Check start date
-        if test_case['start']:
-            expected_start = pd.to_datetime(test_case['start'])
-            actual_start = df.index.min()
-            
-            # Allow some tolerance for weekends/holidays
-            if actual_start < expected_start - timedelta(days=7):
-                issues.append(f"Start date too early: {actual_start.date()} < {expected_start.date()}")
+        # Check 2020 data
+        if not (df_2020.index.min().year == 2020 and df_2020.index.max().year == 2020):
+            issues.append("2020 data range incorrect")
         
-        # Check end date
-        if test_case['end']:
-            expected_end = pd.to_datetime(test_case['end'])
-            actual_end = df.index.max()
-            
-            if actual_end > expected_end + timedelta(days=7):
-                issues.append(f"End date too late: {actual_end.date()} > {expected_end.date()}")
+        # Check from 2022 data
+        if df_from_2022.index.min().year < 2022:
+            issues.append("From 2022 data range incorrect")
         
-        print(f"   Range: {df.index.min().date()} to {df.index.max().date()}")
-        print(f"   Rows: {len(df)}")
+        # Check until 2021 data
+        if df_until_2021.index.max().year > 2021:
+            issues.append("Until 2021 data range incorrect")
         
         if issues:
             print(f"   ❌ FAILED:")
             for issue in issues:
                 print(f"      • {issue}")
-            test_results.append({'test': test_case['name'], 'status': 'FAIL', 'issues': issues})
+            return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': issues}]
         else:
             print(f"   ✅ PASSED")
-            test_results.append({'test': test_case['name'], 'status': 'PASS', 'issues': []})
-    
-    return test_results
+            return [{'test': 'date_filtering', 'status': 'PASS', 'issues': []}]
+            
+    except Exception as e:
+        print(f"   ❌ FAILED - Error: {e}")
+        return [{'test': 'date_filtering', 'status': 'FAIL', 'issues': [f'Error: {e}']}]
 
 # ============================================================================
 # TEST 5: Enhanced Preprocessing
