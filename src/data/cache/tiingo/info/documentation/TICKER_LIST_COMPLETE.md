@@ -1,11 +1,11 @@
 # Complete Ticker List for NeuralTrader Project
-# Total: 80 tickers
+# Total: 116 tickers
 # Date: January 28, 2026
 # Status: Ready for download when API limits reset
 
 ## 📊 TICKER BREAKDOWN
 
-### 🔧 TECH (9 tickers)
+### 🔧 TECH (15 tickers)
 - **AMD** - Advanced Micro Devices
 - **AMZN** - Amazon
 - **CSCO** - Cisco Systems
@@ -15,8 +15,14 @@
 - **MSFT** - Microsoft
 - **NVDA** - NVIDIA
 - **ORCL** - Oracle Corporation
+- **TSLA** - Tesla
+- **NFLX** - Netflix
+- **PYPL** - PayPal
+- **ADBE** - Adobe
+- **CRM** - Salesforce
+- **ZM** - Zoom
 
-### 🏦 FINANCE (10 tickers)
+### 🏦 FINANCE (15 tickers)
 - **AXP** - American Express
 - **BAC** - Bank of America
 - **BLK** - BlackRock
@@ -27,8 +33,13 @@
 - **SCHW** - Charles Schwab
 - **V** - Visa
 - **WFC** - Wells Fargo
+- **COF** - Capital One
+- **MA** - Mastercard
+- **AIG** - American International Group
+- **MET** - MetLife
+- **PRU** - Prudential Financial
 
-### 🏥 HEALTHCARE (8 tickers)
+### 🏥 HEALTHCARE (12 tickers)
 - **ABBV** - AbbVie
 - **ABT** - Abbott Laboratories
 - **JNJ** - Johnson & Johnson
@@ -37,38 +48,58 @@
 - **PFE** - Pfizer
 - **TMO** - Thermo Fisher Scientific
 - **UNH** - UnitedHealth Group
+- **DHR** - Danaher
+- **BMY** - Bristol Myers Squibb
+- **GILD** - Gilead Sciences
+- **CVS** - CVS Health
 
-### 🛒 CONSUMER (6 tickers)
+### 🛒 CONSUMER (10 tickers)
 - **COST** - Costco Wholesale
 - **HD** - Home Depot
 - **MCD** - McDonald's
 - **NKE** - Nike
 - **SBUX** - Starbucks
 - **WMT** - Walmart
+- **KO** - Coca-Cola
+- **PEP** - PepsiCo
+- **TGT** - Target
+- **LOW** - Lowe's
 
-### ⚡ ENERGY (2 tickers)
+### ⚡ ENERGY (5 tickers)
 - **CVX** - Chevron
 - **XOM** - ExxonMobil
+- **COP** - ConocoPhillips
+- **BP** - BP
+- **SHEL** - Shell
 
-### 🏭 INDUSTRIAL (5 tickers)
+### 🏭 INDUSTRIAL (8 tickers)
 - **BA** - Boeing
 - **CAT** - Caterpillar
 - **GE** - General Electric
 - **HON** - Honeywell
 - **MMM** - 3M Company
+- **DE** - Deere & Co.
+- **UPS** - United Parcel Service
+- **RTX** - Raytheon Technologies
 
-### 📈 ETFs (6 tickers)
+### 📈 ETFs (10 tickers)
 - **GLD** - SPDR Gold Shares
 - **IWM** - iShares Russell 2000
 - **QQQ** - Invesco QQQ Trust
 - **SCHD** - Schwab U.S. Dividend Equity ETF
 - **SLV** - iShares Silver Trust
 - **SPY** - SPDR S&P 500
+- **VTI** - Vanguard Total Stock Market
+- **VOO** - Vanguard S&P 500
+- **IVV** - iShares Core S&P 500
+- **AGG** - iShares Core U.S. Aggregate Bond
 
-### ₿ CRYPTO (3 tickers)
+### ₿ CRYPTO (5 tickers)
 - **BNB** - Binance Coin
 - **BTC** - Bitcoin
 - **ETH** - Ethereum
+- **ADA** - Cardano
+- **SOL** - Solana
 
 ### 🌍 OTHER (31 tickers)
 - **AAL** - American Airlines
@@ -145,7 +176,7 @@
 5. **Proceed** with Phase 2 testing
 
 ### 🎯 Expected Results
-- **80 tickers** with maximum historical data
+- **116 tickers** with maximum historical data
 - **20+ years** of data for most tickers
 - **Complete dataset** for comprehensive analysis
 - **Ready for Phase 2 testing**
@@ -191,5 +222,5 @@
 ---
 
 *Last Updated: January 28, 2026*
-*Total Tickers: 80*
+*Total Tickers: 116*
 *Status: Ready for Download*

@@ -309,7 +309,7 @@ def test_enhanced_preprocessing():
     
     start = time.time()
     df_basic = build_enhanced_model_input(
-        ticker='AAPL',
+        ticker='MSFT',
         timeframes=['1d'],
         start='2023-01-01',
         end='2023-12-31',
@@ -330,7 +330,7 @@ def test_enhanced_preprocessing():
     print("\n🔍 Testing preprocessing consistency...")
     
     df_test1 = build_enhanced_model_input(
-        ticker='AAPL',
+        ticker='MSFT',
         timeframes=['1d'],
         start='2023-01-01',
         end='2023-12-31',
@@ -339,7 +339,7 @@ def test_enhanced_preprocessing():
     )
     
     df_test2 = build_enhanced_model_input(
-        ticker='AAPL',
+        ticker='MSFT',
         timeframes=['1d'],
         start='2023-01-01',
         end='2023-12-31',

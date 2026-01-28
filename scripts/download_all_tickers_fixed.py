@@ -149,10 +149,10 @@ def download_ticker_full_history(ticker):
 
 def main():
     """
-    Download all existing tickers with FULL historical data
+    Download all tickers with FULL historical data (100+ tickers)
     """
     print("="*70)
-    print("DOWNLOADING ALL TICKERS WITH FULL HISTORICAL DATA (FIXED VERSION)")
+    print("DOWNLOADING ALL TICKERS WITH FULL HISTORICAL DATA (100+ TICKERS)")
     print("="*70)
     
     # Get ticker list from organized cache info
@@ -172,26 +172,43 @@ def main():
     total_years = 0
     api_error_detected = False
     
-    for i, ticker in enumerate(all_tickers, 1):
-        print(f"\n[{i}/{len(all_tickers)}]", end=" ")
-        success, years = download_ticker_full_history(ticker)
+    # Process in batches of 20 for better API management
+    batch_size = 20
+    for batch_start in range(0, len(all_tickers), batch_size):
+        batch_end = min(batch_start + batch_size, len(all_tickers))
+        batch_tickers = all_tickers[batch_start:batch_end]
         
-        if success:
-            success_count += 1
-            total_years += years
-        else:
-            fail_count += 1
-            # Check if this was an API error (not ticker not found)
-            if "API error" in str(years) or "allocation" in str(years):
-                api_error_detected = True
-                print(f"\n🚨 API ERROR DETECTED - STOPPING DOWNLOAD")
-                print(f"   Reason: Tiingo API rate limits reached")
-                print(f"   Recommendation: Wait 1 hour for API limits to reset")
-                break
+        print(f"\n📦 Processing batch {batch_start//batch_size + 1}: tickers {batch_start+1}-{batch_end}")
         
-        # Rate limiting - wait 1 second between requests
-        if i < len(all_tickers) and not api_error_detected:
-            time.sleep(1)
+        for i, ticker in enumerate(batch_tickers, batch_start + 1):
+            print(f"\n[{i}/{len(all_tickers)}]", end=" ")
+            success, years = download_ticker_full_history(ticker)
+            
+            if success:
+                success_count += 1
+                total_years += years
+            else:
+                fail_count += 1
+                # Check if this was an API error (not ticker not found)
+                if "API error" in str(years) or "allocation" in str(years):
+                    api_error_detected = True
+                    print(f"\n🚨 API ERROR DETECTED - STOPPING DOWNLOAD")
+                    print(f"   Reason: Tiingo API rate limits reached")
+                    print(f"   Recommendation: Wait 1 hour for API limits to reset")
+                    break
+            
+            # Rate limiting - wait 1 second between requests
+            if i < len(all_tickers) and not api_error_detected:
+                time.sleep(1)
+        
+        # Check if we should continue to next batch
+        if api_error_detected:
+            break
+        
+        # Longer pause between batches (5 seconds)
+        if batch_end < len(all_tickers):
+            print(f"\n⏸️ Batch complete, pausing 5 seconds before next batch...")
+            time.sleep(5)
     
     print(f"\n{'='*70}")
     print("DOWNLOAD COMPLETE")
