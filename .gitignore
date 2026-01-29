@@ -64,3 +64,5 @@ desktop.ini
 # === Test Cache ===
 .pytest_cache/
 __pypackages__/
+
+*.csv
