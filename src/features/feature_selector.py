@@ -12,7 +12,7 @@ class FeatureSelector:
     Intelligent feature selection to remove redundant features
     """
     
-    # Features identified as redundant (correlation > 0.999)
+    # Features identified as redundant (correlation > 0.95)
     REDUNDANT_FEATURES = {
         'high',           # Identical to low/close (keep low, close)
         'open',           # Identical to low/close (keep low, close)
@@ -24,6 +24,19 @@ class FeatureSelector:
         'hist_volatility',# Identical to volatility_20 (keep volatility_20)
         'price_momentum_5',   # Identical to return_5d (keep return_5d)
         'price_momentum_20',  # Identical to return_20d (keep return_20d)
+        # Phase 3 identified redundant features (correlation > 0.95)
+        'close',          # Highly correlated with low (0.995)
+        'ema_20',         # Highly correlated with ma_20 (0.995)
+        'ma_10',          # Highly correlated with ma_5 (0.987)
+        'ma_5',           # Highly correlated with low (0.983)
+        'price_to_ma_5',  # Highly correlated with ma_5 (0.959)
+        'support_level',  # Highly correlated with ma_5 (0.959)
+        # Additional redundant features from fast mode test
+        'bb_lower',       # Highly correlated with ma_20 (0.993)
+        'bb_upper',       # Highly correlated with ma_20 (0.994)
+        'ma_20',          # Highly correlated with bb_upper (0.994)
+        'resistance_level', # Highly correlated with low (0.992)
+        'volatility_pct', # Highly correlated with other volatility features
     }
     
     def __init__(self):

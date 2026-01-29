@@ -4,9 +4,11 @@ Automatically selects best models based on available hardware
 """
 
 from .cpu_models import RandomForestModel, XGBoostModel
-from .gpu_models import check_gpu_availability, GPU_AVAILABLE
 import warnings
 warnings.filterwarnings('ignore')
+
+# Since we removed GPU models, we'll use CPU models only
+GPU_AVAILABLE = False
 
 class ModelSelector:
     """
@@ -15,7 +17,8 @@ class ModelSelector:
     """
     
     def __init__(self):
-        self.gpu_available, self.gpu_info = check_gpu_availability()
+        self.gpu_available = GPU_AVAILABLE
+        self.gpu_info = "CPU models only"
         
     def get_recommended_models(self, task_type: str = 'stock_prediction'):
         """

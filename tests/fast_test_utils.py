@@ -139,6 +139,45 @@ def get_random_selection(quality_tickers: List[str]) -> List[str]:
     """Get random selection of 5 quality tickers"""
     return random.sample(quality_tickers, min(5, len(quality_tickers)))
 
+def get_diverse_sample(sample_size: int = 5) -> List[str]:
+    """Get diverse sample of tickers across sectors"""
+    quality_tickers = get_quality_tickers()
+    
+    if len(quality_tickers) <= sample_size:
+        return quality_tickers
+    
+    # Define sector mappings
+    sectors = {
+        'tech': ['MSFT', 'GOOGL', 'NVDA', 'AMD', 'AAPL', 'META', 'AMZN', 'TSLA', 'NFLX', 'INTC', 'CSCO', 'ORCL', 'ADBE', 'CRM'],
+        'finance': ['JPM', 'BAC', 'V', 'MA', 'WFC', 'GS', 'MS', 'BLK', 'AXP', 'C', 'COF', 'PRU', 'MET', 'AIG'],
+        'healthcare': ['JNJ', 'UNH', 'PFE', 'ABBV', 'MRK', 'ABT', 'LLY', 'TMO', 'CVS', 'DHR', 'MDT', 'ISRG', 'REGN', 'BIIB'],
+        'consumer': ['WMT', 'COST', 'HD', 'MCD', 'NKE', 'SBUX', 'KO', 'PEP', 'LOW', 'TGT', 'AMZN', 'TSLA'],
+        'energy': ['XOM', 'CVX', 'COP', 'BP', 'SHEL'],
+        'industrial': ['CAT', 'BA', 'GE', 'HON', 'MMM', 'DE', 'UPS', 'RTX', 'GWW', 'FAST'],
+        'etf': ['SPY', 'QQQ', 'VTI', 'VOO', 'IWM', 'GLD', 'SLV', 'AGG', 'ACWI', 'EFA', 'VT'],
+        'crypto': ['BTC', 'ETH', 'BNB', 'ADA', 'SOL', 'COIN']
+    }
+    
+    selected = []
+    
+    # Try to get balanced representation
+    for sector, tickers in sectors.items():
+        for ticker in tickers:
+            if ticker in quality_tickers and ticker not in selected:
+                selected.append(ticker)
+                break
+        
+        if len(selected) >= sample_size:
+            break
+    
+    # If we don't have enough, add more from remaining quality tickers
+    if len(selected) < sample_size:
+        remaining = [t for t in quality_tickers if t not in selected]
+        needed = sample_size - len(selected)
+        selected.extend(random.sample(remaining, min(needed, len(remaining))))
+    
+    return selected[:sample_size]
+
 def print_fast_test_info(tickers: List[str]):
     """Print information about the fast test selection"""
     print(f"\n🚀 FAST TEST SELECTION ({len(tickers)} tickers)")

@@ -1,0 +1,2 @@
+ticker,error
+AAPL,Data file not found: src/data/cache/tiingo/AAPL_1d_full_20260128.csv
