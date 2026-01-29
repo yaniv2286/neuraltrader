@@ -64,3 +64,9 @@ desktop.ini
 # === Test Cache ===
 .pytest_cache/
 __pypackages__/
+
+# === Large CSV Files ===
+*.csv
+reports/all_phases_test_results.csv
+tests/phase4_multi_ticker_trades.csv
+tests/phase4_trade_log.csv
