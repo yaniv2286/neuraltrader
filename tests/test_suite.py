@@ -492,11 +492,32 @@ class TestSuite:
         """Parse trading_results from string to dictionary"""
         if isinstance(trading_results, str):
             try:
-                # Replace np.float64 with float for parsing
+                # Handle numpy types that can't be parsed by ast.literal_eval
+                import re
+                import numpy as np
+                
+                # Replace numpy types with Python equivalents
                 trading_results = trading_results.replace('np.float64(', '').replace(')', '')
+                trading_results = trading_results.replace('np.datetime64(', '').replace(')', '')
+                trading_results = trading_results.replace('np.True_', 'True')
+                trading_results = trading_results.replace('np.False_', 'False')
+                
                 import ast
-                return ast.literal_eval(trading_results)
+                parsed = ast.literal_eval(trading_results)
+                
+                # Convert back to proper types if needed
+                if isinstance(parsed, dict):
+                    # Handle datetime conversion
+                    if 'trades' in parsed:
+                        for trade in parsed['trades']:
+                            if 'entry_date' in trade:
+                                trade['entry_date'] = str(trade['entry_date'])
+                            if 'exit_date' in trade:
+                                trade['exit_date'] = str(trade['exit_date'])
+                
+                return parsed
             except Exception as e:
+                print(f"Warning: Could not parse trading results: {e}")
                 # If parsing fails, return a default structure
                 return {
                     'total_trades': 0,
@@ -705,6 +726,16 @@ class TestSuite:
                         trade_start = trades[0].get('entry_date')
                         trade_end = trades[-1].get('exit_date')
                         
+                        # Convert string dates to datetime for comparison
+                        if isinstance(trade_start, str):
+                            trade_start = pd.to_datetime(trade_start)
+                        if isinstance(trade_end, str):
+                            trade_end = pd.to_datetime(trade_end)
+                        if isinstance(start_date, str):
+                            start_date = pd.to_datetime(start_date)
+                        if isinstance(end_date, str):
+                            end_date = pd.to_datetime(end_date)
+                        
                         if start_date is None or trade_start < start_date:
                             start_date = trade_start
                         if end_date is None or trade_end > end_date:
@@ -712,9 +743,16 @@ class TestSuite:
         
         # Calculate years based on actual trading period
         if start_date and end_date:
-            # Convert numpy datetime64 to datetime
+            # Convert string dates to datetime if needed
+            if isinstance(start_date, str):
+                start_date = pd.to_datetime(start_date)
+            if isinstance(end_date, str):
+                end_date = pd.to_datetime(end_date)
+            
+            # Convert to datetime if still numpy objects
             if hasattr(start_date, 'astype'):
                 start_date = pd.to_datetime(start_date).to_pydatetime()
+            if hasattr(end_date, 'astype'):
                 end_date = pd.to_datetime(end_date).to_pydatetime()
             
             years_trading = (end_date - start_date).days / 365.25
@@ -1399,7 +1437,100 @@ class TestSuite:
         summary['total_universe'] = len(all_tickers)
         summary['tested_sample'] = len(tickers)
         
+        # Save JSON summary
+        output_dir = Path("reports")
+        output_dir.mkdir(exist_ok=True)
+        summary_file = output_dir / f"{phase}_summary.json"
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        # Auto-generate Excel report for Phase 5 (summary only to avoid memory issues)
+        if phase == 'phase5':
+            print(f"\n📊 Auto-generating Excel report for Phase 5...")
+            try:
+                generated_files = self.generate_project_phase_report(df, '5', summary)
+                print(f"✅ Excel report generated: {Path(generated_files['excel']).name}")
+            except MemoryError:
+                print("⚠️ Memory error during Excel generation - dataset too large for detailed trades")
+                print("📄 Generating summary Excel instead...")
+                # Generate a smaller summary Excel
+                generated_files = self._generate_summary_excel(df, '5', summary)
+                print(f"✅ Summary Excel generated: {Path(generated_files['excel']).name}")
+        
         return df, summary
+    
+    def save_csv_export(self, phase: str, df: pd.DataFrame):
+        """Save CSV export for a specific phase (on demand)"""
+        output_dir = Path("reports")
+        output_dir.mkdir(exist_ok=True)
+        csv_file = output_dir / f"{phase}_results.csv"
+        df.to_csv(csv_file, index=False)
+        print(f"📄 CSV exported: {csv_file.name}")
+        return csv_file
+    
+    def _generate_summary_excel(self, results_df: pd.DataFrame, 
+                                project_phase: str,
+                                summary: Dict = None) -> Dict[str, str]:
+        """Generate lightweight summary Excel report without detailed trades"""
+        if not EXCEL_AVAILABLE:
+            # Fallback to CSV
+            output_dir = Path("reports")
+            csv_file = output_dir / f"project_phase{project_phase}_summary.csv"
+            # Create summary DataFrame without trading results
+            summary_df = results_df.drop('trading_results', axis=1, errors='ignore')
+            summary_df.to_csv(csv_file, index=False)
+            return {'excel': str(csv_file)}
+        
+        output_dir = Path("reports")
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        excel_file = output_dir / f"project_phase{project_phase}_summary_{timestamp}.xlsx"
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Phase Summary"
+        
+        # Headers
+        headers = ['Ticker', 'Samples', 'Train R²', 'Val R²', 'Test R²', 'Success Rate', 'Total Return', 'Good Model']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        
+        # Data rows (summary only, no detailed trades)
+        for row_idx, (_, row) in enumerate(results_df.iterrows(), 2):
+            trading_results = row.get('trading_results', '{}')
+            if isinstance(trading_results, str):
+                try:
+                    trading_data = eval(trading_results) if trading_results else {}
+                except:
+                    trading_data = {}
+            else:
+                trading_data = trading_results
+            
+            ws.cell(row=row_idx, column=1, value=row['ticker'])
+            ws.cell(row=row_idx, column=2, value=row['samples'])
+            ws.cell(row=row_idx, column=3, value=f"{row['train_r2']:.4f}")
+            ws.cell(row=row_idx, column=4, value=f"{row['val_r2']:.4f}")
+            ws.cell(row=row_idx, column=5, value=f"{row['test_r2']:.4f}")
+            ws.cell(row=row_idx, column=6, value=f"{trading_data.get('success_rate', 0):.1f}%")
+            ws.cell(row=row_idx, column=7, value=f"{trading_data.get('total_return_pct', 0):.2f}")
+            ws.cell(row=row_idx, column=8, value=row['is_good'])
+        
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 20)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        wb.save(excel_file)
+        return {'excel': str(excel_file)}
     
     def run_all_phases(self, exclude_crypto: bool = True,
                        model_type: str = "xgboost") -> Dict[str, Tuple[pd.DataFrame, Dict]]:
@@ -1415,11 +1546,9 @@ class TestSuite:
                 df, summary = self.run_phase_test(phase, exclude_crypto, model_type)
                 all_results[phase] = (df, summary)
                 
-                # Save phase results (latest only, no timestamp)
+                # Save phase results (JSON only, CSV only on request)
                 output_dir = Path("reports")
                 output_dir.mkdir(exist_ok=True)
-                csv_file = output_dir / f"{phase}_results.csv"
-                df.to_csv(csv_file, index=False)
                 
                 summary_file = output_dir / f"{phase}_summary.json"
                 with open(summary_file, 'w') as f:
@@ -1619,13 +1748,11 @@ def main():
         # Generate reports if requested
         if args.generate_reports:
             generated_files = framework.generate_project_phase_report(results_df, args.project_phase, summary)
-            print(f"\n📊 Project Phase {args.project_phase} Reports Generated:")
-            print(f"   📄 Excel: {Path(generated_files['excel']).name}")
-            if args.project_phase == '5':
-                print(f"   🎯 Trading Engine Report: All trades, stock summary, and performance analysis")
-            else:
-                print(f"   📊 Charts: {len(generated_files.get('png_files', []))} PNG files")
-                print(f"   📈 Dashboard: {Path(generated_files.get('dashboard', '')).name}")
+            print(f"✅ Project Phase {args.project_phase} Reports Generated:")
+            if 'excel' in generated_files:
+                print(f"   📄 Excel: {Path(generated_files['excel']).name}")
+            if 'json' in generated_files:
+                print(f"   � JSON: {Path(generated_files['json']).name}")
         
         # Save summary (latest only, no timestamp)
         output_dir = Path("reports")
