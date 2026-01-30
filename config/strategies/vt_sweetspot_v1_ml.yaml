@@ -1,0 +1,203 @@
+# ============================================================
+# VT SWEET SPOT ML-ENHANCED — EXPERIMENTAL VARIANT
+# ============================================================
+# Purpose:
+# - Inherits VT_SweetSpot_v1 baseline
+# - Adds ML regime filter as veto/enhancement
+# - Does NOT modify Sweet Spot definition
+# - Runs in parallel for comparison
+#
+# Philosophy:
+# - ML acts as FILTER, not decision maker
+# - ML identifies WHEN to trade (market regime)
+# - Sweet Spot identifies WHAT to trade (stocks)
+# - ML can only VETO or BOOST, never override baseline rules
+# ============================================================
+
+version: 1
+
+# ============================================================
+# STRATEGY METADATA
+# ============================================================
+strategy:
+  id: "VT_SweetSpot_v1_ML"
+  name: "VT Sweet Spot - ML Enhanced"
+  description: "Sweet Spot baseline + ML regime filter for market timing"
+  version: "1.0.0"
+  immutable: false  # Experimental - can be modified
+  inherits_from: "VT_SweetSpot_v1"
+  author: "Hybrid ML + Momentum"
+  created: "2026-01-30"
+
+# ============================================================
+# OVERRIDES (ONLY DIFFERENCES FROM BASELINE)
+# ============================================================
+overrides:
+  
+  # ML Regime Filter (NEW - not in baseline)
+  ml_regime_filter:
+    enabled: true
+    description: "ML predicts market regime - only trade in favorable conditions"
+    
+    model:
+      type: "ensemble"
+      models: ["xgboost", "random_forest", "lightgbm"]
+      weights: [1.5, 1.0, 1.2]
+      
+    training:
+      train_start: "2005-01-01"
+      train_end: "2014-12-31"
+      features: 30  # Top features by importance
+      target: "market_direction"  # Predict SPY direction
+      
+    regime_detection:
+      allowed_regimes: ["STRONG_BULL", "BULL"]
+      min_confidence: 0.70
+      
+      regime_definitions:
+        STRONG_BULL:
+          spy_above_200sma: true
+          spy_momentum_6m: "> 10%"
+          vix: "< 20"
+          ml_confidence: "> 0.80"
+          
+        BULL:
+          spy_above_200sma: true
+          spy_momentum_6m: "> 0%"
+          ml_confidence: "> 0.70"
+          
+        NEUTRAL:
+          spy_above_200sma: true
+          spy_momentum_6m: "< 0%"
+          
+        BEAR:
+          spy_above_200sma: false
+          
+    action_by_regime:
+      STRONG_BULL:
+        trade: true
+        position_size_multiplier: 1.0
+        
+      BULL:
+        trade: true
+        position_size_multiplier: 0.8
+        
+      NEUTRAL:
+        trade: false
+        reason: "Choppy market - stand aside"
+        
+      BEAR:
+        trade: false
+        reason: "Bear market - preserve capital"
+  
+  # ML Stock Confidence Filter (NEW - not in baseline)
+  ml_stock_confidence:
+    enabled: true
+    description: "ML predicts individual stock direction - filter low confidence"
+    
+    min_confidence: 0.60  # Only trade stocks with >60% ML confidence
+    use_for_sizing: true  # Scale position size by confidence
+    
+    confidence_tiers:
+      high:
+        min_confidence: 0.80
+        position_size_multiplier: 1.5  # 15% position
+        
+      medium:
+        min_confidence: 0.70
+        position_size_multiplier: 1.2  # 12% position
+        
+      low:
+        min_confidence: 0.60
+        position_size_multiplier: 1.0  # 10% position
+        
+      reject:
+        max_confidence: 0.60
+        action: "skip_trade"
+  
+  # Position Sizing (MODIFIED from baseline)
+  position_sizing:
+    method: "confidence_based"  # Changed from "fixed_percentage"
+    base_size_pct: 0.08  # Reduced from 0.10
+    max_size_pct: 0.15   # Increased from 0.10 (for high confidence)
+    max_positions: 10
+    max_ticker_exposure_pct: 0.20
+    
+    confidence_scaling:
+      enabled: true
+      min_confidence: 0.60
+      max_confidence: 1.00
+      min_size_pct: 0.08
+      max_size_pct: 0.15
+
+# ============================================================
+# INHERITED FROM BASELINE (NO CHANGES)
+# ============================================================
+# The following are inherited from VT_SweetSpot_v1:
+# - globals (execution, data, cost_model, outputs)
+# - sweet_spot (definition, philosophy)
+# - entry_rules (power_stock, volume, stochastics)
+# - exit_rules (daily_stochastic_exit, trailing_stop)
+# - risk_management
+# - indicators
+# - backtest settings
+
+# ============================================================
+# EXPECTED PERFORMANCE DELTA
+# ============================================================
+expected_performance:
+  vs_baseline:
+    cagr_boost: "+3-5%"  # ML regime filter avoids bad periods
+    drawdown_improvement: "-2-4%"  # Better risk management
+    win_rate_boost: "+3-5%"  # Filter low-quality signals
+    trade_reduction: "-30-40%"  # More selective
+    
+  absolute_targets:
+    cagr_min_pct: 18
+    cagr_target_pct: 22
+    max_drawdown_max_pct: -15
+    win_rate_min_pct: 70
+    profit_factor_min: 2.8
+
+# ============================================================
+# ACCEPTANCE CRITERIA (MUST BEAT BASELINE)
+# ============================================================
+acceptance_criteria:
+  description: "ML variant must beat baseline to be accepted"
+  
+  required:
+    - "cagr >= baseline_cagr"
+    - "max_drawdown >= baseline_max_drawdown"  # Less negative = better
+    - "profit_factor >= baseline_profit_factor * 0.95"
+    
+  preferred:
+    - "cagr >= baseline_cagr + 3%"
+    - "win_rate >= baseline_win_rate + 3%"
+    - "max_drawdown >= baseline_max_drawdown + 2%"
+    
+  reject_if:
+    - "cagr < baseline_cagr"
+    - "max_drawdown < baseline_max_drawdown"
+    - "total_trades > baseline_trades * 2"
+    - "win_rate < baseline_win_rate - 5%"
+
+# ============================================================
+# NOTES
+# ============================================================
+notes:
+  ml_role: |
+    ML does NOT pick stocks. ML only:
+    1. Identifies favorable market regimes (WHEN to trade)
+    2. Filters low-confidence Sweet Spot signals (WHAT to skip)
+    3. Scales position size by confidence (HOW MUCH to trade)
+    
+  if_ml_fails: |
+    If ML adds no value:
+    - Baseline still works (12-18% CAGR expected)
+    - Acceptance criteria will reject ML variant
+    - Fall back to baseline only
+    
+  realistic_expectations: |
+    Conservative: 18-22% CAGR (vs 15-18% baseline)
+    Optimistic: 22-28% CAGR (if ML regime filter works well)
+    Risk: ML might not add value - that's OK, baseline is solid

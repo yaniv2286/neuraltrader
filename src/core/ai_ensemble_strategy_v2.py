@@ -29,6 +29,7 @@ sys.path.insert(0, '.')
 from src.features.technical_indicators import generate_all_features
 from src.models.cpu_models.xgboost_model import XGBoostModel
 from src.core.data_store import get_data_store
+from src.core.model_cache import get_model_cache
 
 try:
     from sklearn.ensemble import RandomForestRegressor
@@ -419,12 +420,36 @@ class AIEnsembleStrategyV2:
         self,
         tickers: List[str],
         train_start: str = '1970-01-01',
-        train_end: str = '2022-12-31'
+        train_end: str = '2022-12-31',
+        use_cache: bool = True
     ) -> Dict:
-        """Train ALL CPU models on full dataset."""
+        """Train ALL CPU models on full dataset (with caching)."""
         print("=" * 70)
         print("🤖 TRAINING AI ENSEMBLE V2 (OPTIMIZED)")
         print("=" * 70)
+        
+        # Try to load from cache first
+        if use_cache:
+            model_cache = get_model_cache()
+            cached = model_cache.load_models(tickers, train_start, train_end, n_features=30)
+            
+            if cached is not None:
+                # Restore from cache
+                self.models = cached['models']
+                self.feature_columns = cached['metadata']['feature_names']
+                
+                print(f"   ⚡ Using cached models - TRAINING SKIPPED!")
+                
+                return {
+                    'samples': cached['metadata']['train_samples'],
+                    'features': cached['metadata']['n_features'],
+                    'models': list(self.models.keys()),
+                    'accuracy': cached['metadata']['direction_accuracy'],
+                    'cached': True
+                }
+        
+        # No cache - train from scratch
+        print("   📊 No cache found - training from scratch...")
         
         df = self.prepare_full_dataset(tickers, train_start, train_end)
         self.feature_columns = self.select_features(df, n_features=30)
@@ -484,11 +509,26 @@ class AIEnsembleStrategyV2:
         print(f"\n   ✅ Models trained: {len(self.models)}")
         print(f"   ✅ Ensemble Direction Accuracy: {direction_accuracy:.1f}%")
         
+        # Save to cache
+        if use_cache:
+            model_cache = get_model_cache()
+            model_cache.save_models(
+                models=self.models,
+                tickers=tickers,
+                train_start=train_start,
+                train_end=train_end,
+                n_features=30,
+                feature_names=self.feature_columns,
+                train_samples=len(X),
+                direction_accuracy=direction_accuracy
+            )
+        
         return {
             'samples': len(X),
             'features': len(self.feature_columns),
             'models': list(self.models.keys()),
-            'accuracy': direction_accuracy
+            'accuracy': direction_accuracy,
+            'cached': False
         }
     
     def _get_individual_predictions(self, X: np.ndarray, X_scaled: np.ndarray) -> Dict[str, np.ndarray]:
