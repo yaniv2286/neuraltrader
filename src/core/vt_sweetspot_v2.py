@@ -43,9 +43,26 @@ class VTSweetSpotV2:
         self,
         tickers: List[str],
         start_date: str,
-        end_date: str
+        end_date: str,
+        use_cache: bool = True
     ) -> pd.DataFrame:
         """Generate Sweet Spot signals with confidence."""
+        from src.core.signal_cache import get_signal_cache
+        
+        # Try to load from cache first
+        if use_cache:
+            signal_cache = get_signal_cache()
+            cached_signals = signal_cache.load_signals(
+                tickers=tickers,
+                start_date=start_date,
+                end_date=end_date,
+                strategy_type='sweetspot_v2'
+            )
+            
+            if cached_signals is not None:
+                print(f"   ⚡ Using cached signals - GENERATION SKIPPED!")
+                return cached_signals
+        
         print(f"\n📊 Generating VT Sweet Spot V2 signals...")
         print(f"   Period: {start_date} to {end_date}")
         
@@ -95,6 +112,17 @@ class VTSweetSpotV2:
         
         signals_df = pd.DataFrame(all_signals)
         print(f"   ✅ Generated {len(signals_df):,} signals")
+        
+        # Save to cache
+        if use_cache:
+            signal_cache = get_signal_cache()
+            signal_cache.save_signals(
+                signals=signals_df,
+                tickers=tickers,
+                start_date=start_date,
+                end_date=end_date,
+                strategy_type='sweetspot_v2'
+            )
         
         return signals_df
     
