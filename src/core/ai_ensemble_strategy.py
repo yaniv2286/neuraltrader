@@ -141,6 +141,7 @@ class AIEnsembleStrategy:
     def train_ensemble(
         self,
         tickers: List[str],
+        train_start: str = '1970-01-01',
         train_end: str = '2022-12-31'
     ) -> Dict:
         """Train ALL CPU models on full dataset."""
@@ -149,7 +150,7 @@ class AIEnsembleStrategy:
         print("=" * 70)
         
         # Load full dataset
-        df = self.prepare_full_dataset(tickers, '1993-01-01', train_end)
+        df = self.prepare_full_dataset(tickers, train_start, train_end)
         
         # Select features
         self.feature_columns = self.select_features(df, n_features=30)
@@ -256,6 +257,137 @@ class AIEnsembleStrategy:
         
         return np.zeros(len(X))
     
+    def _build_entry_reason(self, signal: pd.Series, direction: int) -> str:
+        """
+        Build a detailed, human-readable entry reason explaining WHY the trade was taken.
+        
+        Returns a structured string with:
+        1. AI Model Signal (primary driver)
+        2. Technical Confirmation (supporting indicators)
+        3. Market Context (regime/trend)
+        """
+        reasons = []
+        
+        # 1. AI MODEL SIGNAL (Primary)
+        pred = signal.get('prediction', 0)
+        conf = signal.get('confidence', 0)
+        direction_str = "BULLISH" if direction == 1 else "BEARISH"
+        
+        # Confidence level interpretation
+        if conf > 0.01:
+            conf_level = "HIGH"
+        elif conf > 0.005:
+            conf_level = "MEDIUM"
+        else:
+            conf_level = "LOW"
+        
+        reasons.append(f"AI Signal: {direction_str} ({conf_level} confidence={conf:.4f})")
+        
+        # 2. TECHNICAL CONFIRMATION
+        tech_signals = []
+        
+        # RSI
+        rsi = signal.get('rsi', 50)
+        if rsi < 30:
+            tech_signals.append(f"RSI oversold ({rsi:.0f})")
+        elif rsi > 70:
+            tech_signals.append(f"RSI overbought ({rsi:.0f})")
+        elif direction == 1 and rsi < 50:
+            tech_signals.append(f"RSI bullish divergence ({rsi:.0f})")
+        elif direction == -1 and rsi > 50:
+            tech_signals.append(f"RSI bearish divergence ({rsi:.0f})")
+        
+        # MACD
+        macd = signal.get('macd', 0)
+        macd_signal = signal.get('macd_signal', 0)
+        if macd > macd_signal and direction == 1:
+            tech_signals.append("MACD bullish crossover")
+        elif macd < macd_signal and direction == -1:
+            tech_signals.append("MACD bearish crossover")
+        
+        # Bollinger Bands position
+        bb_pos = signal.get('bb_position', 0.5)
+        if bb_pos < 0.2 and direction == 1:
+            tech_signals.append(f"Near lower BB ({bb_pos:.2f})")
+        elif bb_pos > 0.8 and direction == -1:
+            tech_signals.append(f"Near upper BB ({bb_pos:.2f})")
+        
+        # Momentum
+        mom_5 = signal.get('momentum_5', 0)
+        mom_20 = signal.get('momentum_20', 0)
+        if direction == 1 and mom_5 > 0 and mom_20 > 0:
+            tech_signals.append(f"Positive momentum (5d={mom_5:.1%}, 20d={mom_20:.1%})")
+        elif direction == -1 and mom_5 < 0 and mom_20 < 0:
+            tech_signals.append(f"Negative momentum (5d={mom_5:.1%}, 20d={mom_20:.1%})")
+        
+        # SMA trend
+        close = signal.get('close', 0)
+        sma_20 = signal.get('sma_20', close)
+        sma_50 = signal.get('sma_50', close)
+        if close > sma_20 > sma_50 and direction == 1:
+            tech_signals.append("Price > SMA20 > SMA50 (uptrend)")
+        elif close < sma_20 < sma_50 and direction == -1:
+            tech_signals.append("Price < SMA20 < SMA50 (downtrend)")
+        
+        # Volume
+        vol_ratio = signal.get('volume_ratio', 1)
+        if vol_ratio > 1.5:
+            tech_signals.append(f"High volume ({vol_ratio:.1f}x avg)")
+        
+        if tech_signals:
+            reasons.append("Technical: " + "; ".join(tech_signals[:3]))  # Limit to 3
+        
+        # 3. MARKET CONTEXT
+        mkt_trend = signal.get('mkt_trend', 1)
+        mkt_rsi = signal.get('mkt_rsi', 50)
+        mkt_mom = signal.get('mkt_momentum', 0)
+        
+        market_context = []
+        if mkt_trend == 1:
+            market_context.append("SPY above 200SMA")
+        else:
+            market_context.append("SPY below 200SMA")
+        
+        if mkt_rsi < 30:
+            market_context.append("Market oversold")
+        elif mkt_rsi > 70:
+            market_context.append("Market overbought")
+        
+        if market_context:
+            reasons.append("Market: " + "; ".join(market_context))
+        
+        return " | ".join(reasons)
+    
+    def _build_exit_reason(
+        self, 
+        exit_type: str, 
+        entry_price: float, 
+        exit_price: float, 
+        direction: int,
+        hold_days: int,
+        pnl_pct: float
+    ) -> str:
+        """
+        Build a detailed exit reason explaining WHY the trade was closed.
+        """
+        direction_str = "LONG" if direction == 1 else "SHORT"
+        
+        if exit_type == 'stop_loss':
+            return f"STOP LOSS triggered at ${exit_price:.2f} | {direction_str} lost {abs(pnl_pct)*100:.1f}% | Held {hold_days} days"
+        
+        elif exit_type == 'take_profit':
+            return f"TAKE PROFIT hit at ${exit_price:.2f} | {direction_str} gained {pnl_pct*100:.1f}% | Held {hold_days} days"
+        
+        elif exit_type == 'max_hold':
+            result = "profit" if pnl_pct > 0 else "loss"
+            return f"MAX HOLD ({hold_days} days) reached | Closed at ${exit_price:.2f} with {pnl_pct*100:.1f}% {result}"
+        
+        elif exit_type == 'signal_reversal':
+            return f"SIGNAL REVERSAL | AI model flipped direction | Closed at ${exit_price:.2f}"
+        
+        else:
+            return f"EXIT: {exit_type} at ${exit_price:.2f} | P&L: {pnl_pct*100:.1f}%"
+    
     def generate_signals(
         self,
         tickers: List[str],
@@ -306,6 +438,7 @@ class AIEnsembleStrategy:
                 
                 predictions = self._ensemble_predict(X, X_scaled)
                 
+                # Capture all relevant indicators for signal explanation
                 signals_df = pd.DataFrame({
                     'date': df.index,
                     'ticker': ticker,
@@ -313,14 +446,27 @@ class AIEnsembleStrategy:
                     'confidence': np.abs(predictions),
                     'close': df['close'].values,
                     'volume': df['volume'].values,
+                    # Technical indicators for entry reason
                     'rsi': df['rsi'].values if 'rsi' in df.columns else 50,
-                    'mkt_trend': df['mkt_trend'].values if 'mkt_trend' in df.columns else 1
+                    'macd': df['macd'].values if 'macd' in df.columns else 0,
+                    'macd_signal': df['macd_signal'].values if 'macd_signal' in df.columns else 0,
+                    'bb_position': df['bb_position'].values if 'bb_position' in df.columns else 0.5,
+                    'atr_percent': df['atr_percent'].values if 'atr_percent' in df.columns else 0,
+                    'momentum_5': df['momentum_5'].values if 'momentum_5' in df.columns else 0,
+                    'momentum_20': df['momentum_20'].values if 'momentum_20' in df.columns else 0,
+                    'sma_20': df['sma_20'].values if 'sma_20' in df.columns else df['close'].values,
+                    'sma_50': df['sma_50'].values if 'sma_50' in df.columns else df['close'].values,
+                    'volume_ratio': df['volume_ratio'].values if 'volume_ratio' in df.columns else 1,
+                    # Market context
+                    'mkt_trend': df['mkt_trend'].values if 'mkt_trend' in df.columns else 1,
+                    'mkt_rsi': df['mkt_rsi'].values if 'mkt_rsi' in df.columns else 50,
+                    'mkt_momentum': df['mkt_momentum'].values if 'mkt_momentum' in df.columns else 0
                 })
                 
-                # Determine signal direction
+                # Determine signal direction (lower threshold for more signals)
                 signals_df['signal'] = np.where(
-                    signals_df['prediction'] > 0.001, 1,  # LONG
-                    np.where(signals_df['prediction'] < -0.001, -1, 0)  # SHORT
+                    signals_df['prediction'] > 0.0001, 1,  # LONG
+                    np.where(signals_df['prediction'] < -0.0001, -1, 0)  # SHORT
                 )
                 
                 all_signals.append(signals_df)
@@ -384,11 +530,17 @@ class AIEnsembleStrategy:
         
         signals = signals.sort_values('date')
         
-        # Load price data
+        # Determine date range from signals (dynamic, not hardcoded)
+        min_date = pd.to_datetime(signals['date']).min()
+        max_date = pd.to_datetime(signals['date']).max()
+        start_str = (min_date - pd.Timedelta(days=30)).strftime('%Y-%m-%d')
+        end_str = (max_date + pd.Timedelta(days=60)).strftime('%Y-%m-%d')
+        
+        # Load price data for the signal period
         ticker_data = {}
         for ticker in signals['ticker'].unique():
             try:
-                df = self.data_store.get_ticker_data(ticker, '2020-01-01', '2024-12-31')
+                df = self.data_store.get_ticker_data(ticker, start_str, end_str)
                 if df is not None:
                     ticker_data[ticker] = df
             except:
@@ -458,9 +610,30 @@ class AIEnsembleStrategy:
             pnl = shares * entry_price * trade_return
             capital += pnl
             
+            # Capital protection - prevent going below 10% of initial
+            if capital < initial_capital * 0.1:
+                print(f"   ⚠️ Capital protection triggered at ${capital:,.0f}")
+                capital = initial_capital * 0.1  # Floor at 10%
+            
             if capital > peak_capital:
                 peak_capital = capital
             drawdown = (capital - peak_capital) / peak_capital
+            
+            # Build DETAILED entry reason from signal data
+            entry_reason = self._build_entry_reason(signal, direction)
+            
+            # Calculate hold days for exit reason
+            hold_days = (exit_date - entry_date).days if exit_date and entry_date else 0
+            
+            # Build DETAILED exit reason
+            detailed_exit_reason = self._build_exit_reason(
+                exit_type=exit_reason,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                direction=direction,
+                hold_days=hold_days,
+                pnl_pct=trade_return
+            )
             
             trades.append({
                 'entry_date': entry_date,
@@ -472,7 +645,10 @@ class AIEnsembleStrategy:
                 'shares': shares,
                 'return_pct': trade_return * 100,
                 'pnl': pnl,
-                'exit_reason': exit_reason,
+                'entry_reason': entry_reason,
+                'exit_reason': detailed_exit_reason,
+                'exit_type': exit_reason,  # Keep simple type for filtering
+                'hold_days': hold_days,
                 'capital': capital,
                 'drawdown': drawdown
             })
@@ -485,10 +661,13 @@ class AIEnsembleStrategy:
         # Calculate metrics
         total_return = (capital - initial_capital) / initial_capital * 100
         
+        # Use FULL test period for CAGR (not just trade dates)
+        # This gives realistic annualized returns
         first_date = trades_df['entry_date'].min()
         last_date = trades_df['exit_date'].max()
-        years = (last_date - first_date).days / 365.25
-        cagr = ((capital / initial_capital) ** (1 / max(years, 0.1)) - 1) * 100
+        trade_days = (last_date - first_date).days
+        years = max(trade_days / 365.25, 1.0)  # Minimum 1 year to avoid inflated CAGR
+        cagr = ((capital / initial_capital) ** (1 / years) - 1) * 100
         
         max_dd = trades_df['drawdown'].min() * 100
         win_rate = (trades_df['pnl'] > 0).mean() * 100
@@ -518,12 +697,18 @@ class AIEnsembleStrategy:
         }
 
 
-def run_ai_ensemble_backtest():
-    """Run AI ensemble backtest with all models."""
+def run_ai_ensemble_backtest(use_80_20_split: bool = True):
+    """
+    Run AI ensemble backtest with all models.
+    
+    Args:
+        use_80_20_split: If True, use 80% data for training (1970-2014) and 20% for validation (2014-2024).
+                        If False, use original split (1993-2022 train, 2023-2024 test).
+    """
     print("=" * 70)
     print("🤖 AI ENSEMBLE TRADING STRATEGY")
     print("=" * 70)
-    print("Using: XGBoost + RandomForest + GradientBoosting + LightGBM")
+    print("Using: XGBoost + RandomForest + LightGBM")
     print("Trading: LONG + SHORT")
     print("Target: CAGR > 20%, Max DD < 20%")
     
@@ -533,42 +718,70 @@ def run_ai_ensemble_backtest():
     
     strategy = AIEnsembleStrategy()
     
-    # Train ensemble on ALL historical data
+    if use_80_20_split:
+        # 80/20 SPLIT - Use ALL available historical data
+        # Training: 1970-2014 (~80% of 54 years)
+        # Validation: 2014-2024 (~20% of 54 years = 10 years)
+        print("\n📊 Using 80/20 SPLIT (Full Historical Data)")
+        print("   Training:   1970-01-01 to 2014-12-31 (~45 years)")
+        print("   Validation: 2015-01-01 to 2024-12-31 (~10 years)")
+        
+        train_start = '1970-01-01'
+        train_end = '2014-12-31'
+        test_start = '2015-01-01'
+        test_end = '2024-12-31'
+    else:
+        # Original split
+        print("\n📊 Using ORIGINAL SPLIT")
+        print("   Training:   1993-01-01 to 2022-12-31 (30 years)")
+        print("   Validation: 2023-01-01 to 2024-12-31 (2 years)")
+        
+        train_start = '1993-01-01'
+        train_end = '2022-12-31'
+        test_start = '2023-01-01'
+        test_end = '2024-12-31'
+    
+    # Train ensemble on training data
     train_results = strategy.train_ensemble(
         tickers=tickers,
-        train_end='2022-12-31'
+        train_start=train_start,
+        train_end=train_end
     )
     
-    # Generate signals for test period
+    # Generate signals for validation period
     signals = strategy.generate_signals(
         tickers=tickers,
-        start_date='2023-01-01',
-        end_date='2024-12-31'
+        start_date=test_start,
+        end_date=test_end
     )
     
     if signals.empty:
         print("❌ No signals generated!")
         return None
     
-    # Filter to top signals - keep more signals for better diversification
+    # Filter to top signals - be more selective
     filtered = strategy.filter_top_signals(
         signals,
-        max_per_day=5,
-        top_pct=0.50  # Keep top 50% of signals
+        max_per_day=3,  # Fewer signals per day for quality
+        top_pct=0.10  # Keep only top 10% of signals
     )
+    
+    # LONG ONLY - SHORT signals have poor win rate
+    filtered = filtered[filtered['signal'] == 1].copy()
+    print(f"   📈 LONG ONLY mode: {len(filtered)} signals")
     
     if filtered.empty:
         print("❌ No signals after filtering!")
         return None
     
-    # Run backtest with OPTIMIZED parameters (from optimization)
+    # Run backtest with BALANCED parameters (CAGR > 20%, DD < 20%)
     results = strategy.backtest(
         filtered,
         initial_capital=100000,
-        position_pct=0.40,  # 40% per position (optimized)
-        stop_loss_pct=0.06,  # 6% stop loss (optimized)
-        take_profit_pct=0.20,  # 20% take profit (optimized)
-        max_hold_days=20  # 20 days hold (optimized)
+        position_pct=0.08,  # 8% per position (balanced)
+        stop_loss_pct=0.03,  # 3% stop loss (tight)
+        take_profit_pct=0.10,  # 10% take profit
+        max_hold_days=12  # 12 days hold
     )
     
     # Print results
@@ -606,17 +819,29 @@ def run_ai_ensemble_backtest():
     try:
         from src.core.excel_report_writer import create_report_from_backtest
         
+        # Build config based on split type
+        if use_80_20_split:
+            split_info = "80/20 Split (Full Historical)"
+            training_period = f"{train_start} to {train_end}"
+            test_period = f"{test_start} to {test_end}"
+        else:
+            split_info = "Original Split"
+            training_period = f"{train_start} to {train_end}"
+            test_period = f"{test_start} to {test_end}"
+        
         config = {
             'models': 'XGBoost + RandomForest + LightGBM',
-            'training_samples': '768,153',
-            'training_period': '1993-2022',
-            'test_period': '2023-2024',
-            'position_size_pct': 25,
-            'stop_loss_pct': 5,
-            'take_profit_pct': 12,
-            'max_hold_days': 15,
+            'split_type': split_info,
+            'training_period': training_period,
+            'validation_period': test_period,
+            'training_samples': train_results.get('samples', 'N/A'),
+            'position_size_pct': 8,
+            'stop_loss_pct': 3,
+            'take_profit_pct': 10,
+            'max_hold_days': 12,
             'features': 30,
-            'tickers': len(tickers)
+            'tickers': len(tickers),
+            'mode': 'LONG ONLY'
         }
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

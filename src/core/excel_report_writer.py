@@ -315,26 +315,28 @@ class ExcelReportWriter:
             ws.column_dimensions[col].width = 20
     
     def _create_trades_sheet(self):
-        """Create Sheet 3: Trades - Full audit log."""
+        """Create Sheet 3: Trades - Full audit log with detailed signal reasons."""
         ws = self.wb.create_sheet("Trades")
         
-        # Headers with column groups
+        # Headers with column groups - enhanced for detailed reasons
         headers = [
-            ("strategy_id", Colors.LIGHT_GRAY),
-            ("ticker", Colors.LIGHT_GRAY),
-            ("entry_date", Colors.LIGHT_BLUE),
-            ("exit_date", Colors.LIGHT_BLUE),
-            ("entry_price", Colors.WHITE),
-            ("exit_price", Colors.WHITE),
-            ("position_size %", Colors.LIGHT_YELLOW),
-            ("risk %", Colors.LIGHT_YELLOW),
-            ("pnl $", None),  # Conditional
-            ("return %", None),  # Conditional
-            ("entry_reason", Colors.LIGHT_GREEN),
-            ("exit_reason", Colors.LIGHT_GREEN),
+            ("strategy_id", Colors.LIGHT_GRAY, 15),
+            ("ticker", Colors.LIGHT_GRAY, 8),
+            ("direction", Colors.LIGHT_GRAY, 8),
+            ("entry_date", Colors.LIGHT_BLUE, 12),
+            ("exit_date", Colors.LIGHT_BLUE, 12),
+            ("hold_days", Colors.LIGHT_BLUE, 10),
+            ("entry_price", Colors.WHITE, 12),
+            ("exit_price", Colors.WHITE, 12),
+            ("shares", Colors.WHITE, 10),
+            ("pnl $", None, 12),  # Conditional
+            ("return %", None, 10),  # Conditional
+            ("exit_type", Colors.LIGHT_YELLOW, 12),
+            ("entry_reason", Colors.LIGHT_GREEN, 80),  # Wide for detailed AI signal
+            ("exit_reason", Colors.LIGHT_GREEN, 60),   # Wide for detailed exit
         ]
         
-        for col, (header, _) in enumerate(headers, 1):
+        for col, (header, _, _) in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             self._apply_header_style(cell)
         
@@ -345,52 +347,85 @@ class ExcelReportWriter:
                 continue
             
             for _, trade in strategy.trades.iterrows():
-                # Identity columns (gray)
-                cell = ws.cell(row=row, column=1, value=strategy.strategy_id)
-                self._apply_fill(cell, Colors.LIGHT_GRAY)
+                col = 1
                 
-                cell = ws.cell(row=row, column=2, value=trade.get('ticker', ''))
+                # Identity columns (gray)
+                cell = ws.cell(row=row, column=col, value=strategy.strategy_id)
                 self._apply_fill(cell, Colors.LIGHT_GRAY)
+                col += 1
+                
+                cell = ws.cell(row=row, column=col, value=trade.get('ticker', ''))
+                self._apply_fill(cell, Colors.LIGHT_GRAY)
+                col += 1
+                
+                # Direction column
+                direction = trade.get('direction', 'LONG')
+                cell = ws.cell(row=row, column=col, value=direction)
+                self._apply_fill(cell, Colors.LIGHT_GRAY)
+                col += 1
                 
                 # Timing columns (blue)
-                cell = ws.cell(row=row, column=3, value=str(trade.get('entry_date', ''))[:10])
+                cell = ws.cell(row=row, column=col, value=str(trade.get('entry_date', ''))[:10])
                 self._apply_fill(cell, Colors.LIGHT_BLUE)
+                col += 1
                 
-                cell = ws.cell(row=row, column=4, value=str(trade.get('exit_date', ''))[:10])
+                cell = ws.cell(row=row, column=col, value=str(trade.get('exit_date', ''))[:10])
                 self._apply_fill(cell, Colors.LIGHT_BLUE)
+                col += 1
+                
+                # Hold days
+                hold_days = trade.get('hold_days', 0)
+                cell = ws.cell(row=row, column=col, value=hold_days)
+                self._apply_fill(cell, Colors.LIGHT_BLUE)
+                col += 1
                 
                 # Price columns (white)
-                ws.cell(row=row, column=5, value=round(trade.get('entry_price', 0), 2))
-                ws.cell(row=row, column=6, value=round(trade.get('exit_price', 0), 2))
+                ws.cell(row=row, column=col, value=round(trade.get('entry_price', 0), 2))
+                col += 1
+                ws.cell(row=row, column=col, value=round(trade.get('exit_price', 0), 2))
+                col += 1
                 
-                # Risk columns (yellow)
-                cell = ws.cell(row=row, column=7, value=round(trade.get('position_size_pct', 15), 2))
-                self._apply_fill(cell, Colors.LIGHT_YELLOW)
-                
-                cell = ws.cell(row=row, column=8, value=round(trade.get('risk_pct', 4), 2))
-                self._apply_fill(cell, Colors.LIGHT_YELLOW)
+                # Shares
+                ws.cell(row=row, column=col, value=trade.get('shares', 0))
+                col += 1
                 
                 # Results columns (conditional)
                 pnl = trade.get('pnl', 0)
-                cell = ws.cell(row=row, column=9, value=round(pnl, 2))
+                cell = ws.cell(row=row, column=col, value=round(pnl, 2))
                 self._apply_fill(cell, Colors.GREEN if pnl > 0 else Colors.RED if pnl < 0 else Colors.GRAY)
+                col += 1
                 
                 ret = trade.get('return_pct', 0)
-                cell = ws.cell(row=row, column=10, value=round(ret, 2))
+                cell = ws.cell(row=row, column=col, value=round(ret, 2))
                 self._apply_fill(cell, Colors.GREEN if ret > 0 else Colors.RED if ret < 0 else Colors.GRAY)
+                col += 1
                 
-                # Reason columns (green)
-                cell = ws.cell(row=row, column=11, value=trade.get('entry_reason', 'signal'))
-                self._apply_fill(cell, Colors.LIGHT_GREEN)
+                # Exit type (yellow) - simple categorization
+                exit_type = trade.get('exit_type', trade.get('exit_reason', '')[:20] if trade.get('exit_reason') else '')
+                cell = ws.cell(row=row, column=col, value=exit_type)
+                self._apply_fill(cell, Colors.LIGHT_YELLOW)
+                col += 1
                 
-                cell = ws.cell(row=row, column=12, value=trade.get('exit_reason', ''))
+                # DETAILED Entry Reason (green) - full AI signal explanation
+                entry_reason = trade.get('entry_reason', 'signal')
+                cell = ws.cell(row=row, column=col, value=entry_reason)
                 self._apply_fill(cell, Colors.LIGHT_GREEN)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                col += 1
+                
+                # DETAILED Exit Reason (green) - full exit explanation
+                exit_reason = trade.get('exit_reason', '')
+                cell = ws.cell(row=row, column=col, value=exit_reason)
+                self._apply_fill(cell, Colors.LIGHT_GREEN)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                col += 1
                 
                 row += 1
         
-        # Adjust column widths
-        for col in range(1, 13):
-            ws.column_dimensions[chr(64 + col)].width = 15
+        # Adjust column widths based on header definitions
+        for col, (_, _, width) in enumerate(headers, 1):
+            col_letter = chr(64 + col) if col <= 26 else f"A{chr(64 + col - 26)}"
+            ws.column_dimensions[col_letter].width = width
     
     def _create_per_stock_summary_sheet(self):
         """Create Sheet 4: Per_Stock_Summary."""
@@ -513,12 +548,24 @@ class ExcelReportWriter:
             ("", ""),
             ("COLUMN GROUPS (Trades Sheet)", ""),
             ("", ""),
-            ("Light Gray", "Identity columns (strategy_id, ticker)"),
-            ("Light Blue", "Timing columns (entry_date, exit_date)"),
-            ("White", "Price columns (entry_price, exit_price)"),
-            ("Light Yellow", "Risk columns (position_size %, risk %)"),
+            ("Light Gray", "Identity columns (strategy_id, ticker, direction)"),
+            ("Light Blue", "Timing columns (entry_date, exit_date, hold_days)"),
+            ("White", "Price columns (entry_price, exit_price, shares)"),
+            ("Light Yellow", "Exit type (stop_loss, take_profit, max_hold)"),
             ("Conditional", "Results columns (pnl $, return %) - green if positive, red if negative"),
-            ("Light Green", "Reason columns (entry_reason, exit_reason)"),
+            ("Light Green", "Signal Reason columns (entry_reason, exit_reason) - DETAILED explanations"),
+            ("", ""),
+            ("SIGNAL REASON FORMAT (entry_reason)", ""),
+            ("", ""),
+            ("AI Signal", "Primary driver - BULLISH/BEARISH with confidence level (HIGH/MEDIUM/LOW)"),
+            ("Technical", "Supporting indicators - RSI, MACD, Bollinger Bands, Momentum, SMA trend, Volume"),
+            ("Market", "Market context - SPY trend (above/below 200SMA), market RSI conditions"),
+            ("", ""),
+            ("EXIT REASON FORMAT (exit_reason)", ""),
+            ("", ""),
+            ("STOP LOSS", "Triggered when loss exceeds stop loss % - shows price, loss %, hold days"),
+            ("TAKE PROFIT", "Triggered when gain exceeds take profit % - shows price, gain %, hold days"),
+            ("MAX HOLD", "Triggered when max hold days reached - shows final P&L"),
             ("", ""),
             ("QUICK DECISION GUIDE", ""),
             ("", ""),
