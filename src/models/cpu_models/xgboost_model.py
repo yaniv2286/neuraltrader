@@ -39,21 +39,21 @@ class XGBoostModel(BaseCPUModel):
         )
     
     def get_model_params(self) -> Dict[str, Any]:
-        """Get optimized parameters for CPU XGBoost"""
+        """Get optimized parameters for CPU XGBoost - Phase 4 winning config"""
         return {
-            'n_estimators': 300,           # More trees for better performance
-            'max_depth': 4,                 # Shallower trees for regularization
-            'learning_rate': 0.03,          # Smaller learning rate
-            'subsample': 0.8,               # Subsample for each boosting round
-            'colsample_bytree': 0.7,        # Feature subsampling
-            'reg_alpha': 0.1,               # L1 regularization
-            'reg_lambda': 1.0,              # L2 regularization
-            'min_child_weight': 1,
-            'gamma': 0.1,
+            'n_estimators': 200,            # Optimal for regularization
+            'max_depth': 3,                  # Shallower trees prevent overfitting
+            'learning_rate': 0.02,           # Smaller learning rate for stability
+            'subsample': 0.8,                # Subsample for each boosting round
+            'colsample_bytree': 0.7,         # Feature subsampling
+            'reg_alpha': 0.5,                # L1 regularization (increased)
+            'reg_lambda': 1.0,               # L2 regularization
+            'min_child_weight': 3,           # Increased for regularization
+            'gamma': 0.1,                    # Minimum loss reduction
             'objective': 'reg:squarederror',
             'random_state': 42,
             'n_jobs': -1,
-            'tree_method': 'hist',          # CPU-optimized histogram method
+            'tree_method': 'hist',           # CPU-optimized histogram method
             'grow_policy': 'lossguide'       # Faster training
         }
     

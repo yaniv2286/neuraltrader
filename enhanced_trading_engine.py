@@ -24,11 +24,13 @@ class EnhancedTradingEngine:
         self.take_profit_pct = 0.03  # 3% take profit
         self.max_daily_loss = 0.05  # 5% max daily loss
         
-        # Blacklist of worst performers (from analysis)
-        self.blacklist = {'GE', 'KSS', 'SPOT', 'MRVL', 'CCL'}
+        # Blacklist of worst performers (from backtest analysis - <48% direction accuracy)
+        self.blacklist = {'GE', 'KSS', 'SPOT', 'MRVL', 'CCL', 'AIG', 'COIN', 'CZR', 'EL', 
+                          'FXY', 'LCID', 'LI', 'LYFT', 'SLV', 'SNAP', 'SOL'}
         
-        # High confidence models (win rate > 52%)
-        self.high_confidence_models = {'ISRG', 'MA', 'ADP'}  # From our analysis
+        # High confidence models (>54% direction accuracy from backtest)
+        self.high_confidence_models = {'ACWI', 'EIS', 'GLD', 'GOOGL', 'IBM', 'IVV', 'LLY', 
+                                        'MA', 'PLTR', 'QQQ', 'SPY', 'VEA', 'VOO', 'VT', 'VTI', 'VXX'}
         
         # Trading state tracking
         self.daily_trades = []
@@ -42,7 +44,8 @@ class EnhancedTradingEngine:
     def load_performance_data(self):
         """Load historical performance data for model selection"""
         try:
-            self.results_df = pd.read_csv('reports/all_phases_test_results.csv')
+            # Use compact results file (much smaller, ~10KB vs 278MB)
+            self.results_df = pd.read_csv('reports/compact_results.csv')
             with open('reports/trading_performance_analysis.json', 'r') as f:
                 self.perf_data = json.load(f)
             logger.info(f"Loaded performance data for {len(self.results_df)} models")

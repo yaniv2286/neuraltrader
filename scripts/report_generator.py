@@ -196,75 +196,12 @@ class ReportGenerator:
             
             ws.add_chart(chart, "E2")
     
-    def generate_visualizations(self, results_df: pd.DataFrame, 
-                              save_individual: bool = True) -> List[str]:
-        """Generate visualization charts"""
-        successful = results_df[results_df['error'].isna()]
+    def generate_visualizations(self, results_df: pd.DataFrame, output_dir: Path) -> Dict[str, str]:
+        """Generate visualization charts (PNG generation disabled for cleaner output)"""
         
-        if len(successful) == 0:
-            return []
-        
-        # Set style
-        plt.style.use('seaborn-v0_8')
-        sns.set_palette("husl")
-        
-        charts = []
-        
-        # 1. R² Distribution
-        plt.figure(figsize=(10, 6))
-        sns.histplot(successful['test_r2'], bins=30, kde=True)
-        plt.title('Distribution of Test R² Scores')
-        plt.xlabel('Test R²')
-        plt.ylabel('Frequency')
-        chart_path = self._save_chart('r2_distribution.png')
-        charts.append(chart_path)
-        
-        # 2. Direction Accuracy Distribution
-        plt.figure(figsize=(10, 6))
-        sns.histplot(successful['test_dir'], bins=30, kde=True)
-        plt.title('Distribution of Direction Accuracy')
-        plt.xlabel('Direction Accuracy (%)')
-        plt.ylabel('Frequency')
-        chart_path = self._save_chart('direction_accuracy.png')
-        charts.append(chart_path)
-        
-        # 3. R² vs Direction Accuracy Scatter
-        plt.figure(figsize=(10, 6))
-        sns.scatterplot(data=successful, x='test_r2', y='test_dir', alpha=0.6)
-        plt.title('R² vs Direction Accuracy')
-        plt.xlabel('Test R²')
-        plt.ylabel('Direction Accuracy (%)')
-        chart_path = self._save_chart('r2_vs_direction.png')
-        charts.append(chart_path)
-        
-        # 4. Top Performers Bar Chart
-        top_10 = successful.nlargest(10, 'test_r2')
-        plt.figure(figsize=(12, 6))
-        sns.barplot(data=top_10, x='ticker', y='test_r2')
-        plt.title('Top 10 Performers by Test R²')
-        plt.xlabel('Ticker')
-        plt.ylabel('Test R²')
-        plt.xticks(rotation=45)
-        chart_path = self._save_chart('top_performers.png')
-        charts.append(chart_path)
-        
-        # 5. Generalization Gap Distribution
-        plt.figure(figsize=(10, 6))
-        sns.histplot(successful['gen_gap'], bins=30, kde=True)
-        plt.title('Distribution of Generalization Gap')
-        plt.xlabel('Generalization Gap')
-        plt.ylabel('Frequency')
-        chart_path = self._save_chart('gen_gap_distribution.png')
-        charts.append(chart_path)
-        
-        return charts
-    
-    def _save_chart(self, filename: str) -> str:
-        """Save chart to file"""
-        filepath = Path(self.output_dir) / filename
-        plt.savefig(filepath, dpi=300, bbox_inches='tight')
-        plt.close()
-        return str(filepath)
+        # PNG generation disabled - keeping codebase clean
+        print("   PNG generation disabled (keeping codebase clean)")
+        return {}
     
     def generate_full_report(self, results_df: pd.DataFrame, 
                            summary: Dict = None,
@@ -277,7 +214,7 @@ class ReportGenerator:
         print(f"   ✅ Excel report: {excel_file}")
         
         # Generate visualizations
-        charts = self.generate_visualizations(results_df)
+        charts = self.generate_visualizations(results_df, Path(self.output_dir))
         print(f"   ✅ Generated {len(charts)} charts")
         
         return {

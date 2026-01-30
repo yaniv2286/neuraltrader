@@ -1,48 +1,107 @@
-"""
-Model Trainer - Optimized for Stock Prediction
-Handles log returns, feature selection, and proper train/val/test splits
+﻿"""
+Model Trainer - Enhanced for Foundation Strengthening
+Handles ensemble models, regime-aware training, and advanced evaluation
 """
 
 import numpy as np
 import pandas as pd
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from sklearn.model_selection import TimeSeriesSplit
 import warnings
 warnings.filterwarnings('ignore')
 
+from .ensemble_model import EnsembleModel, create_ensemble_for_regime
+
 class ModelTrainer:
     """
-    Optimized model trainer for stock prediction
-    - Uses log returns instead of raw prices
-    - Implements feature selection
-    - Proper time-series splits
-    - Regularization
+    Enhanced model trainer for stock prediction
+    - Supports ensemble models
+    - Regime-aware training
+    - Advanced evaluation metrics
+    - Cross-validation
     """
     
-    def __init__(self, use_log_returns: bool = True, n_features: int = 25):
+    def __init__(self, use_ensemble: bool = False, use_regime_aware: bool = False):
         """
         Initialize trainer
         
         Args:
-            use_log_returns: Use log returns instead of raw prices (recommended)
-            n_features: Number of top features to select (default 25)
+            use_ensemble: Use ensemble models
+            use_regime_aware: Use regime-aware training
         """
-        self.use_log_returns = use_log_returns
-        self.n_features = n_features
+        self.use_ensemble = use_ensemble
+        self.use_regime_aware = use_regime_aware
         self.selected_features = None
         self.feature_importances = None
+        self.regime_models = {}
+    
+    def evaluate_model(self, model, X_train, y_train, X_val, y_val, X_test, y_test) -> Dict:
+        """
+        Evaluate model on train, validation, and test sets
+        
+        Args:
+            model: Trained model
+            X_train, y_train: Training data
+            X_val, y_val: Validation data
+            X_test, y_test: Test data
+            
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        # Convert to numpy if needed
+        if isinstance(X_train, pd.DataFrame):
+            X_train = X_train.values
+        if isinstance(X_val, pd.DataFrame):
+            X_val = X_val.values
+        if isinstance(X_test, pd.DataFrame):
+            X_test = X_test.values
+        if isinstance(y_train, pd.Series):
+            y_train = y_train.values
+        if isinstance(y_val, pd.Series):
+            y_val = y_val.values
+        if isinstance(y_test, pd.Series):
+            y_test = y_test.values
+        
+        # Make predictions
+        train_pred = model.predict(X_train)
+        val_pred = model.predict(X_val)
+        test_pred = model.predict(X_test)
+        
+        # Calculate R² scores
+        train_r2 = r2_score(y_train, train_pred)
+        val_r2 = r2_score(y_val, val_pred)
+        test_r2 = r2_score(y_test, test_pred)
+        
+        # Calculate direction accuracy
+        train_dir = np.mean(np.sign(train_pred) == np.sign(y_train)) * 100
+        val_dir = np.mean(np.sign(val_pred) == np.sign(y_val)) * 100
+        test_dir = np.mean(np.sign(test_pred) == np.sign(y_test)) * 100
+        
+        # Generalization gap
+        gen_gap = abs(train_r2 - test_r2)
+        
+        return {
+            'train_r2': train_r2,
+            'val_r2': val_r2,
+            'test_r2': test_r2,
+            'train_dir': train_dir,
+            'val_dir': val_dir,
+            'test_dir': test_dir,
+            'gen_gap': gen_gap
+        }
         
     def prepare_data(
         self, 
         df: pd.DataFrame,
-        target_col: str = 'close',
+        target_col: str = 'target',
         feature_cols: List[str] = None
     ) -> Tuple[pd.DataFrame, pd.Series]:
         """
-        Prepare data for training
+        Prepare data for training with regime detection
         
         Args:
-            df: DataFrame with features
+            df: DataFrame with features and target
             target_col: Target column name
             feature_cols: List of feature columns (if None, auto-detect)
             
@@ -51,215 +110,253 @@ class ModelTrainer:
         """
         # Auto-detect feature columns if not provided
         if feature_cols is None:
-            # Exclude target and non-numeric columns
-            exclude_cols = [target_col, 'low', 'volume', 'market_regime']
+            exclude_cols = [target_col, 'date', 'ticker']
             feature_cols = [col for col in df.columns if col not in exclude_cols]
-            feature_cols = [col for col in feature_cols if df[col].dtype in [np.float64, np.int64]]
         
-        X = df[feature_cols].copy()
+        # Remove non-numeric columns
+        numeric_features = []
+        for col in feature_cols:
+            if col in df.columns and df[col].dtype in ['float64', 'int64']:
+                numeric_features.append(col)
         
-        # Prepare target
-        if self.use_log_returns:
-            # Calculate log returns
-            prices = df[target_col]
-            y = np.log(prices / prices.shift(1))
-            
-            # Remove first row (NaN from shift)
-            X = X.iloc[1:]
-            y = y.iloc[1:]
-            
-            print(f"   📊 Using LOG RETURNS as target (stationary)")
-        else:
-            y = df[target_col]
-            print(f"   📊 Using RAW PRICES as target (non-stationary)")
+        X = df[numeric_features].copy()
+        y = df[target_col].copy()
         
-        # Fill NaN values
-        X = X.fillna(0)
-        y = y.fillna(0)
-        
-        # Remove any infinite values
-        X = X.replace([np.inf, -np.inf], 0)
-        y = y.replace([np.inf, -np.inf], 0)
+        # Remove any remaining NaN values
+        mask = ~(X.isnull().any(axis=1) | y.isnull())
+        X = X[mask]
+        y = y[mask]
         
         return X, y
     
-    def select_features(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        method: str = 'correlation'
-    ) -> List[str]:
+    def detect_regime(self, df: pd.DataFrame) -> str:
         """
-        Select top N most important features
+        Detect current market regime
         
         Args:
-            X_train: Training features
-            y_train: Training target
-            method: Selection method ('correlation', 'mutual_info')
+            df: DataFrame with price data
+            
+        Returns:
+            Regime string
+        """
+        if 'high_vol' in df.columns and 'trend_regime' in df.columns:
+            # Use regime features if available
+            latest = df.iloc[-1]
+            
+            if latest['high_vol']:
+                return 'high_volatility'
+            elif latest['low_vol']:
+                return 'low_volatility'
+            elif latest['trend_regime'] == 1:
+                if 'strong_uptrend' in df.columns and latest['strong_uptrend']:
+                    return 'uptrend'
+                else:
+                    return 'sideways'
+            else:
+                if 'strong_downtrend' in df.columns and latest['strong_downtrend']:
+                    return 'downtrend'
+                else:
+                    return 'sideways'
+        else:
+            # Fallback to simple volatility detection
+            returns = df['close'].pct_change().dropna()
+            volatility = returns.rolling(20).std().iloc[-1]
+            long_vol = returns.rolling(50).std().iloc[-1]
+            
+            vol_ratio = volatility / long_vol
+            
+            if vol_ratio > 1.5:
+                return 'high_volatility'
+            elif vol_ratio < 0.7:
+                return 'low_volatility'
+            else:
+                return 'sideways'
+    
+    def train_model(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        regime: str = None,
+        validation_split: float = 0.2
+    ) -> Tuple[object, Dict]:
+        """
+        Train model with regime awareness
+        
+        Args:
+            X: Feature DataFrame
+            y: Target Series
+            regime: Market regime (if None, will detect)
+            validation_split: Validation split ratio
+            
+        Returns:
+            Tuple of (trained_model, training_info)
+        """
+        # Detect regime if not provided
+        if regime is None and self.use_regime_aware:
+            # Simple regime detection based on target volatility
+            target_vol = y.rolling(20).std().iloc[-1] if len(y) > 20 else y.std()
+            long_vol = y.rolling(min(50, len(y))).std().iloc[-1] if len(y) > 50 else y.std()
+            
+            if target_vol > long_vol * 1.5:
+                regime = 'high_volatility'
+            elif target_vol < long_vol * 0.7:
+                regime = 'low_volatility'
+            else:
+                regime = 'sideways'
+        
+        # Create model
+        if self.use_ensemble:
+            model = create_ensemble_for_regime(regime or 'sideways')
+        else:
+            from .cpu_models.xgboost_model import XGBoostModel
+            model = XGBoostModel(max_depth=3, learning_rate=0.01, n_estimators=200)
+        
+        # Split data
+        split_idx = int(len(X) * (1 - validation_split))
+        X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
+        y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+        
+        # Train model
+        model.fit(X_train, y_train)
+        
+        # Evaluate
+        train_pred = model.predict(X_train)
+        val_pred = model.predict(X_val)
+        
+        # Calculate metrics
+        train_r2 = r2_score(y_train, train_pred)
+        val_r2 = r2_score(y_val, val_pred)
+        
+        # Direction accuracy
+        train_dir = np.mean(np.sign(train_pred) == np.sign(y_train)) * 100
+        val_dir = np.mean(np.sign(val_pred) == np.sign(y_val)) * 100
+        
+        # Generalization gap
+        gen_gap = abs(train_r2 - val_r2)
+        
+        training_info = {
+            'regime': regime,
+            'train_r2': train_r2,
+            'val_r2': val_r2,
+            'train_dir': train_dir,
+            'val_dir': val_dir,
+            'gen_gap': gen_gap,
+            'model_type': type(model).__name__,
+            'is_ensemble': hasattr(model, 'models'),
+            'num_features': len(X.columns)
+        }
+        
+        # Store model for regime
+        if regime:
+            self.regime_models[regime] = model
+        
+        return model, training_info
+    
+    def cross_validate(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        n_splits: int = 5,
+        regime: str = None
+    ) -> Dict:
+        """
+        Perform time series cross-validation
+        
+        Args:
+            X: Feature DataFrame
+            y: Target Series
+            n_splits: Number of CV splits
+            regime: Market regime
+            
+        Returns:
+            Dictionary with CV results
+        """
+        tscv = TimeSeriesSplit(n_splits=n_splits)
+        
+        cv_results = {
+            'train_r2_scores': [],
+            'val_r2_scores': [],
+            'train_dir_scores': [],
+            'val_dir_scores': [],
+            'gen_gaps': []
+        }
+        
+        for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
+            X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+            y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+            
+            # Train model
+            model, info = self.train_model(X_train, y_train, regime, validation_split=0.0)
+            
+            # Evaluate
+            val_pred = model.predict(X_val)
+            val_r2 = r2_score(y_val, val_pred)
+            val_dir = np.mean(np.sign(val_pred) == np.sign(y_val)) * 100
+            
+            cv_results['train_r2_scores'].append(info['train_r2'])
+            cv_results['val_r2_scores'].append(val_r2)
+            cv_results['train_dir_scores'].append(info['train_dir'])
+            cv_results['val_dir_scores'].append(val_dir)
+            cv_results['gen_gaps'].append(info['gen_gap'])
+        
+        # Calculate averages
+        cv_results['mean_val_r2'] = np.mean(cv_results['val_r2_scores'])
+        cv_results['mean_val_dir'] = np.mean(cv_results['val_dir_scores'])
+        cv_results['std_val_r2'] = np.std(cv_results['val_r2_scores'])
+        cv_results['std_val_dir'] = np.std(cv_results['val_dir_scores'])
+        cv_results['mean_gen_gap'] = np.mean(cv_results['gen_gaps'])
+        
+        return cv_results
+    
+    def select_best_features(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        max_features: int = 50
+    ) -> List[str]:
+        """
+        Select best features using ensemble importance
+        
+        Args:
+            X: Feature DataFrame
+            y: Target Series
+            max_features: Maximum number of features to select
             
         Returns:
             List of selected feature names
         """
-        if method == 'correlation':
-            # Calculate correlation with target
-            correlations = X_train.corrwith(y_train).abs()
-            top_features = correlations.nlargest(self.n_features).index.tolist()
+        # Train ensemble model
+        model, _ = self.train_model(X, y, validation_split=0.2)
+        
+        # Get feature importances
+        if hasattr(model, 'models'):
+            # Ensemble model - get average importance
+            all_importances = []
+            for base_model in model.models:
+                if hasattr(base_model, 'get_feature_importance'):
+                    importance_df = base_model.get_feature_importance()
+                    if importance_df is not None:
+                        all_importances.append(importance_df.set_index('feature')['importance'])
             
-            self.feature_importances = correlations.sort_values(ascending=False)
-            
-        elif method == 'mutual_info':
-            from sklearn.feature_selection import mutual_info_regression
-            mi_scores = mutual_info_regression(X_train, y_train, random_state=42)
-            mi_series = pd.Series(mi_scores, index=X_train.columns)
-            top_features = mi_series.nlargest(self.n_features).index.tolist()
-            
-            self.feature_importances = mi_series.sort_values(ascending=False)
-        
-        self.selected_features = top_features
-        
-        print(f"   🔧 Selected top {len(top_features)} features using {method}")
-        print(f"   📊 Top 10 features:")
-        for i, feat in enumerate(top_features[:10], 1):
-            importance = self.feature_importances[feat]
-            print(f"      {i:2}. {feat:25} : {importance:.4f}")
-        
-        return top_features
-    
-    def create_time_series_splits(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-        train_ratio: float = 0.6,
-        val_ratio: float = 0.2
-    ) -> Tuple:
-        """
-        Create time-series aware train/val/test splits
-        
-        Args:
-            X: Features
-            y: Target
-            train_ratio: Fraction for training
-            val_ratio: Fraction for validation
-            
-        Returns:
-            Tuple of (X_train, X_val, X_test, y_train, y_val, y_test)
-        """
-        n = len(X)
-        train_size = int(n * train_ratio)
-        val_size = int(n * val_ratio)
-        
-        # Time-series split (no shuffling)
-        X_train = X.iloc[:train_size]
-        y_train = y.iloc[:train_size]
-        
-        X_val = X.iloc[train_size:train_size+val_size]
-        y_val = y.iloc[train_size:train_size+val_size]
-        
-        X_test = X.iloc[train_size+val_size:]
-        y_test = y.iloc[train_size+val_size:]
-        
-        print(f"\n   📊 Data splits:")
-        print(f"      Train: {len(X_train)} samples ({len(X_train)/n*100:.1f}%)")
-        print(f"      Val:   {len(X_val)} samples ({len(X_val)/n*100:.1f}%)")
-        print(f"      Test:  {len(X_test)} samples ({len(X_test)/n*100:.1f}%)")
-        
-        return X_train, X_val, X_test, y_train, y_val, y_test
-    
-    def evaluate_model(
-        self,
-        model,
-        X_train, y_train,
-        X_val, y_val,
-        X_test, y_test
-    ) -> Dict:
-        """
-        Comprehensive model evaluation
-        
-        Returns:
-            Dictionary with all metrics
-        """
-        results = {}
-        
-        # Predictions
-        y_train_pred = model.predict(X_train)
-        y_val_pred = model.predict(X_val)
-        y_test_pred = model.predict(X_test)
-        
-        # R² scores
-        results['train_r2'] = r2_score(y_train, y_train_pred)
-        results['val_r2'] = r2_score(y_val, y_val_pred)
-        results['test_r2'] = r2_score(y_test, y_test_pred)
-        
-        # RMSE
-        results['train_rmse'] = np.sqrt(mean_squared_error(y_train, y_train_pred))
-        results['val_rmse'] = np.sqrt(mean_squared_error(y_val, y_val_pred))
-        results['test_rmse'] = np.sqrt(mean_squared_error(y_test, y_test_pred))
-        
-        # MAE
-        results['train_mae'] = mean_absolute_error(y_train, y_train_pred)
-        results['val_mae'] = mean_absolute_error(y_val, y_val_pred)
-        results['test_mae'] = mean_absolute_error(y_test, y_test_pred)
-        
-        # Directional accuracy
-        results['train_dir'] = np.mean((y_train > 0) == (y_train_pred > 0)) * 100
-        results['val_dir'] = np.mean((y_val > 0) == (y_val_pred > 0)) * 100
-        results['test_dir'] = np.mean((y_test > 0) == (y_test_pred > 0)) * 100
-        
-        return results
-    
-    def print_results(self, results: Dict):
-        """Print evaluation results in a nice format"""
-        print("\n" + "="*70)
-        print("MODEL EVALUATION RESULTS")
-        print("="*70)
-        
-        print(f"\n{'Metric':<20} {'Train':>12} {'Val':>12} {'Test':>12}")
-        print("-" * 70)
-        
-        print(f"{'R² Score':<20} {results['train_r2']:>12.4f} {results['val_r2']:>12.4f} {results['test_r2']:>12.4f}")
-        
-        if self.use_log_returns:
-            print(f"{'RMSE (log ret)':<20} {results['train_rmse']:>12.6f} {results['val_rmse']:>12.6f} {results['test_rmse']:>12.6f}")
-            print(f"{'MAE (log ret)':<20} {results['train_mae']:>12.6f} {results['val_mae']:>12.6f} {results['test_mae']:>12.6f}")
+            if all_importances:
+                avg_importance = pd.concat(all_importances, axis=1).mean(axis=1)
+                importance_df = pd.DataFrame({
+                    'feature': avg_importance.index,
+                    'importance': avg_importance.values
+                }).sort_values('importance', ascending=False)
+            else:
+                importance_df = None
         else:
-            print(f"{'RMSE ($)':<20} ${results['train_rmse']:>11.2f} ${results['val_rmse']:>11.2f} ${results['test_rmse']:>11.2f}")
-            print(f"{'MAE ($)':<20} ${results['train_mae']:>11.2f} ${results['val_mae']:>11.2f} ${results['test_mae']:>11.2f}")
+            # Single model
+            importance_df = model.get_feature_importance()
         
-        print(f"{'Direction Acc':<20} {results['train_dir']:>11.2f}% {results['val_dir']:>11.2f}% {results['test_dir']:>11.2f}%")
-        
-        # Diagnosis
-        print("\n" + "="*70)
-        print("DIAGNOSIS")
-        print("="*70)
-        
-        issues = []
-        
-        if results['train_r2'] > 0.95:
-            issues.append("⚠️ High train R² - possible overfitting")
-        
-        if results['test_r2'] < 0:
-            issues.append("🔴 CRITICAL: Test R² < 0 (worse than baseline)")
-        elif results['test_r2'] < 0.1:
-            issues.append("⚠️ Low test R² - poor generalization")
-        elif results['test_r2'] > 0.3:
-            issues.append("✅ Good test R² - model generalizes well")
-        
-        if results['test_dir'] < 52:
-            issues.append("🔴 CRITICAL: Direction accuracy < 52% (worse than random)")
-        elif results['test_dir'] < 55:
-            issues.append("⚠️ Low direction accuracy - barely better than random")
-        elif results['test_dir'] > 55:
-            issues.append("✅ Good direction accuracy - model predicts trends")
-        
-        gap = results['train_r2'] - results['test_r2']
-        if gap > 0.5:
-            issues.append(f"🔴 SEVERE overfitting gap: {gap:.2f}")
-        elif gap > 0.3:
-            issues.append(f"⚠️ Overfitting gap: {gap:.2f}")
+        if importance_df is not None:
+            # Select top features
+            top_features = importance_df.head(max_features)['feature'].tolist()
+            self.selected_features = top_features
+            self.feature_importances = importance_df
+            return top_features
         else:
-            issues.append(f"✅ Good generalization gap: {gap:.2f}")
-        
-        for issue in issues:
-            print(f"   {issue}")
-        
-        return results
+            # Fallback to all features
+            self.selected_features = X.columns.tolist()
+            return X.columns.tolist()

@@ -17,6 +17,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "requests>=2.32.5",
     "schedule>=1.2.2",
+    "lightgbm>=4.6.0",
 ]
 
 [dependency-groups]

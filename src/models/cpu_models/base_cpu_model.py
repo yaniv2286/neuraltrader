@@ -51,25 +51,26 @@ class BaseCPUModel(ABC):
         if isinstance(X, pd.DataFrame):
             if self.feature_names is None:
                 self.feature_names = X.columns.tolist()
-            X = X.values
+            X = X.values.astype(np.float64)
+        elif not isinstance(X, np.ndarray):
+            X = np.array(X, dtype=np.float64)
+        else:
+            X = X.astype(np.float64)
+        
+        # Handle Series input for y
+        if isinstance(y, pd.Series):
+            y = y.values.astype(np.float64)
+        elif y is not None and not isinstance(y, np.ndarray):
+            y = np.array(y, dtype=np.float64)
+        elif y is not None:
+            y = y.astype(np.float64)
+        
+        # Replace NaN with 0 for compatibility
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Data validation
-        if np.isnan(X).any():
-            nan_count = np.isnan(X).sum()
-            total_values = X.size
-            nan_pct = (nan_count / total_values) * 100
-            
-            # XGBoost and RandomForest can handle NaN, but warn if excessive
-            if nan_pct > 10:
-                import warnings
-                warnings.warn(
-                    f"High percentage of NaN values in features: {nan_pct:.2f}%. "
-                    f"Model will handle these internally, but consider imputation for better performance.",
-                    UserWarning
-                )
-        
         if np.isinf(X).any():
-            raise ValueError("Input contains infinite values. Please clean your data.")
+            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Scale features
         if fit_scaler:
@@ -272,6 +273,21 @@ class BaseCPUModel(ABC):
         clone = self.__class__(**self.model_params)
         clone.model_name = self.model_name
         return clone
+    
+    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+        """
+        Calculate R² score (sklearn compatibility)
+        
+        Args:
+            X: Feature matrix
+            y: True target values
+            
+        Returns:
+            R² score
+        """
+        from sklearn.metrics import r2_score
+        y_pred = self.predict(X)
+        return r2_score(y, y_pred)
     
     def get_info(self) -> Dict[str, Any]:
         """
