@@ -206,60 +206,33 @@ def run_three_way_comparison(
 
 
 def create_comparison_excel(results: Dict, output_path: str):
-    """Create Excel file with 3-strategy comparison."""
+    """Create Excel file with official 6-sheet schema."""
+    from src.core.excel_schema_v1 import create_comparison_excel as create_excel
+    
     print(f"\n📁 Creating comparison Excel: {output_path}")
     
-    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-        # Sheet 1: Overall Comparison
-        comparison_data = []
-        for strategy_name, result in results.items():
-            if 'error' not in result:
-                comparison_data.append({
-                    'Strategy': result.get('strategy_name', strategy_name),
-                    'Strategy ID': result.get('strategy_id', strategy_name),
-                    'CAGR (%)': result.get('cagr_pct', 0),
-                    'Max Drawdown (%)': result.get('max_drawdown_pct', 0),
-                    'Win Rate (%)': result.get('win_rate_pct', 0),
-                    'Profit Factor': result.get('profit_factor', 0),
-                    'Total Trades': result.get('total_trades', 0),
-                    'Winning Trades': result.get('winning_trades', 0),
-                    'Losing Trades': result.get('losing_trades', 0),
-                    'Avg Win (%)': result.get('avg_win_pct', 0),
-                    'Avg Loss (%)': result.get('avg_loss_pct', 0),
-                    'Initial Capital': result.get('initial_capital', 100000),
-                    'Final Capital': result.get('final_capital', 0),
-                    'Total Return (%)': result.get('total_return_pct', 0)
-                })
-        
-        if comparison_data:
-            comparison_df = pd.DataFrame(comparison_data)
-            comparison_df.to_excel(writer, sheet_name='Strategy_Comparison', index=False)
-        
-        # Sheet 2: All Trades (combined)
-        all_trades = []
-        for strategy_name, result in results.items():
-            if 'error' not in result and 'trades' in result:
-                trades_df = result['trades'].copy()
-                trades_df['strategy'] = result.get('strategy_name', strategy_name)
-                all_trades.append(trades_df)
-        
-        if all_trades:
-            combined_trades = pd.concat(all_trades, ignore_index=True)
-            combined_trades.to_excel(writer, sheet_name='All_Trades', index=False)
-        
-        # Sheet 3: Equity Curves (combined)
-        all_equity = []
-        for strategy_name, result in results.items():
-            if 'error' not in result and 'equity_curve' in result:
-                equity_df = result['equity_curve'].copy()
-                equity_df['strategy'] = result.get('strategy_name', strategy_name)
-                all_equity.append(equity_df)
-        
-        if all_equity:
-            combined_equity = pd.concat(all_equity, ignore_index=True)
-            combined_equity.to_excel(writer, sheet_name='Equity_Curves', index=False)
+    # Convert results dict to list format
+    strategies_results = []
+    for strategy_name, result in results.items():
+        strategies_results.append(result)
     
-    print(f"   ✅ Excel file created: {output_path}")
+    # Run metadata
+    run_metadata = {
+        'run_id': datetime.now().strftime('%Y%m%d_%H%M%S'),
+        'timestamp': datetime.now().isoformat(),
+        'baseline_strategy_id': 'AI_Ensemble_V2',
+        'tickers_count': 154,
+        'date_range_start': '2015-01-01',
+        'date_range_end': '2024-12-31',
+        'entry_logic': 'Strategy-specific entry rules (AI signals or Sweet Spot momentum)',
+        'exit_logic': 'Trailing stops + strategy-specific exit rules',
+        'pass_fail_logic': 'CAGR > 20% AND Max DD < 20%'
+    }
+    
+    # Create Excel with official schema
+    create_excel(strategies_results, output_path, run_metadata)
+    
+    print(f"   ✅ Excel file created with official 6-sheet schema")
 
 
 if __name__ == "__main__":
