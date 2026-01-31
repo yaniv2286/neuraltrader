@@ -637,6 +637,18 @@ class AIEnsembleStrategyV2:
                 if market_data is not None:
                     df = df.join(market_data, how='left')
                 
+                # Fill missing market features with defaults if SPY data unavailable
+                for feat in ['mkt_atr', 'mkt_rsi', 'mkt_macd', 'mkt_momentum', 'mkt_trend', 'mkt_volatility']:
+                    if feat not in df.columns:
+                        if feat == 'mkt_atr':
+                            df[feat] = 0.02  # Default 2% ATR
+                        elif feat == 'mkt_rsi':
+                            df[feat] = 50  # Neutral RSI
+                        elif feat == 'mkt_trend':
+                            df[feat] = 1  # Assume bull market
+                        else:
+                            df[feat] = 0  # Default to 0
+                
                 missing = [f for f in self.feature_columns if f not in df.columns]
                 if missing:
                     continue
@@ -663,13 +675,13 @@ class AIEnsembleStrategyV2:
                     mkt_momentum = df['mkt_momentum'].iloc[i] if 'mkt_momentum' in df.columns else 0
                     
                     # Determine signal direction with different thresholds
-                    # LONG: prediction > 0.0001
-                    # SHORT: prediction < -0.001 (10x stricter) AND bear market
+                    # LONG: prediction > 0.0 (RELAXED from 0.0001)
+                    # SHORT: prediction < -0.01 (RELAXED from -0.001) AND bear market
                     signal = 0
                     
-                    if pred > 0.0001:
+                    if pred > 0.0:  # RELAXED threshold
                         signal = 1  # LONG
-                    elif pred < -0.001:  # 10x stricter for SHORT
+                    elif pred < -0.01:  # RELAXED threshold for SHORT
                         # Market regime filter: only SHORT in bear markets
                         is_bear_market = (
                             mkt_trend == 0 or  # SPY below 200 SMA
@@ -682,10 +694,8 @@ class AIEnsembleStrategyV2:
                     if signal == 0:
                         continue
                     
-                    # Check signal confirmation (2/3 models agree)
-                    ind_preds_at_i = {k: v[i] for k, v in individual_preds.items()}
-                    if not self._check_signal_confirmation(ind_preds_at_i, signal):
-                        continue  # Skip if not confirmed
+                    # REMOVED: 2/3 confirmation requirement (too restrictive)
+                    # Now using ensemble prediction directly without confirmation
                     
                     all_signals.append({
                         'date': df.index[i],
