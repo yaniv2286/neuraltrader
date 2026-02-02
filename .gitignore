@@ -65,4 +65,8 @@ desktop.ini
 .pytest_cache/
 __pypackages__/
 
+# === Archive Folder (for audit files and old code) ===
+archive/
+temp/
+
 *.csv

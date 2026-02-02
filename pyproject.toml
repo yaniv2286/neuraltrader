@@ -18,6 +18,10 @@ dependencies = [
     "requests>=2.32.5",
     "schedule>=1.2.2",
     "lightgbm>=4.6.0",
+    "pyarrow>=15.0.0",
+    "fastparquet>=2024.2.0",
+    "pytorch-forecasting>=1.0.0",
+    "tiingo>=0.14.0",
 ]
 
 [dependency-groups]

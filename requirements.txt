@@ -1,0 +1,51 @@
+# NeuralTrader Private Fund Requirements
+# =======================================
+
+# Core Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=15.0.0
+fastparquet>=2024.2.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+lightgbm>=4.6.0
+torch>=2.0.0
+pytorch-forecasting>=1.0.0
+
+# Technical Analysis
+ta>=0.10.2
+
+# Data Sources
+tiingo>=0.14.0
+requests>=2.32.5
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Configuration & Utilities
+PyYAML>=6.0.2
+openpyxl>=3.1.5
+schedule>=1.2.2
+
+# Development & Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Optional: GPU Support (uncomment if GPU available)
+# torch-audio>=2.0.0
+# torchvision>=0.15.0
+
+# Optional: Advanced ML (uncomment as needed)
+# catboost>=1.2.0
+# optuna>=3.0.0
+# shap>=0.41.0
+
+# Optional: Real-time Data (uncomment for live trading)
+# websocket-client>=1.6.0
+# python-telegram-bot>=20.0.0
