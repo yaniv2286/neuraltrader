@@ -24,7 +24,7 @@ import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-import alpaca_trade_api as tradeapi
+from ib_insync import IB, Stock, Order, util
 
 # Configure logging
 logging.basicConfig(
@@ -49,26 +49,20 @@ class RiskManager:
     Enforces all risk management rules and capital protection
     """
     
-    def __init__(self, api_key: str = None, secret_key: str = None):
-        """Initialize Risk Manager with Alpaca API"""
-        self.api_key = api_key or os.getenv('ALPACA_API_KEY')
-        self.secret_key = secret_key or os.getenv('ALPACA_SECRET_KEY')
-        self.paper_url = 'https://paper-api.alpaca.markets'
-        
-        if not self.api_key or not self.secret_key:
-            raise ValueError("Please set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
-        
-        # Initialize Alpaca API
-        self.api = tradeapi.REST(
-            key_id=self.api_key,
-            secret_key=self.secret_key,
-            base_url=self.paper_url
-        )
+    def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 2):
+        """Initialize Risk Manager with IBKR connection"""
+        self.host = host
+        self.port = port
+        self.client_id = client_id
         
         # Risk parameters (Phase 5 optimized)
         self.risk_per_trade = 0.009  # 0.9% risk per trade
         self.max_sector_exposure = 0.30  # 30% max per sector
         self.black_swan_threshold = 0.15  # 15% VXX surge
+        
+        # Initialize IB connection
+        self.ib = None
+        self._connect_ibkr()
         
         # Sector mappings for S&P 100 universe
         self.sector_mappings = {
@@ -138,6 +132,22 @@ class RiskManager:
         logger.info(f"Max sector exposure: {self.max_sector_exposure:.1%}")
         logger.info(f"Black Swan threshold: {self.black_swan_threshold:.1%}")
     
+    def _connect_ibkr(self):
+        """Connect to Interactive Brokers"""
+        try:
+            self.ib = IB()
+            self.ib.connect(host=self.host, port=self.port, clientId=self.client_id)
+            
+            if self.ib.isConnected():
+                logger.info("✅ Connected to Interactive Brokers")
+            else:
+                logger.error("❌ Failed to connect to Interactive Brokers")
+                raise ConnectionError("Could not connect to IBKR")
+                
+        except Exception as e:
+            logger.error(f"Error connecting to IBKR: {e}")
+            raise
+    
     def evaluate_trade(self, ticker: str, current_price: float, account_info: Dict, 
                       current_positions: List[Dict], market_data: Dict = None) -> Tuple[str, Dict]:
         """
@@ -201,26 +211,40 @@ class RiskManager:
     
     def _check_black_swan(self) -> str:
         """
-        Check for Black Swan event (VXX surge > 15%)
+        Check for Black Swan event (VXX surge > 15%) using IBKR
         
         Returns:
             RiskDecision constant
         """
         try:
-            # Get VXX data for the last 5 trading days
-            vxx_bars = self.api.get_bars(
-                symbol='VXX',
-                timeframe=tradeapi.TimeFrame.Day,
-                limit=7  # Get extra days for weekends
-            ).df
+            # Ensure IBKR connection
+            if not self.ib.isConnected():
+                self._connect_ibkr()
             
-            if vxx_bars.empty or len(vxx_bars) < 5:
+            # Get VXX data
+            vxx_contract = Stock('VXX', 'SMART', 'USD')
+            
+            # Calculate date range (last 5 trading days)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=7)  # Extra buffer for weekends
+            
+            # Request historical data
+            vxx_bars = self.ib.reqHistoricalData(
+                vxx_contract,
+                start=start_date,
+                end=end_date,
+                barSize='1 day',
+                whatToShow='TRADES',
+                useRTH=True
+            )
+            
+            if not vxx_bars or len(vxx_bars) < 5:
                 logger.warning("Insufficient VXX data for Black Swan check")
                 return RiskDecision.APPROVED  # Allow if can't check
             
             # Calculate 5-day return
-            recent_close = vxx_bars['close'].iloc[-1]
-            five_days_ago_close = vxx_bars['close'].iloc[-5]
+            recent_close = vxx_bars[-1].close
+            five_days_ago_close = vxx_bars[0].close
             vxx_return = (recent_close - five_days_ago_close) / five_days_ago_close
             
             logger.info(f"VXX 5-day return: {vxx_return:.2%}")
@@ -589,16 +613,27 @@ class RiskManager:
             return 0.0
     
     def get_account_info(self) -> Dict:
-        """Get current account information"""
+        """Get current account information from IBKR"""
         try:
-            account = self.api.get_account()
+            if not self.ib.isConnected():
+                self._connect_ibkr()
             
+            # Get account summary
+            account_summary = self.ib.accountSummary()
+            
+            account_info = {}
+            for item in account_summary:
+                account_info[item.tag] = item.value
+            
+            # Convert to proper types
             return {
-                'equity': float(account.equity),
-                'cash': float(account.cash),
-                'portfolio_value': float(account.portfolio_value),
-                'buying_power': float(account.buying_power),
-                'daytrade_count': int(account.daytrade_count)
+                'account_id': account_info.get('AccountId', ''),
+                'equity': float(account_info.get('NetLiquidation', 0)),
+                'cash': float(account_info.get('CashBalance', 0)),
+                'portfolio_value': float(account_info.get('NetLiquidation', 0)),
+                'buying_power': float(account_info.get('BuyingPower', 0)),
+                'maint_margin_req': float(account_info.get('MaintMarginReq', 0)),
+                'available_funds': float(account_info.get('AvailableFunds', 0))
             }
             
         except Exception as e:
@@ -606,20 +641,29 @@ class RiskManager:
             return {}
     
     def get_current_positions(self) -> List[Dict]:
-        """Get current positions"""
+        """Get current positions from IBKR"""
         try:
-            positions = self.api.list_positions()
+            if not self.ib.isConnected():
+                self._connect_ibkr()
+            
+            positions = self.ib.positions()
             
             return [
                 {
-                    'symbol': pos.symbol,
-                    'qty': float(pos.qty),
-                    'market_value': float(pos.market_value),
-                    'cost_basis': float(pos.cost_basis),
-                    'unrealized_pl': float(pos.unrealized_pl),
-                    'side': 'long' if float(pos.qty) > 0 else 'short'
+                    'symbol': pos.contract.symbol,
+                    'sec_type': pos.contract.secType,
+                    'exchange': pos.contract.exchange,
+                    'currency': pos.contract.currency,
+                    'position': float(pos.position),
+                    'market_price': float(pos.marketPrice),
+                    'market_value': float(pos.marketValue),
+                    'average_cost': float(pos.averageCost),
+                    'unrealized_pl': float(pos.unrealizedPNL),
+                    'realized_pl': float(pos.realizedPNL),
+                    'account': pos.account
                 }
                 for pos in positions
+                if pos.position != 0  # Only include positions with non-zero quantity
             ]
             
         except Exception as e:

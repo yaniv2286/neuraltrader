@@ -25,8 +25,7 @@ import numpy as np
 import pytz
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
-import alpaca_trade_api as tradeapi
-from alpaca_trade_api.rest import TimeFrame
+from ib_insync import IB, Stock, util
 
 # Configure logging
 logging.basicConfig(
@@ -41,21 +40,15 @@ class DataManager:
     Fetches and validates market data with safety checks
     """
     
-    def __init__(self, api_key: str = None, secret_key: str = None):
-        """Initialize Data Manager with Alpaca API"""
-        self.api_key = api_key or os.getenv('ALPACA_API_KEY')
-        self.secret_key = secret_key or os.getenv('ALPACA_SECRET_KEY')
-        self.paper_url = 'https://paper-api.alpaca.markets'
+    def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 1):
+        """Initialize Data Manager with IBKR connection"""
+        self.host = host
+        self.port = port
+        self.client_id = client_id
         
-        if not self.api_key or not self.secret_key:
-            raise ValueError("Please set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
-        
-        # Initialize Alpaca API
-        self.api = tradeapi.REST(
-            key_id=self.api_key,
-            secret_key=self.secret_key,
-            base_url=self.paper_url
-        )
+        # Initialize IB connection
+        self.ib = None
+        self._connect_ibkr()
         
         # S&P 100 ticker universe (Phase 6.1 production)
         self.sp100_tickers = [
@@ -72,8 +65,169 @@ class DataManager:
         # Use S&P 100 as default universe
         self.curated_tickers = self.sp100_tickers
         
-        logger.info("Data Manager initialized")
+        logger.info("Data Manager initialized (IBKR)")
+        logger.info(f"Connection: {host}:{port} (Paper Trading)")
         logger.info(f"S&P 100 Universe: {len(self.sp100_tickers)} tickers")
+    
+    def _connect_ibkr(self):
+        """Connect to Interactive Brokers"""
+        try:
+            self.ib = IB()
+            self.ib.connect(host=self.host, port=self.port, clientId=self.client_id)
+            
+            if self.ib.isConnected():
+                logger.info("✅ Connected to Interactive Brokers")
+            else:
+                logger.error("❌ Failed to connect to Interactive Brokers")
+                raise ConnectionError("Could not connect to IBKR")
+                
+        except Exception as e:
+            logger.error(f"Error connecting to IBKR: {e}")
+            raise
+    
+    def fetch_daily_data(self, tickers: List[str] = None, days_back: int = 30) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch daily OHLCV data with safety checks using IBKR
+        
+        Args:
+            tickers: List of tickers to fetch (defaults to curated universe)
+            days_back: Number of days of historical data to fetch
+            
+        Returns:
+            Dictionary of ticker -> DataFrame with OHLCV data
+        """
+        if tickers is None:
+            tickers = self.curated_tickers
+        
+        logger.info(f"Fetching daily data for {len(tickers)} tickers")
+        
+        data = {}
+        valid_tickers = []
+        excluded_tickers = []
+        
+        for ticker in tickers:
+            try:
+                df = self._fetch_ticker_data_ibkr(ticker, days_back)
+                
+                if df is not None and not df.empty:
+                    # Safety check: Validate data quality
+                    if self._validate_data_quality(ticker, df):
+                        data[ticker] = df
+                        valid_tickers.append(ticker)
+                        logger.info(f"✅ {ticker}: {len(df)} days of data")
+                    else:
+                        excluded_tickers.append(ticker)
+                        logger.warning(f"❌ {ticker}: Failed data quality validation")
+                else:
+                    excluded_tickers.append(ticker)
+                    logger.warning(f"❌ {ticker}: No data fetched")
+                    
+            except Exception as e:
+                excluded_tickers.append(ticker)
+                logger.error(f"❌ {ticker}: Error fetching data - {e}")
+        
+        # Log summary
+        logger.info(f"Data fetch summary: {len(valid_tickers)} valid, {len(excluded_tickers)} excluded")
+        if excluded_tickers:
+            logger.warning(f"Excluded tickers: {excluded_tickers}")
+        
+        return data
+    
+    def _fetch_ticker_data_ibkr(self, ticker: str, days_back: int) -> Optional[pd.DataFrame]:
+        """Fetch data for a single ticker using IBKR"""
+        try:
+            # Ensure IBKR connection
+            if not self.ib.isConnected():
+                self._connect_ibkr()
+            
+            # Create contract
+            contract = Stock(ticker, 'SMART', 'USD')
+            
+            # Calculate date range
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back + 30)  # Extra buffer for weekends/holidays
+            
+            # Request historical data
+            bars = self.ib.reqHistoricalData(
+                contract,
+                start=start_date,
+                end=end_date,
+                barSize='1 day',
+                whatToShow='TRADES',
+                useRTH=True
+            )
+            
+            if not bars:
+                return None
+            
+            # Convert to DataFrame
+            data = []
+            for bar in bars:
+                data.append({
+                    'date': bar.date,
+                    'open': bar.open,
+                    'high': bar.high,
+                    'low': bar.low,
+                    'close': bar.close,
+                    'volume': bar.volume
+                })
+            
+            df = pd.DataFrame(data)
+            df = df.sort_values('date').reset_index(drop=True)
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error fetching {ticker} from IBKR: {e}")
+            return None
+    
+    def _validate_data_quality(self, ticker: str, df: pd.DataFrame) -> bool:
+        """
+        Validate data quality with safety checks
+        
+        Args:
+            ticker: Ticker symbol
+            df: DataFrame with OHLCV data
+            
+        Returns:
+            True if data passes validation, False otherwise
+        """
+        try:
+            # Check minimum data requirements
+            if len(df) < 14:  # Need at least 14 days for ATR
+                logger.warning(f"{ticker}: Insufficient data ({len(df)} days < 14)")
+                return False
+            
+            # Check for null values
+            if df.isnull().any().any():
+                logger.warning(f"{ticker}: Contains null values")
+                return False
+            
+            # Check for zero or negative prices
+            price_cols = ['open', 'high', 'low', 'close']
+            for col in price_cols:
+                if (df[col] <= 0).any():
+                    logger.warning(f"{ticker}: Contains non-positive {col} values")
+                    return False
+            
+            # Check price consistency (high >= low, etc.)
+            if not (df['high'] >= df['low']).all():
+                logger.warning(f"{ticker}: High < Low inconsistency")
+                return False
+            
+            if not ((df['high'] >= df['open']) & (df['high'] >= df['close'])).all():
+                logger.warning(f"{ticker}: High price inconsistency")
+                return False
+            
+            if not ((df['low'] <= df['open']) & (df['low'] <= df['close'])).all():
+                logger.warning(f"{ticker}: Low price inconsistency")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating {ticker}: {e}")
+            return False
     
     def calculate_53_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """

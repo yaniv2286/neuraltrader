@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 class TradingOrchestrator:
     """
-    Main Trading Orchestrator - The Pilot
+    Main Trading Orchestrator - The Pilot (IBKR Version)
     Coordinates all trading modules with safety and automation
     """
     
@@ -68,7 +68,7 @@ class TradingOrchestrator:
         self.execution_manager = None
         self.email_notifier = None
         
-        logger.info("Trading Orchestrator initialized")
+        logger.info("Trading Orchestrator initialized (IBKR)")
     
     def check_kill_switch(self) -> bool:
         """
@@ -104,7 +104,7 @@ class TradingOrchestrator:
             
             # Initialize Execution Manager
             self.execution_manager = ExecutionManager()
-            logger.info("✅ Execution Manager initialized")
+            logger.info("✅ Execution Manager initialized (IBKR)")
             
             # Initialize Email Notifier
             self.email_notifier = EmailNotifier()

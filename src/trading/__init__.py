@@ -1,19 +1,19 @@
 """
-NeuralTrader Trading Module
-==========================
+NeuralTrader Trading Module (IBKR Version)
+======================================
 
-This module contains trading-related functionality for NeuralTrader Phase 6 deployment.
+This module contains trading-related functionality for NeuralTrader Phase 6 International Deployment.
 
 Modules:
-- data_manager: Market data fetching and validation (The Sentry)
-- risk_manager: Risk management and position sizing (The Constitution)
-- execution_manager: Order execution and logging (The Bridge)
-- alpaca_paper_trading: Complete paper trading system
+- data_manager: Market data fetching and validation (The Sentry) - IBKR integration
+- risk_manager: Risk management and position sizing (The Constitution) - Maintained logic
+- execution_manager: Order execution and logging (The Bridge) - IBKR integration
+- alpaca_paper_trading: Legacy Alpaca system (deprecated)
 
 Usage:
     from src.trading import DataManager, RiskManager, ExecutionManager
     
-    # Initialize modules
+    # Initialize modules (IBKR)
     dm = DataManager()
     rm = RiskManager()
     em = ExecutionManager()
