@@ -1,15 +1,17 @@
 """
-NeuralTrader Data Manager - The Sentry
-=====================================
+NeuralTrader Data Manager - The Sentry (Yahoo Finance Version)
+================================================================
 
-Responsible for fetching, validating, and managing market data for paper trading.
-Implements safety checks and data quality validation.
+Handles market data fetching and validation using Yahoo Finance.
+Provides robust data management with comprehensive logging and error handling.
 
 Features:
-- Daily OHLCV data fetching with split/dividend adjustments
-- Missing data detection and ticker exclusion
-- ATR calculation for risk management validation
-- Data quality assurance and logging
+- Yahoo Finance integration for S&P 100 data
+- Daily OHLCV data fetching with yfinance
+- 53 technical indicators calculation
+- Data quality validation and safety checks
+- Timezone-aware market status checks
+- Single daily execution enforcement
 
 Usage:
     from src.trading.data_manager import DataManager
@@ -25,7 +27,7 @@ import numpy as np
 import pytz
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
-from ib_insync import IB, Stock, util
+import yfinance as yf
 
 # Configure logging
 logging.basicConfig(
@@ -36,23 +38,19 @@ logger = logging.getLogger(__name__)
 
 class DataManager:
     """
-    Data Manager - The Sentry
+    Data Manager - The Sentry (Yahoo Finance Version)
     Fetches and validates market data with safety checks
     """
     
-    def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 1):
-        """Initialize Data Manager with IBKR connection"""
-        self.host = host
-        self.port = port
-        self.client_id = client_id
+    def __init__(self):
+        """Initialize Data Manager with Yahoo Finance"""
+        # Timezone setup
+        self.eastern = pytz.timezone('US/Eastern')
+        self.israel = pytz.timezone('Asia/Jerusalem')
         
-        # Initialize IB connection
-        self.ib = None
-        self._connect_ibkr()
-        
-        # S&P 100 ticker universe (Phase 6.1 production)
+        # S&P 100 ticker universe
         self.sp100_tickers = [
-            'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'META', 'TSLA', 'BRK.B', 'UNH',
+            'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'META', 'TSLA', 'BRK-B', 'UNH',
             'JNJ', 'XOM', 'JPM', 'V', 'PG', 'MA', 'AVGO', 'CVX', 'HD', 'ABBV', 'MRK', 'LLY', 'PEP', 'KO',
             'COST', 'TMO', 'CSCO', 'PFE', 'MCD', 'CRM', 'BAC', 'ADBE', 'WMT', 'CMCSA', 'DIS', 'NFLX',
             'ABT', 'VZ', 'ORCL', 'TXN', 'AMD', 'LIN', 'PM', 'UPS', 'NKE', 'HON', 'UNP', 'RTX', 'INTU',
@@ -65,33 +63,16 @@ class DataManager:
         # Use S&P 100 as default universe
         self.curated_tickers = self.sp100_tickers
         
-        logger.info("Data Manager initialized (IBKR)")
-        logger.info(f"Connection: {host}:{port} (Paper Trading)")
+        logger.info("Data Manager initialized (Yahoo Finance)")
         logger.info(f"S&P 100 Universe: {len(self.sp100_tickers)} tickers")
     
-    def _connect_ibkr(self):
-        """Connect to Interactive Brokers"""
-        try:
-            self.ib = IB()
-            self.ib.connect(host=self.host, port=self.port, clientId=self.client_id)
-            
-            if self.ib.isConnected():
-                logger.info("✅ Connected to Interactive Brokers")
-            else:
-                logger.error("❌ Failed to connect to Interactive Brokers")
-                raise ConnectionError("Could not connect to IBKR")
-                
-        except Exception as e:
-            logger.error(f"Error connecting to IBKR: {e}")
-            raise
-    
-    def fetch_daily_data(self, tickers: List[str] = None, days_back: int = 30) -> Dict[str, pd.DataFrame]:
+    def fetch_daily_data(self, tickers: List[str] = None, period: str = "1y") -> Dict[str, pd.DataFrame]:
         """
-        Fetch daily OHLCV data with safety checks using IBKR
+        Fetch daily OHLCV data with safety checks using Yahoo Finance
         
         Args:
             tickers: List of tickers to fetch (defaults to curated universe)
-            days_back: Number of days of historical data to fetch
+            period: Data period (default: 1y for 1 year)
             
         Returns:
             Dictionary of ticker -> DataFrame with OHLCV data
@@ -99,87 +80,79 @@ class DataManager:
         if tickers is None:
             tickers = self.curated_tickers
         
-        logger.info(f"Fetching daily data for {len(tickers)} tickers")
+        logger.info(f"Fetching daily data for {len(tickers)} tickers from Yahoo Finance")
         
         data = {}
         valid_tickers = []
         excluded_tickers = []
         
-        for ticker in tickers:
+        # Fetch data in batches to avoid API limits
+        batch_size = 50
+        for i in range(0, len(tickers), batch_size):
+            batch = tickers[i:i + batch_size]
+            
             try:
-                df = self._fetch_ticker_data_ibkr(ticker, days_back)
+                # Download batch data
+                batch_data = yf.download(batch, period=period, progress=False)
                 
-                if df is not None and not df.empty:
-                    # Safety check: Validate data quality
-                    if self._validate_data_quality(ticker, df):
-                        data[ticker] = df
-                        valid_tickers.append(ticker)
-                        logger.info(f"✅ {ticker}: {len(df)} days of data")
-                    else:
-                        excluded_tickers.append(ticker)
-                        logger.warning(f"❌ {ticker}: Failed data quality validation")
-                else:
-                    excluded_tickers.append(ticker)
-                    logger.warning(f"❌ {ticker}: No data fetched")
+                if batch_data.empty:
+                    logger.warning(f"No data fetched for batch {i//batch_size + 1}")
+                    continue
+                
+                # Process each ticker in the batch
+                for ticker in batch:
+                    try:
+                        # Extract ticker data (multi-level index handling)
+                        if 'Close' in batch_data.columns:
+                            ticker_data = batch_data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+                            
+                            # Handle multi-level columns
+                            if isinstance(ticker_data.columns, pd.MultiIndex):
+                                ticker_data = ticker_data.xs(ticker, axis=1, level=1)
+                            
+                            # Reset index to get dates as a column
+                            ticker_data.reset_index(inplace=True)
+                            ticker_data.rename(columns={'Date': 'date'}, inplace=True)
+                            
+                            # Ensure required columns exist
+                            required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
+                            ticker_data.columns = [col.lower() for col in ticker_data.columns]
+                            
+                            if all(col in ticker_data.columns for col in required_cols):
+                                # Safety check: Validate data quality
+                                if self._validate_data_quality(ticker, ticker_data):
+                                    data[ticker] = ticker_data
+                                    valid_tickers.append(ticker)
+                                    logger.info(f"✅ {ticker}: {len(ticker_data)} days of data")
+                                else:
+                                    excluded_tickers.append(ticker)
+                                    logger.warning(f"❌ {ticker}: Failed data quality validation")
+                            else:
+                                excluded_tickers.append(ticker)
+                                logger.warning(f"❌ {ticker}: Missing required columns")
+                        else:
+                            excluded_tickers.append(ticker)
+                            logger.warning(f"❌ {ticker}: No Close data available")
                     
+                    except Exception as e:
+                        excluded_tickers.append(ticker)
+                        logger.error(f"❌ {ticker}: Error processing data - {e}")
+                
+                # Small delay between batches
+                if i + batch_size < len(tickers):
+                    import time
+                    time.sleep(0.5)
+            
             except Exception as e:
-                excluded_tickers.append(ticker)
-                logger.error(f"❌ {ticker}: Error fetching data - {e}")
+                logger.error(f"Error fetching batch {i//batch_size + 1}: {e}")
+                continue
         
         # Log summary
         logger.info(f"Data fetch summary: {len(valid_tickers)} valid, {len(excluded_tickers)} excluded")
         if excluded_tickers:
-            logger.warning(f"Excluded tickers: {excluded_tickers}")
+            logger.warning(f"Excluded tickers: {excluded_tickers[:10]}...")  # Show first 10
         
         return data
-    
-    def _fetch_ticker_data_ibkr(self, ticker: str, days_back: int) -> Optional[pd.DataFrame]:
-        """Fetch data for a single ticker using IBKR"""
-        try:
-            # Ensure IBKR connection
-            if not self.ib.isConnected():
-                self._connect_ibkr()
-            
-            # Create contract
-            contract = Stock(ticker, 'SMART', 'USD')
-            
-            # Calculate date range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days_back + 30)  # Extra buffer for weekends/holidays
-            
-            # Request historical data
-            bars = self.ib.reqHistoricalData(
-                contract,
-                start=start_date,
-                end=end_date,
-                barSize='1 day',
-                whatToShow='TRADES',
-                useRTH=True
-            )
-            
-            if not bars:
-                return None
-            
-            # Convert to DataFrame
-            data = []
-            for bar in bars:
-                data.append({
-                    'date': bar.date,
-                    'open': bar.open,
-                    'high': bar.high,
-                    'low': bar.low,
-                    'close': bar.close,
-                    'volume': bar.volume
-                })
-            
-            df = pd.DataFrame(data)
-            df = df.sort_values('date').reset_index(drop=True)
-            
-            return df
-            
-        except Exception as e:
-            logger.error(f"Error fetching {ticker} from IBKR: {e}")
-            return None
     
     def _validate_data_quality(self, ticker: str, df: pd.DataFrame) -> bool:
         """
@@ -228,6 +201,138 @@ class DataManager:
         except Exception as e:
             logger.error(f"Error validating {ticker}: {e}")
             return False
+    
+    def get_market_status(self) -> Dict:
+        """
+        Get current market status with timezone awareness
+        
+        Returns:
+            Dictionary with market status information
+        """
+        try:
+            now_eastern = datetime.now(self.eastern)
+            now_israel = datetime.now(self.israel)
+            
+            # Check if market is open (9:30 AM - 4:00 PM EST, Mon-Fri)
+            is_weekday = now_eastern.weekday() < 5  # 0-4 = Mon-Fri
+            market_open = now_eastern.replace(hour=9, minute=30)
+            market_close = now_eastern.replace(hour=16, minute=0)
+            
+            is_market_hours = is_weekday and market_open <= now_eastern <= market_close
+            
+            # Trading window for execution (9:45 AM - 3:45 PM EST)
+            execution_open = now_eastern.replace(hour=9, minute=45)
+            execution_close = now_eastern.replace(hour=15, minute=45)
+            
+            is_execution_window = is_weekday and execution_open <= now_eastern <= execution_close
+            
+            return {
+                'timestamp_eastern': now_eastern.strftime('%Y-%m-%d %H:%M:%S EST'),
+                'timestamp_israel': now_israel.strftime('%Y-%m-%d %H:%M:%S IST'),
+                'is_weekday': is_weekday,
+                'is_market_open': is_market_hours,
+                'is_execution_window': is_execution_window,
+                'market_open_time': market_open.strftime('%H:%M EST'),
+                'market_close_time': market_close.strftime('%H:%M EST'),
+                'execution_window': f"{execution_open.strftime('%H:%M')} - {execution_close.strftime('%H:%M')} EST",
+                'israel_time': now_israel.strftime('%H:%M IST')
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting market status: {e}")
+            return {}
+    
+    def check_daily_execution_limit(self) -> bool:
+        """
+        Check if daily execution limit has been reached
+        
+        Returns:
+            True if execution allowed, False if limit reached
+        """
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            log_file = 'logs/daily_execution.log'
+            
+            # Create log file if it doesn't exist
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            
+            if os.path.exists(log_file):
+                with open(log_file, 'r') as f:
+                    content = f.read()
+                    
+                # Check if today's date is in the log
+                if today in content:
+                    logger.info(f"Daily execution already completed for {today}")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking daily execution limit: {e}")
+            return True  # Allow execution if check fails
+    
+    def log_daily_execution(self):
+        """Log daily execution completion"""
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            log_file = 'logs/daily_execution.log'
+            
+            with open(log_file, 'a') as f:
+                f.write(f"{today}: Daily execution completed\n")
+            
+            logger.info(f"Logged daily execution for {today}")
+            
+        except Exception as e:
+            logger.error(f"Error logging daily execution: {e}")
+    
+    def fetch_latest_prices(self, tickers: List[str]) -> Dict[str, float]:
+        """
+        Fetch latest prices for specified tickers
+        
+        Args:
+            tickers: List of ticker symbols
+            
+        Returns:
+            Dictionary of ticker -> latest price
+        """
+        try:
+            logger.info(f"Fetching latest prices for {len(tickers)} tickers")
+            
+            # Fetch data for today
+            data = yf.download(tickers, period="1d", progress=False)
+            
+            if data.empty:
+                logger.warning("No data fetched for latest prices")
+                return {}
+            
+            prices = {}
+            for ticker in tickers:
+                try:
+                    if 'Close' in data.columns:
+                        # Handle single ticker case
+                        if isinstance(data['Close'], pd.Series):
+                            price = data['Close'].iloc[-1]
+                        else:
+                            # Handle multiple tickers
+                            price = data['Close'][ticker].iloc[-1]
+                        
+                        if pd.notna(price) and price > 0:
+                            prices[ticker] = float(price)
+                        else:
+                            logger.warning(f"Invalid price for {ticker}: {price}")
+                    else:
+                        logger.warning(f"No Close data for {ticker}")
+                
+                except Exception as e:
+                    logger.error(f"Error getting price for {ticker}: {e}")
+                    continue
+            
+            logger.info(f"Fetched latest prices: {len(prices)} tickers")
+            return prices
+            
+        except Exception as e:
+            logger.error(f"Error fetching latest prices: {e}")
+            return {}
     
     def calculate_53_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -397,41 +502,96 @@ class DataManager:
             logger.error(f"Error calculating 53 indicators: {e}")
             return df
     
-    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
-        """Calculate ADX (Average Directional Index)"""
+    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """
+        Calculate Average True Range (ATR)
+        
+        Args:
+            df: DataFrame with OHLC data
+            period: ATR period
+            
+        Returns:
+            Series with ATR values
+        """
         try:
-            high = df['high']
-            low = df['low']
-            close = df['close']
+            high_low = df['high'] - df['low']
+            high_close = abs(df['high'] - df['close'].shift())
+            low_close = abs(df['low'] - df['close'].shift())
             
-            # True Range
-            tr1 = high - low
-            tr2 = abs(high - close.shift())
-            tr3 = abs(low - close.shift())
-            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = true_range.rolling(window=period).mean()
             
-            # Directional Movement
-            up_move = high - high.shift()
-            down_move = low.shift() - low
+            return atr
+            
+        except Exception as e:
+            logger.error(f"Error calculating ATR: {e}")
+            return pd.Series()
+    
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """
+        Calculate ADX (Average Directional Index) - simplified version
+        
+        Args:
+            df: DataFrame with OHLC data
+            period: ADX period
+            
+        Returns:
+            Series with ADX values
+        """
+        try:
+            # Calculate True Range
+            high_low = df['high'] - df['low']
+            high_close = abs(df['high'] - df['close'].shift())
+            low_close = abs(df['low'] - df['close'].shift())
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            
+            # Calculate +DM and -DM
+            up_move = df['high'] - df['high'].shift()
+            down_move = df['low'].shift() - df['low']
             
             plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
             minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
             
-            # Smoothed values
-            atr = tr.rolling(window=period).mean()
-            plus_di = pd.Series(plus_dm).rolling(window=period).mean() / atr * 100
-            minus_di = pd.Series(minus_dm).rolling(window=period).mean() / atr * 100
+            # Calculate smoothed values
+            tr_smooth = tr.rolling(window=period).mean()
+            plus_dm_smooth = pd.Series(plus_dm).rolling(window=period).mean()
+            minus_dm_smooth = pd.Series(minus_dm).rolling(window=period).mean()
             
-            # ADX
-            dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100
+            # Calculate +DI and -DI
+            plus_di = 100 * plus_dm_smooth / tr_smooth
+            minus_di = 100 * minus_dm_smooth / tr_smooth
+            
+            # Calculate ADX
+            dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
             adx = dx.rolling(window=period).mean()
             
             return adx
             
         except Exception as e:
             logger.error(f"Error calculating ADX: {e}")
-            return pd.Series(index=df.index, data=0)
-    
+            return pd.Series()
+
+# Usage example
+if __name__ == "__main__":
+    # Test the data manager
+    try:
+        dm = DataManager()
+        
+        # Test data fetching
+        data = dm.fetch_daily_data(['AAPL', 'MSFT', 'NVDA'])
+        logger.info(f"Fetched data for {len(data)} tickers")
+        
+        # Test market status
+        status = dm.get_market_status()
+        logger.info(f"Market status: {status}")
+        
+        # Test latest prices
+        prices = dm.get_latest_prices(['AAPL', 'MSFT'])
+        logger.info(f"Latest prices: {prices}")
+        
+    except Exception as e:
+        logger.error(f"Error in data manager test: {e}")
+
     def fetch_daily_data(self, tickers: List[str] = None, days_back: int = 30) -> Dict[str, pd.DataFrame]:
         """
         Fetch daily OHLCV data with safety checks
@@ -580,72 +740,6 @@ class DataManager:
             
         except Exception as e:
             logger.error(f"Error validating {ticker}: {e}")
-            return False
-    
-    def calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
-        """
-        Calculate Average True Range for validation
-        
-        Args:
-            df: DataFrame with OHLCV data
-            period: ATR calculation period
-            
-        Returns:
-            Series with ATR values
-        """
-        try:
-            # Calculate True Range
-            high_low = df['high'] - df['low']
-            high_close = abs(df['high'] - df['close'].shift())
-            low_close = abs(df['low'] - df['close'].shift())
-            
-            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            
-            # Calculate ATR
-            atr = true_range.rolling(window=period).mean()
-            
-            return atr
-            
-        except Exception as e:
-            logger.error(f"Error calculating ATR: {e}")
-            return pd.Series()
-    
-    def validate_atr_consistency(self, ticker: str, df: pd.DataFrame, expected_atr: float = None) -> bool:
-        """
-        Validate ATR calculation against expected value
-        
-        Args:
-            ticker: Ticker symbol
-            df: DataFrame with OHLCV data
-            expected_atr: Expected ATR value (from pre-calculated scores)
-            
-        Returns:
-            True if ATR is consistent, False otherwise
-        """
-        try:
-            calculated_atr = self.calculate_atr(df)
-            
-            if calculated_atr.empty:
-                logger.warning(f"{ticker}: Could not calculate ATR")
-                return False
-            
-            latest_atr = calculated_atr.iloc[-1]
-            
-            if expected_atr is not None:
-                # Check consistency (allow 10% tolerance)
-                tolerance = 0.10
-                diff = abs(latest_atr - expected_atr) / expected_atr
-                
-                if diff > tolerance:
-                    logger.warning(f"{ticker}: ATR inconsistency - Calculated: {latest_atr:.4f}, Expected: {expected_atr:.4f}")
-                    return False
-                else:
-                    logger.info(f"{ticker}: ATR consistent - {latest_atr:.4f}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error validating ATR for {ticker}: {e}")
             return False
     
     def get_latest_prices(self, tickers: List[str]) -> Dict[str, float]:

@@ -32,7 +32,7 @@ sys.path.insert(0, str(project_root))
 
 from src.trading.data_manager import DataManager
 from src.trading.risk_manager import RiskManager
-from src.trading.execution_manager import ExecutionManager
+from src.trading.virtual_engine import VirtualEngine
 from src.utils.notifier import EmailNotifier
 
 # Configure logging
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 class TradingOrchestrator:
     """
-    Main Trading Orchestrator - The Pilot (IBKR Version)
+    Main Trading Orchestrator - The Pilot (Shadow Trading Version)
     Coordinates all trading modules with safety and automation
     """
     
@@ -65,10 +65,10 @@ class TradingOrchestrator:
         # Initialize modules
         self.data_manager = None
         self.risk_manager = None
-        self.execution_manager = None
+        self.virtual_engine = None
         self.email_notifier = None
         
-        logger.info("Trading Orchestrator initialized (IBKR)")
+        logger.info("Trading Orchestrator initialized (Shadow Trading)")
     
     def check_kill_switch(self) -> bool:
         """
@@ -102,9 +102,9 @@ class TradingOrchestrator:
             self.risk_manager = RiskManager()
             logger.info("✅ Risk Manager initialized")
             
-            # Initialize Execution Manager
-            self.execution_manager = ExecutionManager()
-            logger.info("✅ Execution Manager initialized (IBKR)")
+            # Initialize Virtual Engine
+            self.virtual_engine = VirtualEngine()
+            logger.info("✅ Virtual Engine initialized")
             
             # Initialize Email Notifier
             self.email_notifier = EmailNotifier()

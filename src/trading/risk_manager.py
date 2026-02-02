@@ -1,30 +1,32 @@
 """
-NeuralTrader Risk Manager - The Constitution
-============================================
+NeuralTrader Risk Manager - The Constitution (Virtual Portfolio Version)
+====================================================================
 
-Enforces the 0.9% Risk Per Trade logic with hard caps and safety checks.
-Implements the defensive constitution that protects capital.
+Enforces risk management rules and capital protection for virtual trading.
+Provides comprehensive risk checks with position sizing and sector management.
 
 Features:
-- 0.9% risk per trade based on live account equity
-- 30% Tech Sector cap enforcement
-- 15% VXX Black Swan Exit protection
-- Duplicate position protection
+- 0.9% Risk Per Trade based on Chandelier Exit
+- 30% Technology Sector Cap with alternative suggestions
+- Black Swan Exit (VXX weekly surge >15%)
+- Duplicate Position Protection
+- Virtual portfolio integration
 - Comprehensive risk validation
 
 Usage:
     from src.trading.risk_manager import RiskManager
     
     rm = RiskManager()
-    decision = rm.evaluate_trade('AAPL', 150.0, account_info, current_positions)
+    decision, details = rm.evaluate_trade('AAPL', 150.0, account_info, positions)
 """
 
 import os
 import logging
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from ib_insync import IB, Stock, Order, util
+import yfinance as yf
 
 # Configure logging
 logging.basicConfig(
@@ -49,20 +51,12 @@ class RiskManager:
     Enforces all risk management rules and capital protection
     """
     
-    def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 2):
-        """Initialize Risk Manager with IBKR connection"""
-        self.host = host
-        self.port = port
-        self.client_id = client_id
-        
+    def __init__(self):
+        """Initialize Risk Manager for Virtual Portfolio"""
         # Risk parameters (Phase 5 optimized)
         self.risk_per_trade = 0.009  # 0.9% risk per trade
         self.max_sector_exposure = 0.30  # 30% max per sector
         self.black_swan_threshold = 0.15  # 15% VXX surge
-        
-        # Initialize IB connection
-        self.ib = None
-        self._connect_ibkr()
         
         # Sector mappings for S&P 100 universe
         self.sector_mappings = {
@@ -127,26 +121,10 @@ class RiskManager:
             'PM': 'Other', 'MO': 'Other', 'T': 'Other'
         }
         
-        logger.info("Risk Manager initialized")
+        logger.info(f"Risk Manager initialized")
         logger.info(f"Risk per trade: {self.risk_per_trade:.1%}")
         logger.info(f"Max sector exposure: {self.max_sector_exposure:.1%}")
         logger.info(f"Black Swan threshold: {self.black_swan_threshold:.1%}")
-    
-    def _connect_ibkr(self):
-        """Connect to Interactive Brokers"""
-        try:
-            self.ib = IB()
-            self.ib.connect(host=self.host, port=self.port, clientId=self.client_id)
-            
-            if self.ib.isConnected():
-                logger.info("✅ Connected to Interactive Brokers")
-            else:
-                logger.error("❌ Failed to connect to Interactive Brokers")
-                raise ConnectionError("Could not connect to IBKR")
-                
-        except Exception as e:
-            logger.error(f"Error connecting to IBKR: {e}")
-            raise
     
     def evaluate_trade(self, ticker: str, current_price: float, account_info: Dict, 
                       current_positions: List[Dict], market_data: Dict = None) -> Tuple[str, Dict]:
@@ -211,40 +189,22 @@ class RiskManager:
     
     def _check_black_swan(self) -> str:
         """
-        Check for Black Swan event (VXX surge > 15%) using IBKR
+        Check for Black Swan event (VXX surge > 15%) using Yahoo Finance
         
         Returns:
             RiskDecision constant
         """
         try:
-            # Ensure IBKR connection
-            if not self.ib.isConnected():
-                self._connect_ibkr()
+            # Get VXX data for the last 5 trading days
+            vxx_data = yf.download('VXX', period="5d", progress=False)
             
-            # Get VXX data
-            vxx_contract = Stock('VXX', 'SMART', 'USD')
-            
-            # Calculate date range (last 5 trading days)
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=7)  # Extra buffer for weekends
-            
-            # Request historical data
-            vxx_bars = self.ib.reqHistoricalData(
-                vxx_contract,
-                start=start_date,
-                end=end_date,
-                barSize='1 day',
-                whatToShow='TRADES',
-                useRTH=True
-            )
-            
-            if not vxx_bars or len(vxx_bars) < 5:
+            if vxx_data.empty or len(vxx_data) < 5:
                 logger.warning("Insufficient VXX data for Black Swan check")
                 return RiskDecision.APPROVED  # Allow if can't check
             
             # Calculate 5-day return
-            recent_close = vxx_bars[-1].close
-            five_days_ago_close = vxx_bars[0].close
+            recent_close = vxx_data['Close'].iloc[-1]
+            five_days_ago_close = vxx_data['Close'].iloc[0]
             vxx_return = (recent_close - five_days_ago_close) / five_days_ago_close
             
             logger.info(f"VXX 5-day return: {vxx_return:.2%}")
@@ -613,58 +573,66 @@ class RiskManager:
             return 0.0
     
     def get_account_info(self) -> Dict:
-        """Get current account information from IBKR"""
+        """Get current account information from virtual portfolio"""
         try:
-            if not self.ib.isConnected():
-                self._connect_ibkr()
-            
-            # Get account summary
-            account_summary = self.ib.accountSummary()
-            
-            account_info = {}
-            for item in account_summary:
-                account_info[item.tag] = item.value
-            
-            # Convert to proper types
-            return {
-                'account_id': account_info.get('AccountId', ''),
-                'equity': float(account_info.get('NetLiquidation', 0)),
-                'cash': float(account_info.get('CashBalance', 0)),
-                'portfolio_value': float(account_info.get('NetLiquidation', 0)),
-                'buying_power': float(account_info.get('BuyingPower', 0)),
-                'maint_margin_req': float(account_info.get('MaintMarginReq', 0)),
-                'available_funds': float(account_info.get('AvailableFunds', 0))
-            }
+            # Load virtual portfolio
+            portfolio_file = "data/portfolio.json"
+            if os.path.exists(portfolio_file):
+                with open(portfolio_file, 'r') as f:
+                    portfolio = json.load(f)
+                
+                return {
+                    'account_id': 'virtual_portfolio',
+                    'equity': portfolio.get('performance', {}).get('total_value', portfolio['cash']),
+                    'cash': portfolio['cash'],
+                    'portfolio_value': portfolio.get('performance', {}).get('total_value', portfolio['cash']),
+                    'buying_power': portfolio['cash'],  # Virtual portfolio uses cash as buying power
+                    'maint_margin_req': 0.0,
+                    'available_funds': portfolio['cash']
+                }
+            else:
+                # Default values if portfolio doesn't exist
+                return {
+                    'account_id': 'virtual_portfolio',
+                    'equity': 100000.0,
+                    'cash': 100000.0,
+                    'portfolio_value': 100000.0,
+                    'buying_power': 100000.0,
+                    'maint_margin_req': 0.0,
+                    'available_funds': 100000.0
+                }
             
         except Exception as e:
             logger.error(f"Error getting account info: {e}")
             return {}
     
     def get_current_positions(self) -> List[Dict]:
-        """Get current positions from IBKR"""
+        """Get current positions from virtual portfolio"""
         try:
-            if not self.ib.isConnected():
-                self._connect_ibkr()
-            
-            positions = self.ib.positions()
-            
-            return [
-                {
-                    'symbol': pos.contract.symbol,
-                    'sec_type': pos.contract.secType,
-                    'exchange': pos.contract.exchange,
-                    'currency': pos.contract.currency,
-                    'position': float(pos.position),
-                    'market_price': float(pos.marketPrice),
-                    'market_value': float(pos.marketValue),
-                    'average_cost': float(pos.averageCost),
-                    'unrealized_pl': float(pos.unrealizedPNL),
-                    'realized_pl': float(pos.realizedPNL),
-                    'account': pos.account
-                }
-                for pos in positions
-                if pos.position != 0  # Only include positions with non-zero quantity
-            ]
+            portfolio_file = "data/portfolio.json"
+            if os.path.exists(portfolio_file):
+                with open(portfolio_file, 'r') as f:
+                    portfolio = json.load(f)
+                
+                positions = []
+                for ticker, position in portfolio.get('positions', {}).items():
+                    positions.append({
+                        'symbol': ticker,
+                        'sec_type': 'STK',
+                        'exchange': 'SMART',
+                        'currency': 'USD',
+                        'position': float(position['quantity']),
+                        'market_price': float(position.get('last_price', position['avg_cost'])),
+                        'market_value': float(position['quantity'] * position.get('last_price', position['avg_cost'])),
+                        'average_cost': float(position['avg_cost']),
+                        'unrealized_pnl': 0.0,  # Will be calculated in portfolio update
+                        'realized_pnl': 0.0,
+                        'account': 'virtual_portfolio'
+                    })
+                
+                return positions
+            else:
+                return []
             
         except Exception as e:
             logger.error(f"Error getting positions: {e}")
