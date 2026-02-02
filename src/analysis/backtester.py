@@ -180,7 +180,7 @@ class Backtester:
         
         # Load all processed ticker files with scores
         all_dfs = []
-        ticker_files = [os.path.join(processed_path, f) for f in os.listdir(processed_path)[:50] if f.endswith(".parquet") and f not in ["master_feature_matrix.parquet", "scored_data.parquet"]]
+        ticker_files = [os.path.join(processed_path, f) for f in os.listdir(processed_path) if f.endswith(".parquet") and f not in ["master_feature_matrix.parquet", "scored_data.parquet"]]
         ticker_files = [f for f in ticker_files if os.path.basename(f) not in ['master_feature_matrix.parquet', 'scored_data.parquet']]
         
         # V7.9: Apply ticker filter if specified
