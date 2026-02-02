@@ -33,6 +33,7 @@ sys.path.insert(0, str(project_root))
 from src.trading.data_manager import DataManager
 from src.trading.risk_manager import RiskManager
 from src.trading.execution_manager import ExecutionManager
+from src.utils.notifier import EmailNotifier
 
 # Configure logging
 logging.basicConfig(
@@ -65,6 +66,7 @@ class TradingOrchestrator:
         self.data_manager = None
         self.risk_manager = None
         self.execution_manager = None
+        self.email_notifier = None
         
         logger.info("Trading Orchestrator initialized")
     
@@ -103,6 +105,10 @@ class TradingOrchestrator:
             # Initialize Execution Manager
             self.execution_manager = ExecutionManager()
             logger.info("✅ Execution Manager initialized")
+            
+            # Initialize Email Notifier
+            self.email_notifier = EmailNotifier()
+            logger.info("✅ Email Notifier initialized")
             
             return True
         
@@ -162,17 +168,39 @@ class TradingOrchestrator:
             
             # Step 3: Update Data
             logger.info("📊 Step 1: Updating market data...")
+            
+            # Check trading window and daily execution limit
+            market_status = self.data_manager.get_market_status()
+            
+            if not market_status['in_trading_window']:
+                logger.info(f"Outside trading window: {market_status['ny_time']} EST / {market_status['israel_time']} IST")
+                session_results['success'] = True
+                return session_results
+            
+            if not self.data_manager.check_daily_execution_limit():
+                logger.info("Bot already executed today")
+                session_results['success'] = True
+                return session_results
+            
+            # Log daily execution
+            self.data_manager.log_daily_execution()
+            
+            # Fetch S&P 100 data with 53 indicators
             market_data = self.data_manager.fetch_daily_data()
             
             if not market_data:
                 session_results['errors'].append("No market data available")
                 return session_results
             
-            logger.info(f"✅ Market data updated: {len(market_data)} tickers")
+            # Calculate 53 indicators for all tickers
+            logger.info("🧮 Calculating 53 technical indicators...")
+            for ticker, df in market_data.items():
+                market_data[ticker] = self.data_manager.calculate_53_indicators(df)
             
-            # Step 4: Get Market Status
-            market_status = self.data_manager.get_market_status()
+            logger.info(f"✅ Market data updated: {len(market_data)} tickers with 53 indicators")
+            
             logger.info(f"Market status: {'OPEN' if market_status['is_open'] else 'CLOSED'}")
+            logger.info(f"Trading window: {market_status['ny_time']} EST / {market_status['israel_time']} IST")
             
             if not market_status['is_open']:
                 logger.info("Market is closed - no trading today")
@@ -266,8 +294,12 @@ class TradingOrchestrator:
             
             session_results['trades_executed'] = trades_executed
             
-            # Step 8: Final Summary
-            logger.info("📊 Step 5: Generating session summary...")
+            # Step 8: Send Daily Executive Brief
+            logger.info("📧 Step 5: Sending Daily Executive Brief...")
+            self._send_daily_brief(account_info, current_positions, session_results)
+            
+            # Step 9: Final Summary
+            logger.info("📊 Step 6: Generating session summary...")
             self._log_session_summary(session_start, session_results, account_info, current_positions)
             
             session_results['success'] = True
@@ -282,6 +314,42 @@ class TradingOrchestrator:
             session_results['duration'] = session_results['end_time'] - session_results['start_time']
         
         return session_results
+    
+    def _send_daily_brief(self, account_info: Dict, current_positions: List[Dict], session_results: Dict):
+        """Send Daily Executive Brief via email"""
+        try:
+            # Get today's trades from execution manager
+            trades_today = []
+            if self.execution_manager:
+                summary = self.execution_manager.get_shadow_ledger_summary()
+                if 'recent_trades' in summary:
+                    # Filter trades from today
+                    today = datetime.now().strftime('%Y-%m-%d')
+                    trades_today = [
+                        trade for trade in summary['recent_trades']
+                        if trade['timestamp'].startswith(today)
+                    ]
+            
+            # Prepare risk summary
+            risk_summary = {
+                'risk_per_trade': '0.9%',
+                'max_sector_exposure': '30%',
+                'black_swan_status': 'Active',
+                'duplicate_protection': 'Active'
+            }
+            
+            # Send email
+            success = self.email_notifier.send_daily_brief(
+                account_info, current_positions, trades_today, risk_summary
+            )
+            
+            if success:
+                logger.info("✅ Daily Executive Brief sent successfully")
+            else:
+                logger.error("❌ Failed to send Daily Executive Brief")
+                
+        except Exception as e:
+            logger.error(f"Error sending daily brief: {e}")
     
     def _log_session_summary(self, start_time: datetime, results: dict, 
                            account_info: dict, current_positions: list):

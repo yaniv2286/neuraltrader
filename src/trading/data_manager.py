@@ -21,6 +21,8 @@ Usage:
 import os
 import logging
 import pandas as pd
+import numpy as np
+import pytz
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import alpaca_trade_api as tradeapi
@@ -55,11 +57,226 @@ class DataManager:
             base_url=self.paper_url
         )
         
-        # Curated ticker universe (Phase 5 optimized)
-        self.curated_tickers = ['AAPL', 'MSFT', 'NVDA', 'AMD', 'TSLA', 'GOOGL', 'AMZN', 'META', 'NFLX', 'UNH']
+        # S&P 100 ticker universe (Phase 6.1 production)
+        self.sp100_tickers = [
+            'AAPL', 'MSFT', 'AMZN', 'NVDA', 'GOOGL', 'GOOG', 'META', 'TSLA', 'BRK.B', 'UNH',
+            'JNJ', 'XOM', 'JPM', 'V', 'PG', 'MA', 'AVGO', 'CVX', 'HD', 'ABBV', 'MRK', 'LLY', 'PEP', 'KO',
+            'COST', 'TMO', 'CSCO', 'PFE', 'MCD', 'CRM', 'BAC', 'ADBE', 'WMT', 'CMCSA', 'DIS', 'NFLX',
+            'ABT', 'VZ', 'ORCL', 'TXN', 'AMD', 'LIN', 'PM', 'UPS', 'NKE', 'HON', 'UNP', 'RTX', 'INTU',
+            'LOW', 'SPGI', 'MS', 'QCOM', 'COP', 'IBM', 'GE', 'AMAT', 'CAT', 'GS', 'ISRG', 'DE', 'BKNG',
+            'ELV', 'PLD', 'SBUX', 'MDT', 'BLK', 'GILD', 'TJX', 'NOW', 'ADP', 'C', 'MMC', 'AMT', 'REGN',
+            'MO', 'PYPL', 'CB', 'CI', 'ADI', 'MDLZ', 'VRTX', 'ZTS', 'SYK', 'CME', 'AMGN', 'FISV', 'SLB',
+            'T', 'LMT', 'MU', 'CVS', 'DUK', 'ITW', 'EQIX', 'ANTM', 'CL', 'ICE', 'SHERW'
+        ]
+        
+        # Use S&P 100 as default universe
+        self.curated_tickers = self.sp100_tickers
         
         logger.info("Data Manager initialized")
-        logger.info(f"Curated universe: {self.curated_tickers}")
+        logger.info(f"S&P 100 Universe: {len(self.sp100_tickers)} tickers")
+    
+    def calculate_53_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculate the full suite of 53 technical indicators for ML scoring
+        
+        Args:
+            df: DataFrame with OHLCV data
+            
+        Returns:
+            DataFrame with 53 technical indicators added
+        """
+        try:
+            if len(df) < 50:  # Need sufficient data for indicators
+                logger.warning("Insufficient data for 53 indicators calculation")
+                return df
+            
+            df_indicators = df.copy()
+            
+            # Price-based indicators (15)
+            # Moving Averages
+            df_indicators['sma_5'] = df['close'].rolling(window=5).mean()
+            df_indicators['sma_10'] = df['close'].rolling(window=10).mean()
+            df_indicators['sma_20'] = df['close'].rolling(window=20).mean()
+            df_indicators['sma_50'] = df['close'].rolling(window=50).mean()
+            df_indicators['ema_12'] = df['close'].ewm(span=12).mean()
+            df_indicators['ema_26'] = df['close'].ewm(span=26).mean()
+            
+            # Price relative to moving averages
+            df_indicators['price_vs_sma5'] = (df['close'] - df_indicators['sma_5']) / df_indicators['sma_5']
+            df_indicators['price_vs_sma20'] = (df['close'] - df_indicators['sma_20']) / df_indicators['sma_20']
+            df_indicators['price_vs_sma50'] = (df['close'] - df_indicators['sma_50']) / df_indicators['sma_50']
+            
+            # Bollinger Bands
+            bb_period = 20
+            bb_std = 2
+            df_indicators['bb_middle'] = df['close'].rolling(window=bb_period).mean()
+            df_indicators['bb_upper'] = df_indicators['bb_middle'] + (df['close'].rolling(window=bb_period).std() * bb_std)
+            df_indicators['bb_lower'] = df_indicators['bb_middle'] - (df['close'].rolling(window=bb_period).std() * bb_std)
+            df_indicators['bb_width'] = (df_indicators['bb_upper'] - df_indicators['bb_lower']) / df_indicators['bb_middle']
+            df_indicators['bb_position'] = (df['close'] - df_indicators['bb_lower']) / (df_indicators['bb_upper'] - df_indicators['bb_lower'])
+            
+            # Volatility indicators (8)
+            # ATR and related
+            df_indicators['atr_14'] = self.calculate_atr(df, 14)
+            df_indicators['atr_ratio'] = df_indicators['atr_14'] / df['close']
+            
+            # Historical volatility
+            df_indicators['volatility_10'] = df['close'].pct_change().rolling(window=10).std() * np.sqrt(252)
+            df_indicators['volatility_20'] = df['close'].pct_change().rolling(window=20).std() * np.sqrt(252)
+            
+            # Price ranges
+            df_indicators['high_low_ratio'] = df['high'] / df['low']
+            df_indicators['close_open_ratio'] = df['close'] / df['open']
+            df_indicators['price_range'] = (df['high'] - df['low']) / df['close']
+            
+            # Volume indicators (6)
+            # Volume moving averages
+            df_indicators['volume_sma_10'] = df['volume'].rolling(window=10).mean()
+            df_indicators['volume_sma_20'] = df['volume'].rolling(window=20).mean()
+            df_indicators['volume_ratio'] = df['volume'] / df_indicators['volume_sma_20']
+            
+            # On-Balance Volume
+            df_indicators['obv'] = (np.where(df['close'] > df['close'].shift(), df['volume'], 
+                                          np.where(df['close'] < df['close'].shift(), -df['volume'], 0))).cumsum()
+            df_indicators['obv_sma'] = df_indicators['obv'].rolling(window=10).mean()
+            
+            # Volume Price Trend
+            df_indicators['vpt'] = (df['volume'] * (df['close'].pct_change())).cumsum()
+            
+            # Momentum indicators (12)
+            # RSI
+            delta = df['close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df_indicators['rsi_14'] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            ema_12 = df['close'].ewm(span=12).mean()
+            ema_26 = df['close'].ewm(span=26).mean()
+            df_indicators['macd'] = ema_12 - ema_26
+            df_indicators['macd_signal'] = df_indicators['macd'].ewm(span=9).mean()
+            df_indicators['macd_histogram'] = df_indicators['macd'] - df_indicators['macd_signal']
+            
+            # Stochastic Oscillator
+            lowest_low = df['low'].rolling(window=14).min()
+            highest_high = df['high'].rolling(window=14).max()
+            df_indicators['stoch_k'] = 100 * (df['close'] - lowest_low) / (highest_high - lowest_low)
+            df_indicators['stoch_d'] = df_indicators['stoch_k'].rolling(window=3).mean()
+            
+            # Williams %R
+            df_indicators['williams_r'] = -100 * (highest_high - df['close']) / (highest_high - lowest_low)
+            
+            # Rate of Change
+            df_indicators['roc_5'] = df['close'].pct_change(5) * 100
+            df_indicators['roc_10'] = df['close'].pct_change(10) * 100
+            
+            # Commodity Channel Index
+            tp = (df['high'] + df['low'] + df['close']) / 3
+            sma_tp = tp.rolling(window=20).mean()
+            mad = tp.rolling(window=20).apply(lambda x: np.abs(x - x.mean()).mean())
+            df_indicators['cci'] = (tp - sma_tp) / (0.015 * mad)
+            
+            # Pattern indicators (12)
+            # Price patterns
+            df_indicators['higher_high'] = (df['high'] > df['high'].shift(1)).astype(int)
+            df_indicators['lower_low'] = (df['low'] < df['low'].shift(1)).astype(int)
+            df_indicators['inside_day'] = ((df['high'] < df['high'].shift(1)) & 
+                                         (df['low'] > df['low'].shift(1))).astype(int)
+            df_indicators['outside_day'] = ((df['high'] > df['high'].shift(1)) & 
+                                          (df['low'] < df['low'].shift(1))).astype(int)
+            
+            # Gap indicators
+            df_indicators['gap_up'] = (df['low'] > df['high'].shift(1)).astype(int)
+            df_indicators['gap_down'] = (df['high'] < df['low'].shift(1)).astype(int)
+            
+            # Doji patterns
+            body_size = abs(df['close'] - df['open'])
+            df_indicators['doji'] = (body_size < (df['high'] - df['low']) * 0.1).astype(int)
+            
+            # Hammer/Hanging Man
+            lower_shadow = df[['open', 'close']].min(axis=1) - df['low']
+            upper_shadow = df['high'] - df[['open', 'close']].max(axis=1)
+            body = abs(df['close'] - df['open'])
+            df_indicators['hammer'] = ((lower_shadow > 2 * body) & (upper_shadow < 0.1 * body)).astype(int)
+            
+            # Engulfing patterns
+            bullish_engulfing = ((df['open'].shift(1) > df['close'].shift(1)) &  # Previous red candle
+                               (df['close'] > df['open']) &  # Current green candle
+                               (df['open'] < df['close'].shift(1)) &  # Open below previous close
+                               (df['close'] > df['open'].shift(1)))  # Close above previous open
+            df_indicators['bullish_engulfing'] = bullish_engulfing.astype(int)
+            
+            bearish_engulfing = ((df['open'].shift(1) < df['close'].shift(1)) &  # Previous green candle
+                               (df['close'] < df['open']) &  # Current red candle
+                               (df['open'] > df['close'].shift(1)) &  # Open above previous close
+                               (df['close'] < df['open'].shift(1)))  # Close below previous open
+            df_indicators['bearish_engulfing'] = bearish_engulfing.astype(int)
+            
+            # Trend indicators (10)
+            # ADX (simplified)
+            df_indicators['adx'] = self._calculate_adx(df, 14)
+            
+            # Trend strength
+            df_indicators['trend_strength'] = abs(df['close'] - df['close'].rolling(20).mean()) / df['close'].rolling(20).std()
+            
+            # Price momentum
+            df_indicators['momentum_5'] = df['close'] / df['close'].shift(5) - 1
+            df_indicators['momentum_10'] = df['close'] / df['close'].shift(10) - 1
+            df_indicators['momentum_20'] = df['close'] / df['close'].shift(20) - 1
+            
+            # Acceleration
+            df_indicators['acceleration'] = df_indicators['momentum_5'] - df_indicators['momentum_5'].shift(1)
+            
+            # Support/Resistance levels
+            df_indicators['resistance_distance'] = (df['high'].rolling(20).max() - df['close']) / df['close']
+            df_indicators['support_distance'] = (df['close'] - df['low'].rolling(20).min()) / df['close']
+            
+            # Seasonal patterns
+            df_indicators['day_of_week'] = df.index.dayofweek
+            df_indicators['month'] = df.index.month
+            
+            logger.info(f"Calculated 53 indicators for {len(df_indicators)} data points")
+            return df_indicators
+            
+        except Exception as e:
+            logger.error(f"Error calculating 53 indicators: {e}")
+            return df
+    
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate ADX (Average Directional Index)"""
+        try:
+            high = df['high']
+            low = df['low']
+            close = df['close']
+            
+            # True Range
+            tr1 = high - low
+            tr2 = abs(high - close.shift())
+            tr3 = abs(low - close.shift())
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            
+            # Directional Movement
+            up_move = high - high.shift()
+            down_move = low.shift() - low
+            
+            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+            
+            # Smoothed values
+            atr = tr.rolling(window=period).mean()
+            plus_di = pd.Series(plus_dm).rolling(window=period).mean() / atr * 100
+            minus_di = pd.Series(minus_dm).rolling(window=period).mean() / atr * 100
+            
+            # ADX
+            dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100
+            adx = dx.rolling(window=period).mean()
+            
+            return adx
+            
+        except Exception as e:
+            logger.error(f"Error calculating ADX: {e}")
+            return pd.Series(index=df.index, data=0)
     
     def fetch_daily_data(self, tickers: List[str] = None, days_back: int = 30) -> Dict[str, pd.DataFrame]:
         """
@@ -303,20 +520,37 @@ class DataManager:
     
     def get_market_status(self) -> Dict[str, any]:
         """
-        Get current market status
+        Get current market status with timezone enforcement
         
         Returns:
             Dictionary with market status information
         """
         try:
+            # Get current time in US/Eastern timezone
+            eastern = pytz.timezone('US/Eastern')
+            now_eastern = datetime.now(eastern)
+            
+            # Get market clock
             clock = self.api.get_clock()
+            
+            # Check if within trading window (9:45 AM - 3:45 PM EST)
+            trading_start = now_eastern.replace(hour=9, minute=45, second=0, microsecond=0)
+            trading_end = now_eastern.replace(hour=15, minute=45, second=0, microsecond=0)
+            
+            in_trading_window = trading_start <= now_eastern <= trading_end
             
             return {
                 'is_open': clock.is_open,
                 'timestamp': clock.timestamp,
                 'next_open': clock.next_open,
                 'next_close': clock.next_close,
-                'current_time': datetime.now()
+                'current_time_est': now_eastern,
+                'current_time_ist': now_eastern.astimezone(pytz.timezone('Asia/Jerusalem')),
+                'in_trading_window': in_trading_window,
+                'trading_start_est': trading_start,
+                'trading_end_est': trading_end,
+                'israel_time': now_eastern.astimezone(pytz.timezone('Asia/Jerusalem')).strftime('%H:%M:%S'),
+                'ny_time': now_eastern.strftime('%H:%M:%S')
             }
             
         except Exception as e:
@@ -326,8 +560,67 @@ class DataManager:
                 'timestamp': None,
                 'next_open': None,
                 'next_close': None,
-                'current_time': datetime.now()
+                'current_time_est': None,
+                'current_time_ist': None,
+                'in_trading_window': False,
+                'trading_start_est': None,
+                'trading_end_est': None,
+                'israel_time': 'Unknown',
+                'ny_time': 'Unknown'
             }
+    
+    def check_daily_execution_limit(self) -> bool:
+        """
+        Check if the bot has already executed today
+        
+        Returns:
+            True if bot can execute, False if already executed today
+        """
+        try:
+            # Check for execution log file
+            execution_log_path = 'logs/daily_execution.log'
+            
+            if not os.path.exists(execution_log_path):
+                return True  # No execution today yet
+            
+            # Read last execution date
+            with open(execution_log_path, 'r') as f:
+                lines = f.readlines()
+            
+            if not lines:
+                return True
+            
+            # Get last execution date
+            last_line = lines[-1].strip()
+            if last_line:
+                last_execution = datetime.strptime(last_line, '%Y-%m-%d').date()
+                today = datetime.now().date()
+                
+                if last_execution == today:
+                    logger.info("Bot already executed today")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking daily execution limit: {e}")
+            return True  # Allow execution if error
+    
+    def log_daily_execution(self):
+        """Log today's execution to prevent multiple executions"""
+        try:
+            execution_log_path = 'logs/daily_execution.log'
+            os.makedirs(os.path.dirname(execution_log_path), exist_ok=True)
+            
+            today = datetime.now().date()
+            
+            with open(execution_log_path, 'a') as f:
+                f.write(f"{today}\n")
+            
+            logger.info(f"Logged daily execution for {today}")
+            
+        except Exception as e:
+            logger.error(f"Error logging daily execution: {e}")
     
     def log_data_summary(self, data: Dict[str, pd.DataFrame]):
         """Log summary of fetched data"""

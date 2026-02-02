@@ -70,18 +70,67 @@ class RiskManager:
         self.max_sector_exposure = 0.30  # 30% max per sector
         self.black_swan_threshold = 0.15  # 15% VXX surge
         
-        # Sector mappings for our curated universe
+        # Sector mappings for S&P 100 universe
         self.sector_mappings = {
-            'AAPL': 'Technology',
-            'MSFT': 'Technology', 
-            'NVDA': 'Technology',
-            'AMD': 'Technology',
-            'TSLA': 'Consumer Discretionary',
-            'GOOGL': 'Technology',
-            'AMZN': 'Consumer Discretionary',
-            'META': 'Technology',
-            'NFLX': 'Communication Services',
-            'UNH': 'Healthcare'
+            # Technology
+            'AAPL': 'Technology', 'MSFT': 'Technology', 'NVDA': 'Technology', 'GOOGL': 'Technology',
+            'GOOG': 'Technology', 'META': 'Technology', 'ADBE': 'Technology', 'CRM': 'Technology',
+            'ORCL': 'Technology', 'INTU': 'Technology', 'AMD': 'Technology', 'CSCO': 'Technology',
+            'TXN': 'Technology', 'AMAT': 'Technology', 'MU': 'Technology', 'ADI': 'Technology',
+            'PYPL': 'Technology', 'FISV': 'Technology', 'NOW': 'Technology', 'ADP': 'Technology',
+            'BLK': 'Technology', 'SPGI': 'Technology', 'CB': 'Technology', 'ICE': 'Technology',
+            'CME': 'Technology', 'V': 'Technology', 'MA': 'Technology', 'AVGO': 'Technology',
+            
+            # Healthcare
+            'JNJ': 'Healthcare', 'UNH': 'Healthcare', 'PFE': 'Healthcare', 'ABBV': 'Healthcare',
+            'MRK': 'Healthcare', 'LLY': 'Healthcare', 'TMO': 'Healthcare', 'ABT': 'Healthcare',
+            'MDT': 'Healthcare', 'ISRG': 'Healthcare', 'GILD': 'Healthcare', 'REGN': 'Healthcare',
+            'VRTX': 'Healthcare', 'ZTS': 'Healthcare', 'SYK': 'Healthcare', 'AMGN': 'Healthcare',
+            'CI': 'Healthcare', 'ANTM': 'Healthcare', 'ELV': 'Healthcare', 'CVS': 'Healthcare',
+            'BKNG': 'Healthcare',
+            
+            # Consumer Discretionary
+            'AMZN': 'Consumer Discretionary', 'TSLA': 'Consumer Discretionary', 'HD': 'Consumer Discretionary',
+            'MCD': 'Consumer Discretionary', 'NKE': 'Consumer Discretionary', 'SBUX': 'Consumer Discretionary',
+            'LOW': 'Consumer Discretionary', 'TJX': 'Consumer Discretionary', 'DIS': 'Consumer Discretionary',
+            
+            # Consumer Staples
+            'PG': 'Consumer Staples', 'PEP': 'Consumer Staples', 'COST': 'Consumer Staples',
+            'WMT': 'Consumer Staples', 'KO': 'Consumer Staples', 'CL': 'Consumer Staples',
+            'MDLZ': 'Consumer Staples', 'MO': 'Consumer Staples',
+            
+            # Financials
+            'BRK.B': 'Financials', 'JPM': 'Financials', 'BAC': 'Financials', 'WFC': 'Financials',
+            'GS': 'Financials', 'MS': 'Financials', 'C': 'Financials', 'AXP': 'Financials',
+            'AIG': 'Financials', 'MET': 'Financials', 'TRV': 'Financials', 'SCHW': 'Financials',
+            
+            # Industrials
+            'GE': 'Industrials', 'HON': 'Industrials', 'UPS': 'Industrials', 'RTX': 'Industrials',
+            'LMT': 'Industrials', 'CAT': 'Industrials', 'DE': 'Industrials', 'MMM': 'Industrials',
+            'UNP': 'Industrials', 'BA': 'Industrials', 'CSX': 'Industrials', 'NSC': 'Industrials',
+            
+            # Energy
+            'XOM': 'Energy', 'CVX': 'Energy', 'COP': 'Energy', 'SLB': 'Energy',
+            'EOG': 'Energy', 'OXY': 'Energy', 'PSX': 'Energy', 'MPC': 'Energy',
+            
+            # Utilities
+            'NEE': 'Utilities', 'DUK': 'Utilities', 'SO': 'Utilities', 'AEP': 'Utilities',
+            'XEL': 'Utilities', 'SRE': 'Utilities', 'D': 'Utilities', 'PEG': 'Utilities',
+            
+            # Real Estate
+            'AMT': 'Real Estate', 'PLD': 'Real Estate', 'EQIX': 'Real Estate', 'CCI': 'Real Estate',
+            'PSA': 'Real Estate', 'EXR': 'Real Estate', 'SPG': 'Real Estate',
+            
+            # Materials
+            'LIN': 'Materials', 'APD': 'Materials', 'ECL': 'Materials', 'DD': 'Materials',
+            'FCX': 'Materials', 'NEM': 'Materials', 'RIO': 'Materials', 'BHP': 'Materials',
+            
+            # Communication Services
+            'VZ': 'Communication Services', 'T': 'Communication Services', 'CMCSA': 'Communication Services',
+            'NFLX': 'Communication Services', 'DIS': 'Communication Services', 'CHTR': 'Communication Services',
+            
+            # Other
+            'PM': 'Other', 'MO': 'Other', 'T': 'Other'
         }
         
         logger.info("Risk Manager initialized")
@@ -307,13 +356,13 @@ class RiskManager:
     def _calculate_position_size(self, ticker: str, current_price: float, account_info: Dict, 
                                market_data: Dict = None) -> int:
         """
-        Calculate position size based on 0.9% risk per trade
+        Calculate position size based on 0.9% risk per trade and Chandelier Exit distance
         
         Args:
             ticker: Ticker symbol
             current_price: Current market price
             account_info: Account information
-            market_data: Market data for ATR calculation
+            market_data: Market data for calculations
             
         Returns:
             Number of shares to trade
@@ -322,16 +371,23 @@ class RiskManager:
             portfolio_value = account_info.get('portfolio_value', 0)
             risk_amount = portfolio_value * self.risk_per_trade
             
-            # Get ATR for stop distance
-            atr = self._get_atr_value(ticker, market_data)
+            # Get Chandelier Exit distance (prefer over ATR)
+            chandelier_exit = self._calculate_chandelier_exit(ticker, market_data)
             
-            if atr <= 0:
-                # Fallback: use 2x average daily range
-                logger.warning(f"Invalid ATR for {ticker}, using fallback calculation")
-                atr = current_price * 0.02  # 2% of price as fallback
+            if chandelier_exit > 0:
+                stop_distance = abs(current_price - chandelier_exit)
+                logger.info(f"Using Chandelier Exit for {ticker}: ${chandelier_exit:.2f}, distance: ${stop_distance:.2f}")
+            else:
+                # Fallback to ATR
+                atr = self._get_atr_value(ticker, market_data)
+                if atr <= 0:
+                    logger.warning(f"Invalid ATR for {ticker}, using fallback calculation")
+                    atr = current_price * 0.02  # 2% of price as fallback
+                
+                stop_distance = atr * 2.0  # 2x ATR stop
+                logger.info(f"Using ATR for {ticker}: {atr:.4f}, distance: ${stop_distance:.2f}")
             
-            # Calculate position size: Risk Amount / (ATR * 2)
-            stop_distance = atr * 2.0  # 2x ATR stop
+            # Calculate position size: Risk Amount / Stop Distance
             position_value = risk_amount / stop_distance
             shares = int(position_value / current_price)
             
@@ -356,6 +412,133 @@ class RiskManager:
         except Exception as e:
             logger.error(f"Error calculating position size: {e}")
             return 0
+    
+    def _calculate_chandelier_exit(self, ticker: str, market_data: Dict = None) -> float:
+        """
+        Calculate Chandelier Exit price for position sizing
+        
+        Args:
+            ticker: Ticker symbol
+            market_data: Market data dictionary
+            
+        Returns:
+            Chandelier Exit price
+        """
+        try:
+            if market_data and ticker in market_data:
+                df = market_data[ticker]
+                if not df.empty and len(df) >= 22:
+                    # Calculate Chandelier Exit (22-period highest high - 3x ATR)
+                    highest_high = df['high'].rolling(window=22).max().iloc[-1]
+                    atr = self._calculate_atr(df, 22).iloc[-1]
+                    
+                    chandelier_exit = highest_high - (3 * atr)
+                    return chandelier_exit
+            
+            # Fallback: fetch from API
+            bars = self.api.get_bars(
+                symbol=ticker,
+                timeframe=tradeapi.TimeFrame.Day,
+                limit=30
+            ).df
+            
+            if not bars.empty and len(bars) >= 22:
+                highest_high = bars['high'].rolling(window=22).max().iloc[-1]
+                
+                # Calculate ATR
+                high_low = bars['high'] - bars['low']
+                high_close = abs(bars['high'] - bars['close'].shift())
+                low_close = abs(bars['low'] - bars['close'].shift())
+                
+                true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                atr = true_range.rolling(window=22).mean().iloc[-1]
+                
+                chandelier_exit = highest_high - (3 * atr)
+                return chandelier_exit
+            
+            return 0.0
+            
+        except Exception as e:
+            logger.error(f"Error calculating Chandelier Exit for {ticker}: {e}")
+            return 0.0
+    
+    def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        """Calculate ATR for given period"""
+        try:
+            high_low = df['high'] - df['low']
+            high_close = abs(df['high'] - df['close'].shift())
+            low_close = abs(df['low'] - df['close'].shift())
+            
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = true_range.rolling(window=period).mean()
+            
+            return atr
+            
+        except Exception as e:
+            logger.error(f"Error calculating ATR: {e}")
+            return pd.Series()
+    
+    def suggest_alternative_sectors(self, current_sector: str, current_positions: List[Dict], 
+                                   account_info: Dict) -> List[str]:
+        """
+        Suggest alternative sectors when current sector cap is hit
+        
+        Args:
+            current_sector: Sector that's at capacity
+            current_positions: Current positions
+            account_info: Account information
+            
+        Returns:
+            List of alternative sectors sorted by available capacity
+        """
+        try:
+            # Calculate current sector exposures
+            sector_exposures = {}
+            portfolio_value = account_info.get('portfolio_value', 0)
+            
+            for position in current_positions:
+                pos_ticker = position.get('symbol', '')
+                pos_sector = self.sector_mappings.get(pos_ticker, 'Unknown')
+                pos_value = float(position.get('market_value', 0))
+                
+                if pos_sector not in sector_exposures:
+                    sector_exposures[pos_sector] = 0
+                sector_exposures[pos_sector] += pos_value
+            
+            # Calculate available capacity for each sector
+            sector_capacity = {}
+            for sector in self.sector_mappings.values():
+                if sector == 'Unknown':
+                    continue
+                
+                current_exposure = sector_exposures.get(sector, 0)
+                max_exposure = portfolio_value * self.max_sector_exposure
+                available_capacity = max_exposure - current_exposure
+                
+                sector_capacity[sectors] = {
+                    'current_exposure': current_exposure,
+                    'max_exposure': max_exposure,
+                    'available_capacity': available_capacity,
+                    'utilization': (current_exposure / max_exposure) * 100 if max_exposure > 0 else 0
+                }
+            
+            # Sort by available capacity (descending)
+            sorted_sectors = sorted(sector_capacity.items(), 
+                                   key=lambda x: x[1]['available_capacity'], 
+                                   reverse=True)
+            
+            # Filter out current sector and sectors with no capacity
+            alternative_sectors = []
+            for sector, capacity in sorted_sectors:
+                if sector != current_sector and capacity['available_capacity'] > 0:
+                    alternative_sectors.append(sector)
+            
+            logger.info(f"Alternative sectors to {current_sector}: {alternative_sectors[:3]}")
+            return alternative_sectors[:3]  # Return top 3 alternatives
+            
+        except Exception as e:
+            logger.error(f"Error suggesting alternative sectors: {e}")
+            return []
     
     def _get_atr_value(self, ticker: str, market_data: Dict = None) -> float:
         """
