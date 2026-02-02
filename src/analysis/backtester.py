@@ -97,6 +97,9 @@ class Backtester:
             'UNH': 'Healthcare'
         }
         
+        # V7.9: Initialize debug counter
+        self._debug_counter = 0
+        
         # Market regime settings (less restrictive)
         self.use_market_filter = True  # V7.8: Nuclear bypass - Force True for testing
         self.legacy_tickers = ['IBM', 'GE', 'BA', 'AAPL', 'MSFT']  # Force load all data for these
@@ -275,8 +278,11 @@ class Backtester:
                     float_cols = raw_df.select_dtypes(include=['float64']).columns
                     raw_df[float_cols] = raw_df[float_cols].astype('float32')
                     
-                    # Merge processed scores with raw OHLCV data
-                    merged_df = pd.merge(proc_df[['date', 'ticker', 'score']], 
+                    # Merge processed scores with raw OHLCV data, including ATR for position sizing
+                    proc_cols = ['date', 'ticker', 'score']
+                    if 'atr_14' in proc_df.columns:
+                        proc_cols.append('atr_14')
+                    merged_df = pd.merge(proc_df[proc_cols], 
                                       raw_df, 
                                       on=['date', 'ticker'], 
                                       how='inner')
@@ -1711,9 +1717,12 @@ class Backtester:
             
             # Check if we have scores
             if 'score' in df_temp.columns:
-                # Use pre-calculated scores directly
-                features_df = df_temp[['ticker', 'score']].copy()
-                logger.info(f"V7.8: Using pre-calculated scores for {entry_date.date()}")
+                # Use pre-calculated scores directly, but include ATR for position sizing
+                available_columns = ['ticker', 'score']
+                if 'atr_14' in df_temp.columns:
+                    available_columns.append('atr_14')
+                features_df = df_temp[available_columns].copy()
+                logger.info(f"V7.8: Using pre-calculated scores for {entry_date.date()}, ATR included: {'atr_14' in df_temp.columns}")
             else:
                 # Fallback to feature calculation
                 logger.warning(f"V7.8: No scores found for {entry_date.date()}, calculating features")

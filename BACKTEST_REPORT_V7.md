@@ -1,6 +1,6 @@
 # NeuralTrader 2.0 - Backtest Report V7
 
-**Generated:** 2026-02-02 16:48:54
+**Generated:** 2026-02-02 16:58:38
 
 ## Strategy V7: The Institutional Architect
 
