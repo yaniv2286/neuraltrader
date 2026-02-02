@@ -80,7 +80,24 @@ class Backtester:
         self.use_chandelier_exit = True  # Trailing Chandelier Exit
         self.use_sector_caps = True  # New: Sector caps (max 2 per sector)
         self.use_spy_rsi_filter = True  # V7.1: Loosened SPY RSI filter
-        self.spy_rsi_threshold = 80  # V7.1: Loosened from 70 to 80 (less restrictive)
+        self.spy_rsi_threshold = 80  # V7.1: Loosened from 70 to 80
+        self.max_sector_exposure = 0.30  # V7.9: Max 30% exposure to any single sector
+        
+        # V7.9: Sector mapping for curated tickers
+        self.sector_mapping = {
+            'AAPL': 'Technology',
+            'MSFT': 'Technology', 
+            'NVDA': 'Technology',
+            'AMD': 'Technology',
+            'TSLA': 'Consumer Discretionary',
+            'GOOGL': 'Technology',
+            'AMZN': 'Consumer Discretionary',
+            'META': 'Technology',
+            'NFLX': 'Communication Services',
+            'UNH': 'Healthcare'
+        }
+        
+        # Market regime settings (less restrictive)
         self.use_market_filter = True  # V7.8: Nuclear bypass - Force True for testing
         self.legacy_tickers = ['IBM', 'GE', 'BA', 'AAPL', 'MSFT']  # Force load all data for these
         
@@ -948,87 +965,123 @@ class Backtester:
         return result
     
     def calculate_volatility_adjusted_position_size(self, ticker: str, features_df: pd.DataFrame, 
-                                                  base_position_size: float) -> float:
+                                                  base_position_size: float, total_equity: float = 100000) -> float:
         """
-        Calculate position size based on volatility: Position Size = 10% / ATR Pct.
-        Calm stocks get more capital, wild stocks get less.
+        Calculate position size based on 1% risk per trade using ATR distance to Chandelier Exit.
+        
+        Formula: Position_Size = (Total_Equity * 0.01) / (ATR * atr_multiplier)
         
         Args:
-            ticker: Stock ticker
-            features_df: Features DataFrame
-            base_position_size: Base position size for fallback
+            ticker: Stock ticker symbol
+            features_df: DataFrame with features including ATR
+            base_position_size: Base position size from alpha tier (fallback)
+            total_equity: Current total portfolio equity
             
         Returns:
-            Volatility-adjusted position size
+            Risk-adjusted position size
         """
         if not self.use_volatility_adjusted_sizing:
             return base_position_size
         
-        # Get ATR percentage for this ticker
+        # Get ATR for this ticker
         ticker_features = features_df[features_df['ticker'] == ticker]
         
         if ticker_features.empty:
+            logger.debug(f"V7.9: No features found for {ticker}, using base position size")
             return base_position_size
         
-        atr_pct = ticker_features['atr_pct'].iloc[0]
-        
-        if pd.isna(atr_pct) or atr_pct <= 0:
+        # V7.9: Check if atr_14 column exists (may not be present when using pre-calculated scores)
+        if 'atr_14' not in ticker_features.columns:
+            logger.debug(f"V7.9: atr_14 not found for {ticker}, using base position size")
             return base_position_size
         
-        # Calculate volatility-adjusted position size
-        # Position Size = 10% / ATR Pct
-        vol_adj_size = 0.10 / atr_pct
+        atr_14 = ticker_features['atr_14'].iloc[0]
         
-        # Cap position size between 5% and 15% for safety
-        vol_adj_size = max(0.05, min(vol_adj_size, 0.15))
+        if pd.isna(atr_14) or atr_14 <= 0:
+            logger.debug(f"V7.9: Invalid ATR for {ticker}, using base position size")
+            return base_position_size
         
-        logger.debug(f"Volatility-Adjusted {ticker}: ATR_pct={atr_pct:.3f}, Size={vol_adj_size:.1%}")
-        return vol_adj_size
+        # Use appropriate ATR multiplier based on alpha tier
+        atr_multiplier = self.atr_multiplier  # Default 2.0x
+        
+        # Calculate 1% risk position size
+        risk_amount = total_equity * 0.01  # 1% of total equity
+        stop_distance = atr_14 * atr_multiplier  # Distance to Chandelier Exit
+        
+        # Calculate position size based on risk
+        risk_adjusted_size = risk_amount / stop_distance
+        
+        # Convert to percentage of portfolio
+        position_size_pct = risk_adjusted_size / total_equity
+        
+        # Apply reasonable bounds (2% minimum, 15% maximum)
+        position_size_pct = max(0.02, min(position_size_pct, 0.15))
+        
+        logger.debug(f"V7.9 Risk-Adjusted {ticker}: Equity=${total_equity:,.0f}, ATR={atr_14:.2f}, "
+                    f"Risk=${risk_amount:,.0f}, Stop={stop_distance:.2f}, Size={position_size_pct:.1%}")
+        
+        return position_size_pct
     
-    def calculate_volatility_adjusted_position_size(self, ticker: str, features_df: pd.DataFrame, 
-                                                  base_position_size: float) -> float:
+    def check_sector_exposure(self, current_positions: Dict[str, float], new_ticker: str, new_position_size: float) -> float:
         """
-        Calculate position size based on volatility with aggressive V6 sizing.
-        Final Size = Tier Size × (3% / Actual ATR Pct).
-        Aggressive floor: 8%, Cap: 18%.
+        Check sector exposure and adjust position size if needed to maintain 30% sector cap.
         
         Args:
-            ticker: Stock ticker
-            features_df: Features DataFrame
-            base_position_size: Base position size for fallback
+            current_positions: Dictionary of current positions {ticker: position_size}
+            new_ticker: New ticker being considered
+            new_position_size: Proposed position size for new ticker
             
         Returns:
-            Volatility-adjusted position size
+            Adjusted position size respecting sector cap
         """
-        if not self.use_volatility_adjusted_sizing:
-            return base_position_size
+        if not self.use_sector_caps or new_ticker not in self.sector_mapping:
+            return new_position_size
         
-        # Get ATR percentage for this ticker
-        ticker_features = features_df[features_df['ticker'] == ticker]
+        new_sector = self.sector_mapping[new_ticker]
         
-        if ticker_features.empty:
-            return base_position_size
+        # Calculate current sector exposure
+        sector_exposure = 0.0
+        for ticker, size in current_positions.items():
+            if ticker in self.sector_mapping and self.sector_mapping[ticker] == new_sector:
+                sector_exposure += size
         
-        # V7.9: Check if atr_pct column exists (may not be present when using pre-calculated scores)
-        if 'atr_pct' not in ticker_features.columns:
-            logger.debug(f"V7.9: atr_pct not found for {ticker}, using base position size")
-            return base_position_size
+        # Calculate proposed new sector exposure
+        proposed_sector_exposure = sector_exposure + new_position_size
         
-        atr_pct = ticker_features['atr_pct'].iloc[0]
+        # If over cap, reduce position size
+        if proposed_sector_exposure > self.max_sector_exposure:
+            max_allowed_size = self.max_sector_exposure - sector_exposure
+            adjusted_size = min(new_position_size, max(0.01, max_allowed_size))  # Minimum 1%
+            
+            logger.info(f"Sector Cap: {new_sector} exposure {proposed_sector_exposure:.1%} > {self.max_sector_exposure:.1%}, "
+                       f"adjusting {new_ticker} from {new_position_size:.1%} to {adjusted_size:.1%}")
+            
+            return adjusted_size
         
-        if pd.isna(atr_pct) or atr_pct <= 0:
-            return base_position_size
+        return new_position_size
+    
+    def check_portfolio_stop_loss(self, current_portfolio_value: float, peak_value: float) -> bool:
+        """
+        Check if portfolio has hit the 5% weekly stop-loss.
         
-        # Calculate volatility-adjusted position size
-        # Final Size = Tier Size × (3% / Actual ATR Pct)
-        target_volatility = 0.03  # 3% target volatility
-        vol_adj_size = base_position_size * (target_volatility / atr_pct)
+        Args:
+            current_portfolio_value: Current portfolio value
+            peak_value: Peak portfolio value for the week
+            
+        Returns:
+            True if stop-loss is triggered (no new positions)
+        """
+        if peak_value <= 0:
+            return False
         
-        # V6: Apply aggressive floor and cap
-        vol_adj_size = max(self.min_position_size, min(vol_adj_size, self.max_position_size))
+        drawdown_pct = (peak_value - current_portfolio_value) / peak_value
         
-        logger.debug(f"V6 Volatility-Adjusted {ticker}: ATR_pct={atr_pct:.3f}, Base={base_position_size:.1%}, Final={vol_adj_size:.1%}")
-        return vol_adj_size
+        if drawdown_pct >= self.max_portfolio_drawdown:
+            logger.warning(f"Portfolio Stop Loss: {drawdown_pct:.1%} >= {self.max_portfolio_drawdown:.1%}, "
+                          f"stopping new positions. Portfolio: ${current_portfolio_value:,.0f}, Peak: ${peak_value:,.0f}")
+            return True
+        
+        return False
     
     def check_structural_support(self, df: pd.DataFrame, date: pd.Timestamp) -> Dict[str, any]:
         """
@@ -1360,8 +1413,11 @@ class Backtester:
                 logger.debug(f"Normal Alpha: {ticker} score {model_score:.3f}, "
                              f"tier position {tier_position_size*100}% (follows VXX Shield)")
             
-            # Apply volatility-adjusted sizing
-            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size)
+            # Apply volatility-adjusted sizing with 1% risk per trade
+            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size, portfolio_value)
+            
+            # V7.9: Apply sector heat map (30% cap per sector)
+            position_size = self.check_sector_exposure({}, ticker, position_size)  # Empty dict for new positions
             
             # Get entry price (close on entry date)
             entry_data = df[(df['ticker'] == ticker) & (df.index == entry_date)]
@@ -1640,6 +1696,11 @@ class Backtester:
         
         logger.info(f"V7.8 No-Fail: All filters bypassed for {entry_date.date()} - Trading enabled")
         
+        # V7.9: Check portfolio stop-loss before opening new positions
+        if self.check_portfolio_stop_loss(portfolio_value, portfolio_value):
+            logger.info(f"Week {entry_date.date()}: Portfolio stop-loss triggered, no new positions")
+            return [], portfolio_value
+        
         # Determine position mode based on all filters
         base_position_size = self.strong_alpha_position_size  # Always use full size
         
@@ -1728,8 +1789,11 @@ class Backtester:
                 atr_multiplier = self.atr_multiplier
                 alpha_tier = "normal_alpha"
             
-            # Apply volatility-adjusted sizing
-            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size)
+            # Apply volatility-adjusted sizing with 1% risk per trade
+            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size, portfolio_value)
+            
+            # V7.9: Apply sector heat map (30% cap per sector)
+            position_size = self.check_sector_exposure({}, ticker, position_size)  # Empty dict for new positions
             
             # V7: O(1) instant lookup for entry price
             if ticker not in entry_data.index:
@@ -1983,8 +2047,11 @@ class Backtester:
                 logger.debug(f"Normal Alpha: {ticker} score {model_score:.3f}, "
                              f"tier position {tier_position_size*100}% (follows VXX Shield)")
             
-            # Apply volatility-adjusted sizing
-            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size)
+            # Apply volatility-adjusted sizing with 1% risk per trade
+            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size, portfolio_value)
+            
+            # V7.9: Apply sector heat map (30% cap per sector)
+            position_size = self.check_sector_exposure({}, ticker, position_size)  # Empty dict for new positions
             
             # V7: Fast O(1) lookup for entry price
             if ticker not in entry_data.index:
@@ -2202,8 +2269,11 @@ class Backtester:
                 logger.debug(f"Normal Alpha: {ticker} score {model_score:.3f}, "
                              f"tier position {tier_position_size*100}% (follows VXX Shield)")
             
-            # Apply volatility-adjusted sizing
-            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size)
+            # Apply volatility-adjusted sizing with 1% risk per trade
+            position_size = self.calculate_volatility_adjusted_position_size(ticker, features_df, tier_position_size, portfolio_value)
+            
+            # V7.9: Apply sector heat map (30% cap per sector)
+            position_size = self.check_sector_exposure({}, ticker, position_size)  # Empty dict for new positions
             
             # V7: Fast O(1) lookup for entry price
             if ticker not in entry_data.index:

@@ -25,14 +25,14 @@
 ## 2. Ground Truth Metrics
 
 ### Latest Backtest Results (V7.9 - Multi-Ticker Universe)
-| Metric | Before Expansion | After Expansion | Target | Status |
-|--------|------------------|-----------------|--------|--------|
-| **CAGR** | 0.81% | **14.88%** | >25% | ⚠️ IMPROVING |
-| **Max Drawdown** | -4.60% | **-22.93%** | <20% | ⚠️ SLIGHTLY HIGH |
-| **Win Rate** | 53.57% | **54.76%** | >50% | ✅ PASSED |
-| **Total Trades** | 168 | **840** | N/A | ✅ 5X IMPROVEMENT |
-| **Final Portfolio** | $99,172 | **$124,986** | $100,000+ | ✅ PROFITABLE |
-| **Universe Size** | 1 ticker | **10 tickers** | 10 tickers | ✅ COMPLETE |
+| Metric | Phase 5.1 | Phase 5.2 | Target | Status |
+|--------|-----------|-----------|--------|--------|
+| **CAGR** | 14.88% | **14.88%** | >25% | ⚠️ IMPROVING |
+| **Max Drawdown** | -22.93% | **-22.93%** | <20% | ⚠️ SLIGHTLY HIGH |
+| **Win Rate** | 54.76% | **54.76%** | >50% | ✅ PASSED |
+| **Total Trades** | 840 | **840** | N/A | ✅ MAINTAINED |
+| **Final Portfolio** | $124,986 | **$124,986** | $100,000+ | ✅ PROFITABLE |
+| **Universe Size** | 10 tickers | **10 tickers** | 10 tickers | ✅ COMPLETE |
 
 ### Performance Analysis
 - **🚀 CAGR Breakthrough:** Improved from 0.81% to 14.88% (1,836% improvement!)
@@ -40,6 +40,18 @@
 - **🎯 Win Rate Maintained:** 54.76% (above 50% threshold)
 - **⚠️ Drawdown Trade-off:** Increased to -22.93% (still within acceptable range)
 - **💰 Profitability:** $25,814 profit vs $828 loss before expansion
+
+### Phase 5.2 Risk Harmonization - IMPLEMENTED ⚠️
+- **✅ Volatility-Based Position Sizing:** 1% risk per trade formula implemented
+- **✅ Sector Heat Map:** 30% sector cap for Technology sector implemented  
+- **✅ Portfolio Stop-Loss:** 5% weekly stop-loss check implemented
+- **⚠️ Results:** No change in performance (risk sizing not activating properly)
+
+### Risk Harmonization Implementation Details:
+- **Position Sizing Formula:** `Position_Size = (Total_Equity * 0.01) / (ATR * atr_multiplier)`
+- **Sector Mapping:** Technology (60% of universe), Consumer Discretionary (20%), Communication Services (10%), Healthcare (10%)
+- **Sector Cap:** Maximum 30% exposure to any single sector
+- **Portfolio Stop:** 5% weekly drawdown triggers position freeze
 
 ### Phase 5.1 Universe Expansion - SUCCESS ✅
 - **Issue Resolved:** Ticker loading limitation (50 file cap) removed
@@ -185,20 +197,20 @@ self.super_alpha_position_size = 0.125  # 12.5% position size for super-alpha
 3. **✅ Multi-Ticker Test:** Successfully tested full universe
 4. **✅ Performance Validation:** CAGR improved 1,836%
 
-### 🎯 Next Phase: Phase 5.2 - Drawdown Optimization
-**Objective:** Reduce max drawdown from -22.93% to <20% while maintaining CAGR
+### 🎯 Next Phase: Phase 5.3 - Risk Sizing Debug & Optimization
+**Objective:** Debug why volatility-based position sizing isn't activating and achieve drawdown <20%
 
 #### Immediate Actions
-1. **Re-balance Position Sizing:** Reduce exposure during high volatility
-2. **Refine Chandelier Exit:** Optimize ATR multiplier for current universe
-3. **Enhanced Risk Controls:** Implement dynamic position limits
-4. **Sector Diversification:** Ensure proper sector balance across 10 tickers
+1. **Debug Risk Sizing:** Investigate why 1% risk formula isn't changing position sizes
+2. **ATR Data Validation:** Ensure atr_14 values are properly loaded and used
+3. **Sector Exposure Tracking:** Verify sector caps are being applied correctly
+4. **Portfolio Stop Testing:** Test 5% stop-loss trigger conditions
 
-### Strategic Adjustments for Phase 5.2
-1. **Position Sizing:** Consider reducing base position sizes from 7.5% to 5%
-2. **Filter Tuning:** Optimize VXX Shield and SPY RSI thresholds
-3. **Market Regime:** Improve detection for better entry/exit timing
-4. **Stop Loss:** Fine-tune trailing stops for better drawdown control
+### Strategic Adjustments for Phase 5.3
+1. **Risk Formula Debug:** Add logging to verify risk calculations are working
+2. **Position Size Limits:** Adjust bounds if 2-15% range is too restrictive
+3. **Sector Balance:** Force sector diversification across 10 tickers
+4. **Drawdown Control:** Implement more aggressive position sizing for high volatility
 
 ---
 
@@ -215,5 +227,7 @@ self.super_alpha_position_size = 0.125  # 12.5% position size for super-alpha
 
 **Report Generated:** February 2, 2026  
 **Phase 5.1 Status:** ✅ COMPLETE - Universe Expansion Successful  
-**Next Phase:** Phase 5.2 - Drawdown Optimization  
-**Status:** Major CAGR Breakthrough Achieved - 14.88% vs 0.81% (1,836% improvement)
+**Phase 5.2 Status:** ⚠️ IMPLEMENTED - Risk Harmonization (Debug Needed)  
+**Next Phase:** Phase 5.3 - Risk Sizing Debug & Optimization  
+**Status:** Major CAGR Breakthrough Achieved - 14.88% vs 0.81% (1,836% improvement)  
+**Challenge:** Risk-based position sizing not activating properly, drawdown still at -22.93%
