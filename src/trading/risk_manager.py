@@ -1,0 +1,485 @@
+"""
+NeuralTrader Risk Manager - The Constitution
+============================================
+
+Enforces the 0.9% Risk Per Trade logic with hard caps and safety checks.
+Implements the defensive constitution that protects capital.
+
+Features:
+- 0.9% risk per trade based on live account equity
+- 30% Tech Sector cap enforcement
+- 15% VXX Black Swan Exit protection
+- Duplicate position protection
+- Comprehensive risk validation
+
+Usage:
+    from src.trading.risk_manager import RiskManager
+    
+    rm = RiskManager()
+    decision = rm.evaluate_trade('AAPL', 150.0, account_info, current_positions)
+"""
+
+import os
+import logging
+import pandas as pd
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+import alpaca_trade_api as tradeapi
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class RiskDecision:
+    """Risk decision constants"""
+    APPROVED = "APPROVED"
+    REJECT_RISK = "REJECT_RISK"
+    REJECT_SECTOR = "REJECT_SECTOR"
+    REJECT_BLACK_SWAN = "REJECT_BLACK_SWAN"
+    REJECT_DUPLICATE = "REJECT_DUPLICATE"
+    REJECT_DATA = "REJECT_DATA"
+    REJECT_CAPITAL = "REJECT_CAPITAL"
+
+class RiskManager:
+    """
+    Risk Manager - The Constitution
+    Enforces all risk management rules and capital protection
+    """
+    
+    def __init__(self, api_key: str = None, secret_key: str = None):
+        """Initialize Risk Manager with Alpaca API"""
+        self.api_key = api_key or os.getenv('ALPACA_API_KEY')
+        self.secret_key = secret_key or os.getenv('ALPACA_SECRET_KEY')
+        self.paper_url = 'https://paper-api.alpaca.markets'
+        
+        if not self.api_key or not self.secret_key:
+            raise ValueError("Please set ALPACA_API_KEY and ALPACA_SECRET_KEY environment variables")
+        
+        # Initialize Alpaca API
+        self.api = tradeapi.REST(
+            key_id=self.api_key,
+            secret_key=self.secret_key,
+            base_url=self.paper_url
+        )
+        
+        # Risk parameters (Phase 5 optimized)
+        self.risk_per_trade = 0.009  # 0.9% risk per trade
+        self.max_sector_exposure = 0.30  # 30% max per sector
+        self.black_swan_threshold = 0.15  # 15% VXX surge
+        
+        # Sector mappings for our curated universe
+        self.sector_mappings = {
+            'AAPL': 'Technology',
+            'MSFT': 'Technology', 
+            'NVDA': 'Technology',
+            'AMD': 'Technology',
+            'TSLA': 'Consumer Discretionary',
+            'GOOGL': 'Technology',
+            'AMZN': 'Consumer Discretionary',
+            'META': 'Technology',
+            'NFLX': 'Communication Services',
+            'UNH': 'Healthcare'
+        }
+        
+        logger.info("Risk Manager initialized")
+        logger.info(f"Risk per trade: {self.risk_per_trade:.1%}")
+        logger.info(f"Max sector exposure: {self.max_sector_exposure:.1%}")
+        logger.info(f"Black Swan threshold: {self.black_swan_threshold:.1%}")
+    
+    def evaluate_trade(self, ticker: str, current_price: float, account_info: Dict, 
+                      current_positions: List[Dict], market_data: Dict = None) -> Tuple[str, Dict]:
+        """
+        Evaluate a trade request against all risk rules
+        
+        Args:
+            ticker: Ticker symbol to trade
+            current_price: Current market price
+            account_info: Account information from Alpaca
+            current_positions: List of current positions
+            market_data: Market data for calculations
+            
+        Returns:
+            Tuple of (decision, details)
+        """
+        try:
+            logger.info(f"Evaluating trade for {ticker} at ${current_price:.2f}")
+            
+            # 1. Check Black Swan condition first
+            black_swan_decision = self._check_black_swan()
+            if black_swan_decision != RiskDecision.APPROVED:
+                return black_swan_decision, {'reason': 'Black Swan event detected'}
+            
+            # 2. Check for duplicate positions
+            duplicate_decision = self._check_duplicate_position(ticker, current_positions)
+            if duplicate_decision != RiskDecision.APPROVED:
+                return duplicate_decision, {'reason': 'Position already exists'}
+            
+            # 3. Check capital requirements
+            capital_decision = self._check_capital_requirements(current_price, account_info)
+            if capital_decision != RiskDecision.APPROVED:
+                return capital_decision, {'reason': 'Insufficient capital'}
+            
+            # 4. Check sector exposure
+            sector_decision = self._check_sector_exposure(ticker, current_price, account_info, current_positions)
+            if sector_decision != RiskDecision.APPROVED:
+                return sector_decision, {'reason': 'Sector exposure limit exceeded'}
+            
+            # 5. Calculate position size
+            position_size = self._calculate_position_size(ticker, current_price, account_info, market_data)
+            
+            # 6. Final validation
+            if position_size <= 0:
+                return RiskDecision.REJECT_RISK, {'reason': 'Invalid position size calculation'}
+            
+            # Trade approved
+            details = {
+                'position_size': position_size,
+                'position_value': position_size * current_price,
+                'risk_amount': account_info['portfolio_value'] * self.risk_per_trade,
+                'sector': self.sector_mappings.get(ticker, 'Unknown'),
+                'current_sector_exposure': self._get_sector_exposure(self.sector_mappings.get(ticker), current_positions, account_info)
+            }
+            
+            logger.info(f"✅ Trade APPROVED: {ticker} - {position_size} shares @ ${current_price:.2f}")
+            return RiskDecision.APPROVED, details
+            
+        except Exception as e:
+            logger.error(f"Error evaluating trade for {ticker}: {e}")
+            return RiskDecision.REJECT_DATA, {'reason': f'Evaluation error: {str(e)}'}
+    
+    def _check_black_swan(self) -> str:
+        """
+        Check for Black Swan event (VXX surge > 15%)
+        
+        Returns:
+            RiskDecision constant
+        """
+        try:
+            # Get VXX data for the last 5 trading days
+            vxx_bars = self.api.get_bars(
+                symbol='VXX',
+                timeframe=tradeapi.TimeFrame.Day,
+                limit=7  # Get extra days for weekends
+            ).df
+            
+            if vxx_bars.empty or len(vxx_bars) < 5:
+                logger.warning("Insufficient VXX data for Black Swan check")
+                return RiskDecision.APPROVED  # Allow if can't check
+            
+            # Calculate 5-day return
+            recent_close = vxx_bars['close'].iloc[-1]
+            five_days_ago_close = vxx_bars['close'].iloc[-5]
+            vxx_return = (recent_close - five_days_ago_close) / five_days_ago_close
+            
+            logger.info(f"VXX 5-day return: {vxx_return:.2%}")
+            
+            if vxx_return > self.black_swan_threshold:
+                logger.warning(f"🚨 BLACK SWAN EVENT: VXX surged {vxx_return:.1%} > {self.black_swan_threshold:.1%}")
+                return RiskDecision.REJECT_BLACK_SWAN
+            
+            return RiskDecision.APPROVED
+            
+        except Exception as e:
+            logger.error(f"Error checking Black Swan: {e}")
+            return RiskDecision.APPROVED  # Allow if error in check
+    
+    def _check_duplicate_position(self, ticker: str, current_positions: List[Dict]) -> str:
+        """
+        Check if we already have a position in this ticker
+        
+        Args:
+            ticker: Ticker symbol
+            current_positions: List of current positions
+            
+        Returns:
+            RiskDecision constant
+        """
+        try:
+            for position in current_positions:
+                if position.get('symbol') == ticker and float(position.get('qty', 0)) > 0:
+                    logger.warning(f"Duplicate position check: Already own {ticker}")
+                    return RiskDecision.REJECT_DUPLICATE
+            
+            return RiskDecision.APPROVED
+            
+        except Exception as e:
+            logger.error(f"Error checking duplicate position: {e}")
+            return RiskDecision.REJECT_DATA
+    
+    def _check_capital_requirements(self, current_price: float, account_info: Dict) -> str:
+        """
+        Check if we have sufficient capital for the trade
+        
+        Args:
+            current_price: Current market price
+            account_info: Account information
+            
+        Returns:
+            RiskDecision constant
+        """
+        try:
+            portfolio_value = account_info.get('portfolio_value', 0)
+            buying_power = account_info.get('buying_power', 0)
+            
+            # Minimum position value (0.5% of portfolio)
+            min_position_value = portfolio_value * 0.005
+            
+            if buying_power < min_position_value:
+                logger.warning(f"Insufficient buying power: ${buying_power:.2f} < ${min_position_value:.2f}")
+                return RiskDecision.REJECT_CAPITAL
+            
+            return RiskDecision.APPROVED
+            
+        except Exception as e:
+            logger.error(f"Error checking capital requirements: {e}")
+            return RiskDecision.REJECT_DATA
+    
+    def _check_sector_exposure(self, ticker: str, current_price: float, account_info: Dict, 
+                             current_positions: List[Dict]) -> str:
+        """
+        Check if adding this position would exceed sector exposure limits
+        
+        Args:
+            ticker: Ticker symbol
+            current_price: Current market price
+            account_info: Account information
+            current_positions: List of current positions
+            
+        Returns:
+            RiskDecision constant
+        """
+        try:
+            sector = self.sector_mappings.get(ticker, 'Unknown')
+            portfolio_value = account_info.get('portfolio_value', 0)
+            
+            # Calculate current sector exposure
+            current_exposure = self._get_sector_exposure(sector, current_positions, account_info)
+            
+            # Calculate new position value (estimated)
+            new_position_value = portfolio_value * self.risk_per_trade * 10  # Rough estimate
+            new_exposure = current_exposure + new_position_value
+            
+            max_sector_value = portfolio_value * self.max_sector_exposure
+            
+            if new_exposure > max_sector_value:
+                logger.warning(f"Sector cap exceeded: {sector} - Current: ${current_exposure:.2f}, "
+                              f"New: ${new_exposure:.2f} > ${max_sector_value:.2f}")
+                return RiskDecision.REJECT_SECTOR
+            
+            return RiskDecision.APPROVED
+            
+        except Exception as e:
+            logger.error(f"Error checking sector exposure: {e}")
+            return RiskDecision.REJECT_DATA
+    
+    def _get_sector_exposure(self, sector: str, current_positions: List[Dict], account_info: Dict) -> float:
+        """
+        Calculate current exposure to a sector
+        
+        Args:
+            sector: Sector name
+            current_positions: List of current positions
+            account_info: Account information
+            
+        Returns:
+            Current sector exposure in dollars
+        """
+        try:
+            sector_exposure = 0.0
+            
+            for position in current_positions:
+                pos_ticker = position.get('symbol', '')
+                pos_qty = float(position.get('qty', 0))
+                pos_value = float(position.get('market_value', 0))
+                
+                if self.sector_mappings.get(pos_ticker) == sector and pos_qty > 0:
+                    sector_exposure += pos_value
+            
+            return sector_exposure
+            
+        except Exception as e:
+            logger.error(f"Error calculating sector exposure: {e}")
+            return 0.0
+    
+    def _calculate_position_size(self, ticker: str, current_price: float, account_info: Dict, 
+                               market_data: Dict = None) -> int:
+        """
+        Calculate position size based on 0.9% risk per trade
+        
+        Args:
+            ticker: Ticker symbol
+            current_price: Current market price
+            account_info: Account information
+            market_data: Market data for ATR calculation
+            
+        Returns:
+            Number of shares to trade
+        """
+        try:
+            portfolio_value = account_info.get('portfolio_value', 0)
+            risk_amount = portfolio_value * self.risk_per_trade
+            
+            # Get ATR for stop distance
+            atr = self._get_atr_value(ticker, market_data)
+            
+            if atr <= 0:
+                # Fallback: use 2x average daily range
+                logger.warning(f"Invalid ATR for {ticker}, using fallback calculation")
+                atr = current_price * 0.02  # 2% of price as fallback
+            
+            # Calculate position size: Risk Amount / (ATR * 2)
+            stop_distance = atr * 2.0  # 2x ATR stop
+            position_value = risk_amount / stop_distance
+            shares = int(position_value / current_price)
+            
+            # Apply position bounds (0.5% to 25% of portfolio)
+            min_position_value = portfolio_value * 0.005
+            max_position_value = portfolio_value * 0.25
+            
+            if shares * current_price < min_position_value:
+                shares = int(min_position_value / current_price)
+            elif shares * current_price > max_position_value:
+                shares = int(max_position_value / current_price)
+            
+            # Ensure minimum trade size
+            if shares < 1:
+                shares = 1
+            
+            logger.info(f"Position size calculation for {ticker}: {shares} shares "
+                       f"(${shares * current_price:.2f} value, risk: ${risk_amount:.2f})")
+            
+            return shares
+            
+        except Exception as e:
+            logger.error(f"Error calculating position size: {e}")
+            return 0
+    
+    def _get_atr_value(self, ticker: str, market_data: Dict = None) -> float:
+        """
+        Get ATR value for ticker
+        
+        Args:
+            ticker: Ticker symbol
+            market_data: Market data dictionary
+            
+        Returns:
+            ATR value
+        """
+        try:
+            if market_data and ticker in market_data:
+                df = market_data[ticker]
+                if not df.empty and len(df) >= 14:
+                    # Calculate ATR
+                    high_low = df['high'] - df['low']
+                    high_close = abs(df['high'] - df['close'].shift())
+                    low_close = abs(df['low'] - df['close'].shift())
+                    
+                    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                    atr = true_range.rolling(window=14).mean().iloc[-1]
+                    
+                    return atr
+            
+            # Fallback: fetch from API
+            bars = self.api.get_bars(
+                symbol=ticker,
+                timeframe=tradeapi.TimeFrame.Day,
+                limit=20
+            ).df
+            
+            if not bars.empty and len(bars) >= 14:
+                high_low = bars['high'] - bars['low']
+                high_close = abs(bars['high'] - bars['close'].shift())
+                low_close = abs(bars['low'] - bars['close'].shift())
+                
+                true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                atr = true_range.rolling(window=14).mean().iloc[-1]
+                
+                return atr
+            
+            return 0.0
+            
+        except Exception as e:
+            logger.error(f"Error getting ATR for {ticker}: {e}")
+            return 0.0
+    
+    def get_account_info(self) -> Dict:
+        """Get current account information"""
+        try:
+            account = self.api.get_account()
+            
+            return {
+                'equity': float(account.equity),
+                'cash': float(account.cash),
+                'portfolio_value': float(account.portfolio_value),
+                'buying_power': float(account.buying_power),
+                'daytrade_count': int(account.daytrade_count)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting account info: {e}")
+            return {}
+    
+    def get_current_positions(self) -> List[Dict]:
+        """Get current positions"""
+        try:
+            positions = self.api.list_positions()
+            
+            return [
+                {
+                    'symbol': pos.symbol,
+                    'qty': float(pos.qty),
+                    'market_value': float(pos.market_value),
+                    'cost_basis': float(pos.cost_basis),
+                    'unrealized_pl': float(pos.unrealized_pl),
+                    'side': 'long' if float(pos.qty) > 0 else 'short'
+                }
+                for pos in positions
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error getting positions: {e}")
+            return []
+    
+    def log_risk_summary(self, account_info: Dict, current_positions: List[Dict]):
+        """Log risk management summary"""
+        logger.info("=== Risk Management Summary ===")
+        logger.info(f"Portfolio Value: ${account_info.get('portfolio_value', 0):,.2f}")
+        logger.info(f"Buying Power: ${account_info.get('buying_power', 0):,.2f}")
+        logger.info(f"Current Positions: {len(current_positions)}")
+        
+        # Sector exposure
+        sector_exposure = {}
+        for position in current_positions:
+            ticker = position.get('symbol', '')
+            sector = self.sector_mappings.get(ticker, 'Unknown')
+            value = float(position.get('market_value', 0))
+            
+            if sector not in sector_exposure:
+                sector_exposure[sector] = 0
+            sector_exposure[sector] += value
+        
+        logger.info("Sector Exposure:")
+        for sector, exposure in sector_exposure.items():
+            pct = (exposure / account_info.get('portfolio_value', 1)) * 100
+            status = "⚠️" if pct > 30 else "✅"
+            logger.info(f"  {sector}: ${exposure:,.2f} ({pct:.1f}%) {status}")
+
+# Usage example
+if __name__ == "__main__":
+    # Test the risk manager
+    rm = RiskManager()
+    
+    # Get account info
+    account = rm.get_account_info()
+    positions = rm.get_current_positions()
+    
+    # Log summary
+    rm.log_risk_summary(account, positions)
+    
+    # Test a trade evaluation
+    decision, details = rm.evaluate_trade('AAPL', 150.0, account, positions)
+    logger.info(f"Trade decision: {decision}")
+    logger.info(f"Details: {details}")
