@@ -35,16 +35,16 @@ from pathlib import Path
 # ==================== MASTER RUNNER SAFETY CHECKS ====================
 
 # 1. Working Directory Lock - Force project root directory
-PROJECT_ROOT = Path(__file__).parent.absolute()
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PROJECT_ROOT)
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, PROJECT_ROOT)
 
 # 2. Environment Safety - Check required libraries
 REQUIRED_LIBRARIES = {
     'yfinance': 'yfinance',
     'pytz': 'pytz', 
     'pandas': 'pandas',
-    'schedule': 'schedule'
+    'dotenv': 'dotenv'
 }
 
 def check_environment():
@@ -68,10 +68,10 @@ def check_environment():
 # 3. Logging Setup - automation.log for Task Scheduler debugging
 def setup_automation_logging():
     """Setup comprehensive logging for Task Scheduler debugging"""
-    log_dir = PROJECT_ROOT / 'logs'
-    log_dir.mkdir(exist_ok=True)
+    log_dir = os.path.join(PROJECT_ROOT, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
     
-    log_file = log_dir / 'automation.log'
+    log_file = os.path.join(log_dir, 'automation.log')
     
     # Configure logging with both file and console output
     logging.basicConfig(
@@ -172,9 +172,9 @@ class TradingOrchestrator:
             return False
     
     def run_fetch_mode(self) -> bool:
-        """Run data fetch mode (16:45 IST)"""
+        """Run fetch mode - Triggers YFinanceManager to scan S&P 100"""
         try:
-            self.logger.info("🕐 Running FETCH MODE - Data Fetch Session")
+            self.logger.info("🕐 Running FETCH MODE - YFinanceManager S&P 100 Scan")
             session_start = datetime.now()
             
             # Check kill switch
@@ -193,15 +193,15 @@ class TradingOrchestrator:
                 self.logger.info(f"⏰ Not data fetch time: {market_status.get('timestamp_ist')}")
                 self.logger.info("🔧 Forcing data fetch for testing...")
             
-            # Fetch scheduled data
-            self.logger.info("📊 Fetching scheduled market data...")
+            # Trigger YFinanceManager to scan S&P 100
+            self.logger.info("📊 Triggering YFinanceManager to scan S&P 100...")
             data = self.yfinance_manager.fetch_scheduled_data()
             
             if not data:
-                self.logger.error("❌ No data fetched")
+                self.logger.error("❌ No data fetched from S&P 100 scan")
                 return False
             
-            self.logger.info(f"✅ Data fetch completed: {len(data)} tickers")
+            self.logger.info(f"✅ S&P 100 scan completed: {len(data)} tickers")
             
             # Update portfolio values
             self.virtual_engine.update_portfolio_values()
@@ -220,9 +220,9 @@ class TradingOrchestrator:
             return False
     
     def run_trade_mode(self) -> bool:
-        """Run trading mode (market hours)"""
+        """Run trade mode - Triggers VirtualEngine to execute shadow trades"""
         try:
-            self.logger.info("🎭 Running TRADE MODE - Shadow Trading Session")
+            self.logger.info("🎭 Running TRADE MODE - VirtualEngine Shadow Trading")
             session_start = datetime.now()
             
             # Check kill switch
@@ -240,15 +240,8 @@ class TradingOrchestrator:
                 self.logger.info("⏰ Market is closed - no trading")
                 return False
             
-            # Fetch market data
-            self.logger.info("📊 Fetching market data for trading...")
-            data = self.yfinance_manager.fetch_daily_data(period="5d")
-            
-            if not data:
-                self.logger.error("❌ No market data available")
-                return False
-            
-            self.logger.info(f"📊 Market data fetched: {len(data)} tickers")
+            # Trigger VirtualEngine to execute shadow trades
+            self.logger.info("🎭 Triggering VirtualEngine to execute shadow trades...")
             
             # Get portfolio info
             account_info = self.risk_manager.get_account_info()
@@ -258,20 +251,13 @@ class TradingOrchestrator:
             trades_executed = 0
             for ticker in self.yfinance_manager.sp100_tickers[:10]:  # Limit for testing
                 try:
-                    if ticker not in data:
-                        continue
-                    
-                    df = data[ticker]
-                    if df.empty or len(df) < 50:
-                        continue
-                    
                     # Get latest price
                     current_price = self.yfinance_manager.get_latest_prices([ticker]).get(ticker)
                     if current_price is None:
                         continue
                     
                     # Generate signal
-                    signal_strength = self._generate_signal(df)
+                    signal_strength = self._generate_signal_simple(ticker)
                     
                     if signal_strength > 0.5:  # Buy signal
                         # Evaluate trade
@@ -280,7 +266,7 @@ class TradingOrchestrator:
                         )
                         
                         if decision == RiskDecision.APPROVED:
-                            # Execute trade
+                            # Execute trade with VirtualEngine
                             position_size = details.get('position_size', 10)
                             result = self.virtual_engine.execute_trade(
                                 ticker, 'buy', position_size, current_price, 
@@ -316,9 +302,9 @@ class TradingOrchestrator:
             return False
     
     def run_report_mode(self) -> bool:
-        """Run report mode (23:15 IST)"""
+        """Run report mode - Triggers ist_scheduler.py to send 23:15 IST email"""
         try:
-            self.logger.info("📧 Running REPORT MODE - Daily Executive Brief")
+            self.logger.info("📧 Running REPORT MODE - IST Scheduler 23:15 IST Email")
             session_start = datetime.now()
             
             # Check kill switch
@@ -330,7 +316,8 @@ class TradingOrchestrator:
             if not self.initialize_modules():
                 return False
             
-            # Send daily executive brief
+            # Trigger ist_scheduler.py to send 23:15 IST email
+            self.logger.info("📧 Triggering ist_scheduler.py to send 23:15 IST email...")
             success = self.ist_scheduler.send_daily_report()
             
             session_end = datetime.now()
@@ -346,6 +333,16 @@ class TradingOrchestrator:
         except Exception as e:
             self.logger.error(f"❌ Error in REPORT MODE: {e}")
             return False
+    
+    def _generate_signal_simple(self, ticker: str) -> float:
+        """Generate simple signal for testing"""
+        try:
+            # Simple random signal for testing
+            import random
+            return random.random()
+        except Exception as e:
+            self.logger.error(f"Error generating signal for {ticker}: {e}")
+            return 0.0
     
     def run_auto_mode(self):
         """Run auto mode with IST scheduling"""

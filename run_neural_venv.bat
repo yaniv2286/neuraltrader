@@ -1,14 +1,14 @@
 @echo off
 REM ===============================================================
-REM NeuralTrader Task Scheduler Runner - Conda Environment
+REM NeuralTrader Task Scheduler Runner - Virtual Environment
 REM ===============================================================
-REM This script activates the conda environment and runs NeuralTrader
+REM This script activates the virtual environment and runs NeuralTrader
 REM Designed for Windows Task Scheduler integration
 REM
 REM Usage:
-REM   run_neural.bat fetch    - Data fetch mode (16:45 IST)
-REM   run_neural.bat trade    - Trading mode (market hours)
-REM   run_neural.bat report   - Report mode (23:15 IST)
+REM   run_neural_venv.bat fetch    - Data fetch mode (16:45 IST)
+REM   run_neural_venv.bat trade    - Trading mode (market hours)
+REM   run_neural_venv.bat report   - Report mode (23:15 IST)
 REM ===============================================================
 
 setlocal enabledelayedexpansion
@@ -60,29 +60,29 @@ if errorlevel 1 (
 echo [%date% %time%] Changed to project directory: %CD% >> "%LOG_FILE%"
 echo [%date% %time%] Changed to project directory: %CD%
 
-REM Check if conda is available
-where conda >nul 2>&1
-if errorlevel 1 (
-    echo [%date% %time%] [ERROR] Conda not found in PATH >> "%LOG_FILE%"
-    echo [%date% %time%] [ERROR] Conda not found in PATH
-    echo [%date% %time%] Please install Anaconda or Miniconda and add to PATH
+REM Check if virtual environment exists
+if not exist "%PROJECT_ROOT%.venv\Scripts\activate.bat" (
+    echo [%date% %time%] [ERROR] Virtual environment not found: %PROJECT_ROOT%.venv\Scripts\activate.bat >> "%LOG_FILE%"
+    echo [%date% %time%] [ERROR] Virtual environment not found: %PROJECT_ROOT%.venv\Scripts\activate.bat
+    echo [%date% %time%] Please create virtual environment first:
+    echo [%date% %time%] python -m venv .venv
+    echo [%date% %time%] .venv\Scripts\activate
+    echo [%date% %time%] pip install -r requirements_trading.txt
     goto :error_exit
 )
 
-REM Activate conda environment
-echo [%date% %time%] Activating conda environment: neural-trader >> "%LOG_FILE%"
-echo [%date% %time%] Activating conda environment: neural-trader...
-
-call conda activate neural-trader
+REM Activate virtual environment
+echo [%date% %time%] Activating virtual environment... >> "%LOG_FILE%"
+echo [%date% %time%] Activating virtual environment...
+call "%PROJECT_ROOT%.venv\Scripts\activate.bat"
 if errorlevel 1 (
-    echo [%date% %time%] [ERROR] Failed to activate conda environment: neural-trader >> "%LOG_FILE%"
-    echo [%date% %time%] [ERROR] Failed to activate conda environment: neural-trader
-    echo [%date% %time%] Please create conda environment: conda create -n neural-trader python=3.10
+    echo [%date% %time%] [ERROR] Failed to activate virtual environment >> "%LOG_FILE%"
+    echo [%date% %time%] [ERROR] Failed to activate virtual environment
     goto :error_exit
 )
 
-echo [%date% %time%] Conda environment activated >> "%LOG_FILE%"
-echo [%date% %time%] Conda environment activated
+echo [%date% %time%] Virtual environment activated >> "%LOG_FILE%"
+echo [%date% %time%] Virtual environment activated
 
 REM Check if Python script exists
 if not exist "%PROJECT_ROOT%main_orchestrator_ist.py" (
