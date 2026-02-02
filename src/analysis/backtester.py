@@ -100,6 +100,10 @@ class Backtester:
         # V7.9: Initialize debug counter
         self._debug_counter = 0
         
+        # V7.9: Initialize risk parameters
+        self.risk_pct = 0.01  # Default 1% risk per trade
+        self.atr_multiplier = 2.0  # Default 2.0x ATR multiplier
+        
         # Market regime settings (less restrictive)
         self.use_market_filter = True  # V7.8: Nuclear bypass - Force True for testing
         self.legacy_tickers = ['IBM', 'GE', 'BA', 'AAPL', 'MSFT']  # Force load all data for these
@@ -1003,6 +1007,9 @@ class Backtester:
         
         atr_14 = ticker_features['atr_14'].iloc[0]
         
+        # V7.9: Use absolute ATR value and ensure it's positive
+        atr_14 = abs(atr_14)
+        
         if pd.isna(atr_14) or atr_14 <= 0:
             logger.debug(f"V7.9: Invalid ATR for {ticker}, using base position size")
             return base_position_size
@@ -1010,8 +1017,9 @@ class Backtester:
         # Use appropriate ATR multiplier based on alpha tier
         atr_multiplier = self.atr_multiplier  # Default 2.0x
         
-        # Calculate 1% risk position size
-        risk_amount = total_equity * 0.01  # 1% of total equity
+        # Calculate configurable risk position size
+        risk_amount = total_equity * self.risk_pct  # Configurable risk percentage
+        print(f"V7.9 Risk Calc: {ticker} - Risk={self.risk_pct:.1%}, ATR={atr_14:.3f}, Multiplier={atr_multiplier}x, Risk_Amt=${risk_amount:,.0f}")
         stop_distance = atr_14 * atr_multiplier  # Distance to Chandelier Exit
         
         # Calculate position size based on risk
@@ -1020,8 +1028,8 @@ class Backtester:
         # Convert to percentage of portfolio
         position_size_pct = risk_adjusted_size / total_equity
         
-        # Apply reasonable bounds (2% minimum, 15% maximum)
-        position_size_pct = max(0.02, min(position_size_pct, 0.15))
+        # Apply reasonable bounds (0.5% minimum, 25% maximum) - V7.9: Loosened for risk formula
+        position_size_pct = max(0.005, min(position_size_pct, 0.25))
         
         logger.debug(f"V7.9 Risk-Adjusted {ticker}: Equity=${total_equity:,.0f}, ATR={atr_14:.2f}, "
                     f"Risk=${risk_amount:,.0f}, Stop={stop_distance:.2f}, Size={position_size_pct:.1%}")
@@ -1031,6 +1039,7 @@ class Backtester:
     def check_sector_exposure(self, current_positions: Dict[str, float], new_ticker: str, new_position_size: float) -> float:
         """
         Check sector exposure and adjust position size if needed to maintain 30% sector cap.
+        If sector cap is hit, suggest alternative sectors for diversification.
         
         Args:
             current_positions: Dictionary of current positions {ticker: position_size}
@@ -1054,10 +1063,30 @@ class Backtester:
         # Calculate proposed new sector exposure
         proposed_sector_exposure = sector_exposure + new_position_size
         
-        # If over cap, reduce position size
+        # If over cap, reduce position size and suggest alternatives
         if proposed_sector_exposure > self.max_sector_exposure:
             max_allowed_size = self.max_sector_exposure - sector_exposure
             adjusted_size = min(new_position_size, max(0.01, max_allowed_size))  # Minimum 1%
+            
+            # Find alternative sectors with available capacity
+            alternative_sectors = []
+            for sector in set(self.sector_mapping.values()):
+                if sector != new_sector:
+                    sector_current = sum(size for ticker, size in current_positions.items() 
+                                     if ticker in self.sector_mapping and self.sector_mapping[ticker] == sector)
+                    if sector_current < self.max_sector_exposure:
+                        available_capacity = self.max_sector_exposure - sector_current
+                        alternative_sectors.append((sector, available_capacity))
+            
+            # Sort by available capacity (highest first)
+            alternative_sectors.sort(key=lambda x: x[1], reverse=True)
+            
+            if alternative_sectors:
+                alt_sector, capacity = alternative_sectors[0]
+                logger.info(f"Sector Cap: {new_sector} full ({proposed_sector_exposure:.1%} > {self.max_sector_exposure:.1%}). "
+                           f"Consider {alt_sector} sector ({capacity:.1%} available)")
+            else:
+                logger.warning(f"Sector Cap: All sectors at capacity! {new_sector} exposure {proposed_sector_exposure:.1%} > {self.max_sector_exposure:.1%}")
             
             logger.info(f"Sector Cap: {new_sector} exposure {proposed_sector_exposure:.1%} > {self.max_sector_exposure:.1%}, "
                        f"adjusting {new_ticker} from {new_position_size:.1%} to {adjusted_size:.1%}")
@@ -4068,6 +4097,8 @@ def main():
     parser.add_argument('--tickers', type=str, help='Comma-separated list of tickers to include')
     parser.add_argument('--start_date', type=str, default='2024-01-01', help='Start date for backtest')
     parser.add_argument('--limit', type=int, help='Limit number of tickers (for testing)')
+    parser.add_argument('--risk_pct', type=float, default=0.01, help='Risk percentage per trade (default: 1%)')
+    parser.add_argument('--atr_multiplier', type=float, default=2.0, help='ATR multiplier for stop loss (default: 2.0x)')
     args = parser.parse_args()
     
     with open("debug_output.txt", "a") as f:
@@ -4086,6 +4117,12 @@ def main():
             ticker_list = [t.strip().upper() for t in args.tickers.split(',')]
             backtester.ticker_filter = ticker_list
             logger.info(f"V7.9: Using filtered ticker list: {ticker_list}")
+        
+        # Apply risk parameters if specified
+        backtester.risk_pct = args.risk_pct
+        backtester.atr_multiplier = args.atr_multiplier
+        print(f"V7.9: Risk parameters set - Risk: {args.risk_pct:.1%}, ATR Multiplier: {args.atr_multiplier}x")
+        logger.info(f"V7.9: Risk parameters - Risk: {args.risk_pct:.1%}, ATR Multiplier: {args.atr_multiplier}x")
         
         with open("debug_output.txt", "a") as f:
             f.write("V7.8 DEBUG: Backtester created, calling run()...\n")

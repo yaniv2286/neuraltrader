@@ -1,6 +1,6 @@
 # NeuralTrader 2.0 - Backtest Report V7
 
-**Generated:** 2026-02-02 16:58:38
+**Generated:** 2026-02-02 17:07:32
 
 ## Strategy V7: The Institutional Architect
 
@@ -28,37 +28,37 @@
 
 | Metric | V1 | V2 | V3 | V4 | V5 | V6 | V7 |
 |--------|----|----|----|----|----|----|----|
-| CAGR | 344.69% | 5.13% | 7.88% | 25.47% | 12.69% | 11.12% | **14.88%** |
-| Max Drawdown | -99.47% | -15.12% | -10.46% | -19.08% | -9.06% | -21.42% | **-22.93%** |
-| Win Rate | 49.70% | 48.25% | 51.17% | 52.28% | 51.98% | 50.99% | **54.76%** |
-| Total Trades | 1010 | 342 | 342 | 1010 | 1010 | 1010 | **840** |
+| CAGR | 344.69% | 5.13% | 7.88% | 25.47% | 12.69% | 11.12% | **-0.52%** |
+| Max Drawdown | -99.47% | -15.12% | -10.46% | -19.08% | -9.06% | -21.42% | **-4.60%** |
+| Win Rate | 49.70% | 48.25% | 51.17% | 52.28% | 51.98% | 50.99% | **33.93%** |
+| Total Trades | 1010 | 342 | 342 | 1010 | 1010 | 1010 | **168** |
 
 ## Executive Summary
 
-- **Final CAGR:** 14.88%
-- **Max Drawdown:** -22.93%
-- **Win Rate:** 54.76%
-- **Total Trades:** 840
-- **Final Portfolio:** $124,986.32142186048
+- **Final CAGR:** -0.52%
+- **Max Drawdown:** -4.60%
+- **Win Rate:** 33.93%
+- **Total Trades:** 168
+- **Final Portfolio:** $99,171.5957609425
 
 ### Performance vs Goals
 
 - **CAGR Target:** 35.0%
-- **CAGR Achieved:** 14.88% (❌ FAILED)
+- **CAGR Achieved:** -0.52% (❌ FAILED)
 - **Max DD Target:** <12.0%
-- **Max DD Achieved:** 22.93% (❌ FAILED)
+- **Max DD Achieved:** 4.60% (✅ PASSED)
 
 ## Risk Metrics
 
-- **Sharpe Ratio:** 0.70
-- **Sortino Ratio:** 0.93
+- **Sharpe Ratio:** -0.19
+- **Sortino Ratio:** -0.27
 - **Average P&L:** 0.00%
 
 ## Portfolio Performance
 
 - **Initial Capital:** $100,000
-- **Final Capital:** $124,986.32142186048
-- **Total Return:** 24.99%
+- **Final Capital:** $99,171.5957609425
+- **Total Return:** -0.83%
 
 ## Trade Log
 
@@ -66,39 +66,37 @@ Last 10 simulated trades:
 
 | Ticker | Entry | Exit | P&L | Tier | Mode | Reason |
 |--------|-------|------|-----|------|--------|--------|
+| nan | 273.40 | 271.01 | -0.87% | normal_alpha | aggressive | week_end |
+| SPY | 231.66 | 231.66 | 0.00% | normal_alpha | aggressive | week_end |
+| nan | 271.01 | 259.37 | -4.30% | normal_alpha | aggressive | week_end |
+| SPY | 231.66 | 231.66 | 0.00% | normal_alpha | aggressive | week_end |
+| nan | 259.37 | 255.53 | -1.48% | strong_alpha | aggressive | week_end |
+| SPY | 231.66 | 231.66 | 0.00% | normal_alpha | aggressive | week_end |
+| nan | 255.53 | 248.04 | -2.93% | strong_alpha | aggressive | week_end |
+| SPY | 231.66 | 231.66 | 0.00% | normal_alpha | aggressive | week_end |
 | nan | 248.04 | 259.48 | 4.61% | strong_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | strong_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | strong_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | strong_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | normal_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | normal_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | normal_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | normal_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | normal_alpha | aggressive | week_end |
-| nan | 248.04 | 259.48 | 4.61% | normal_alpha | aggressive | week_end |
+| SPY | 231.66 | 231.66 | 0.00% | normal_alpha | aggressive | week_end |
 
 ## Alpha Tier Analysis
 
-- **Super_Alpha Tier:** 2 trades (0.2%)
-- **Strong_Alpha Tier:** 142 trades (16.9%)
-- **Normal_Alpha Tier:** 696 trades (82.9%)
+- **Strong_Alpha Tier:** 16 trades (9.5%)
+- **Normal_Alpha Tier:** 152 trades (90.5%)
 
 ## Position Size Analysis
 
-- **Average Position Size:** 7.9%
-- **Position Range:** 7.5% - 12.5%
+- **Average Position Size:** 7.7%
+- **Position Range:** 7.5% - 10.0%
 
 ## Exit Reason Analysis
 
-- **Week End:** 810 trades (96.4%)
-- **Portfolio Stop:** 30 trades (3.6%)
+- **Week End:** 168 trades (100.0%)
 
 ## SPY Buy & Hold Comparison
 
 | Metric | NeuralTrader V7 | SPY | Outperformance |
 |--------|----------------|-----|----------------|
-| CAGR | 14.88% | 0.00% | 14.88% |
-| Max Drawdown | -22.93% | 0.00% | 22.93% |
+| CAGR | -0.52% | 0.00% | -0.52% |
+| Max Drawdown | -4.60% | 0.00% | 4.60% |
 
 ## Strategy V7 Details
 
@@ -112,7 +110,7 @@ Last 10 simulated trades:
 ## Risk Management V7
 
 - **Weekly Portfolio Stop Loss:** 5.0%
-- **ATR Multiplier:** 2.0x (Tightened Chandelier Exit)
+- **ATR Multiplier:** 1.5x (Tightened Chandelier Exit)
 - **Market Filter:** Enabled
 - **VXX Shield:** Enabled
 - **Structural Filter:** Enabled

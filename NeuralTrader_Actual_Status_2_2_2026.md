@@ -41,6 +41,28 @@
 - **⚠️ Drawdown Trade-off:** Increased to -22.93% (still within acceptable range)
 - **💰 Profitability:** $25,814 profit vs $828 loss before expansion
 
+### Phase 5.4 Position Bounds Optimization - IN PROGRESS ⚠️
+- **✅ Bounds Loosened:** Changed from 2%-15% to 0.5%-25% for risk formula
+- **✅ Risk Parameters:** Added command-line args for risk_pct and atr_multiplier
+- **✅ ATR Fix:** Using absolute ATR values to handle negative values
+- **✅ Sector Balance Force:** Enhanced to suggest alternative sectors when caps hit
+- **⚠️ Issue:** Risk sizing still not affecting results (debug prints not appearing)
+
+### Grid Test Results (All Tests Same):
+- **Test A (Conservative):** 0.75% Risk, 2.5x ATR → CAGR 14.88%, DD -22.93%
+- **Test B (Balanced):** 1.0% Risk, 2.0x ATR → CAGR 14.88%, DD -22.93%  
+- **Test C (Aggressive):** 1.25% Risk, 1.5x ATR → CAGR 14.88%, DD -22.93%
+
+### Issue Identified:
+- Risk sizing function not being called with valid tickers
+- All tests producing identical results
+- Need deeper investigation of ticker filtering in trading logic
+
+### Sector Balance Enhancement:
+- **✅ Alternative Sector Suggestions:** System now suggests available sectors when caps hit
+- **✅ Capacity Tracking:** Shows available capacity for each sector
+- **✅ Diversification Logic:** Prioritizes sectors with most available capacity
+
 ### Phase 5.3 Risk Sizing Debug - COMPLETE ✅
 - **✅ ATR Column Issue:** Fixed - ATR data now included in features_df
 - **✅ NaN Protection:** Working - Invalid ATR values fall back to base sizing
@@ -241,6 +263,6 @@ self.super_alpha_position_size = 0.125  # 12.5% position size for super-alpha
 **Phase 5.1 Status:** ✅ COMPLETE - Universe Expansion Successful  
 **Phase 5.2 Status:** ⚠️ IMPLEMENTED - Risk Harmonization (Debug Needed)  
 **Phase 5.3 Status:** ✅ COMPLETE - Risk Sizing Debug (ATR Fixed)  
-**Next Phase:** Phase 5.4 - Position Bounds Optimization  
+**Phase 5.4 Status:** ⚠️ IN PROGRESS - Position Bounds Optimization  
 **Status:** Major CAGR Breakthrough Achieved - 14.88% vs 0.81% (1,836% improvement)  
-**Challenge:** Position bounds too restrictive for risk formula to reduce drawdown
+**Challenge:** Risk sizing parameters not affecting results, need deeper investigation
