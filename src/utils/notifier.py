@@ -55,6 +55,39 @@ class EmailNotifier:
         logger.info("Email Notifier initialized")
         logger.info(f"Recipient: {self.recipient_email}")
     
+    def send_email(self, to_email: str, subject: str, body: str) -> bool:
+        """
+        Send simple email
+        
+        Args:
+            to_email: Recipient email address
+            subject: Email subject
+            body: Email body
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Create message
+            msg = MIMEText(body, 'plain')
+            msg['Subject'] = subject
+            msg['From'] = self.sender_email
+            msg['To'] = to_email
+            
+            # Send email
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                if self.sender_password:
+                    server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+            
+            logger.info(f"Email sent successfully to {to_email}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending email: {e}")
+            return False
+    
     def send_daily_brief(self, account_info: Dict, current_positions: List[Dict], 
                          trades_today: List[Dict], risk_summary: Dict = None) -> bool:
         """
