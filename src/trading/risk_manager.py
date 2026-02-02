@@ -581,14 +581,26 @@ class RiskManager:
                 with open(portfolio_file, 'r') as f:
                     portfolio = json.load(f)
                 
+                # Calculate total equity (cash + position value)
+                cash = portfolio.get('cash', 0.0)
+                positions_value = 0.0
+                
+                for ticker, position in portfolio.get('positions', {}).items():
+                    last_price = position.get('last_price', position.get('avg_cost', 0))
+                    position_value = position['quantity'] * last_price
+                    positions_value += position_value
+                
+                total_equity = cash + positions_value
+                
                 return {
                     'account_id': 'virtual_portfolio',
-                    'equity': portfolio.get('performance', {}).get('total_value', portfolio['cash']),
-                    'cash': portfolio['cash'],
-                    'portfolio_value': portfolio.get('performance', {}).get('total_value', portfolio['cash']),
-                    'buying_power': portfolio['cash'],  # Virtual portfolio uses cash as buying power
+                    'equity': total_equity,
+                    'cash': cash,
+                    'portfolio_value': total_equity,
+                    'buying_power': cash,  # Virtual portfolio uses cash as buying power
                     'maint_margin_req': 0.0,
-                    'available_funds': portfolio['cash']
+                    'available_funds': cash,
+                    'positions_value': positions_value
                 }
             else:
                 # Default values if portfolio doesn't exist
@@ -599,7 +611,8 @@ class RiskManager:
                     'portfolio_value': 100000.0,
                     'buying_power': 100000.0,
                     'maint_margin_req': 0.0,
-                    'available_funds': 100000.0
+                    'available_funds': 100000.0,
+                    'positions_value': 0.0
                 }
             
         except Exception as e:

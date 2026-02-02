@@ -82,12 +82,11 @@ class VirtualEngine:
                 logger.info(f"Loaded existing portfolio: {len(portfolio.get('positions', {}))} positions")
                 return portfolio
             else:
-                # Create new portfolio
+                # Create new portfolio with specified structure
                 portfolio = {
                     'cash': self.initial_cash,
-                    'initial_cash': self.initial_cash,
                     'positions': {},
-                    'trades': [],
+                    'history': [],
                     'performance': {
                         'total_return': 0.0,
                         'total_return_pct': 0.0,
@@ -106,9 +105,8 @@ class VirtualEngine:
             # Create new portfolio as fallback
             return {
                 'cash': self.initial_cash,
-                'initial_cash': self.initial_cash,
                 'positions': {},
-                'trades': [],
+                'history': [],
                 'performance': {
                     'total_return': 0.0,
                     'total_return_pct': 0.0,
@@ -153,7 +151,7 @@ class VirtualEngine:
                 logger.warning(f"No data found for {ticker}")
                 return None
             
-            # Get adjusted close price
+            # Get adjusted close price for Daily Adjusted Close
             if 'Adj Close' in data.columns:
                 price = data['Adj Close'].iloc[-1]
             elif 'Close' in data.columns:
@@ -231,7 +229,7 @@ class VirtualEngine:
                         'quantity': quantity
                     }
             
-            # Execute trade
+            # Create trade record
             trade = {
                 'timestamp': datetime.now().isoformat(),
                 'ticker': ticker,
@@ -242,6 +240,21 @@ class VirtualEngine:
                 'cost': cost,
                 'notes': notes
             }
+            
+            history_entry = {
+                'timestamp': datetime.now().isoformat(),
+                'ticker': ticker,
+                'side': side.lower(),
+                'quantity': quantity,
+                'signal_price': signal_price,
+                'execution_price': execution_price,
+                'cost': cost,
+                'cash_before': self.portfolio['cash'] + cost if side.lower() == 'buy' else self.portfolio['cash'] - cost,
+                'cash_after': self.portfolio['cash'],
+                'notes': notes
+            }
+            
+            self.portfolio['history'].append(history_entry)
             
             # Update portfolio
             if side.lower() == 'buy':
@@ -295,6 +308,7 @@ class VirtualEngine:
                 
                 # Update realized PnL
                 self.portfolio['performance']['realized_pnl'] += realized_pnl
+                history_entry['realized_pnl'] = realized_pnl
                 trade['realized_pnl'] = realized_pnl
                 trade['cash_before'] = self.portfolio['cash'] - cost
                 trade['cash_after'] = self.portfolio['cash']
