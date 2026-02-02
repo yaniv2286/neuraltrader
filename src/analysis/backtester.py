@@ -653,7 +653,8 @@ class Backtester:
             'vxx_surge': vxx_surge,
             'vxx_rising': vxx_rising,
             'vxx_price': latest_price,
-            'vxx_ma20': latest_ma20
+            'vxx_ma20': latest_ma20,
+            'black_swan_warning': vxx_surge > 0.15  # V7.11: Black Swan warning
         }
         
         if trigger_cash:
@@ -661,7 +662,44 @@ class Backtester:
         elif trigger_defensive:
             logger.info(f"V7.2: VXX Shield: Defensive mode - VXX rising ({latest_price:.2f} > {latest_ma20:.2f})")
         
+        # V7.11: Black Swan warning
+        if result['black_swan_warning']:
+            logger.warning(f"V7.11: BLACK SWAN WARNING - VXX surged {vxx_surge*100:.2f}% > 15%")
+        
         return result
+    
+    def apply_black_swan_exit(self, trades: List[Dict], vxx_analysis: Dict[str, any]) -> List[Dict]:
+        """
+        V7.11: Apply Black Swan exit - cut non-Super-Alpha positions by 50% if VXX surges >15%
+        
+        Args:
+            trades: List of current trades
+            vxx_analysis: VXX volatility analysis results
+            
+        Returns:
+            Modified trades list with Black Swan exits applied
+        """
+        if not vxx_analysis.get('black_swan_warning', False):
+            return trades
+        
+        logger.warning("V7.11: BLACK SWAN EVENT - Cutting non-Super-Alpha positions by 50%")
+        
+        modified_trades = []
+        for trade in trades:
+            # Check if this is a Super-Alpha position
+            if trade.get('model_score', 0) > self.super_alpha_threshold:
+                # Keep Super-Alpha positions unchanged
+                modified_trades.append(trade)
+                logger.info(f"V7.11: Super-Alpha {trade['ticker']} protected from Black Swan")
+            else:
+                # Cut non-Super-Alpha positions by 50%
+                modified_trade = trade.copy()
+                modified_trade['position_size'] = trade['position_size'] * 0.5
+                modified_trade['black_swan_exit'] = True
+                modified_trades.append(modified_trade)
+                logger.info(f"V7.11: Black Swan exit - {trade['ticker']} position cut by 50%")
+        
+        return modified_trades
     
     def pre_calculate_market_indicators(self, spy_df: pd.DataFrame) -> Dict:
         """
@@ -1517,6 +1555,9 @@ class Backtester:
             
             trades.append(trade)
         
+        # V7.11: Apply Black Swan exit if VXX surged >15%
+        trades = self.apply_black_swan_exit(trades, vxx_analysis)
+        
         # Portfolio Stop: Check if 5% weekly drawdown
         new_portfolio_value = portfolio_value * (1 + week_pnl / 100)
         weekly_drawdown = (new_portfolio_value - portfolio_value) / portfolio_value
@@ -1893,6 +1934,9 @@ class Backtester:
             }
             trades.append(trade)
         
+        # V7.11: Apply Black Swan exit if VXX surged >15%
+        trades = self.apply_black_swan_exit(trades, vxx_analysis)
+        
         # V7.7: Zero-trade safety check
         if len(trades) == 0:
             print(f'V7.7 DEBUG: Week {entry_date.date()} - XGBoost Max Score: {top_stocks["model_score"].max() if not top_stocks.empty else "N/A"} - Check why no trades taken')
@@ -2138,6 +2182,9 @@ class Backtester:
             }
             trades.append(trade)
         
+        # V7.11: Apply Black Swan exit if VXX surged >15%
+        trades = self.apply_black_swan_exit(trades, vxx_analysis)
+        
         # V7.7: Zero-trade safety check
         if len(trades) == 0:
             print(f'V7.7 DEBUG: Week {entry_date.date()} - XGBoost Max Score: {top_stocks["model_score"].max() if not top_stocks.empty else "N/A"} - Check why no trades taken')
@@ -2364,6 +2411,9 @@ class Backtester:
                 'stop_loss': chandelier_exit  # Store chandelier exit as stop_loss for compatibility
             }
             trades.append(trade)
+        
+        # V7.11: Apply Black Swan exit if VXX surged >15%
+        trades = self.apply_black_swan_exit(trades, vxx_analysis)
         
         # V7.7: Zero-trade safety check
         if len(trades) == 0:
@@ -4112,7 +4162,10 @@ def main():
         # Apply risk parameters if specified
         backtester.risk_pct = args.risk_pct
         backtester.atr_multiplier = args.atr_multiplier
-        logger.info(f"V7.9: Risk parameters - Risk: {args.risk_pct:.1%}, ATR Multiplier: {args.atr_multiplier}x")
+        # V7.11: Default to 0.9% risk per trade for final drawdown optimization
+        if args.risk_pct == 0.01:  # If user didn't specify, use optimized default
+            backtester.risk_pct = 0.009
+        logger.info(f"V7.11: Risk parameters - Risk: {backtester.risk_pct:.1%}, ATR Multiplier: {backtester.atr_multiplier}x")
         
         with open("debug_output.txt", "a") as f:
             f.write("V7.8 DEBUG: Backtester created, calling run()...\n")

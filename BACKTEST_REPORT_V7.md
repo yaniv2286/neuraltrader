@@ -1,6 +1,6 @@
 # NeuralTrader 2.0 - Backtest Report V7
 
-**Generated:** 2026-02-02 17:15:29
+**Generated:** 2026-02-02 17:20:09
 
 ## Strategy V7: The Institutional Architect
 
@@ -28,37 +28,37 @@
 
 | Metric | V1 | V2 | V3 | V4 | V5 | V6 | V7 |
 |--------|----|----|----|----|----|----|----|
-| CAGR | 344.69% | 5.13% | 7.88% | 25.47% | 12.69% | 11.12% | **34.30%** |
-| Max Drawdown | -99.47% | -15.12% | -10.46% | -19.08% | -9.06% | -21.42% | **-20.82%** |
+| CAGR | 344.69% | 5.13% | 7.88% | 25.47% | 12.69% | 11.12% | **30.83%** |
+| Max Drawdown | -99.47% | -15.12% | -10.46% | -19.08% | -9.06% | -21.42% | **-18.94%** |
 | Win Rate | 49.70% | 48.25% | 51.17% | 52.28% | 51.98% | 50.99% | **57.50%** |
 | Total Trades | 1010 | 342 | 342 | 1010 | 1010 | 1010 | **840** |
 
 ## Executive Summary
 
-- **Final CAGR:** 34.30%
-- **Max Drawdown:** -20.82%
+- **Final CAGR:** 30.83%
+- **Max Drawdown:** -18.94%
 - **Win Rate:** 57.50%
 - **Total Trades:** 840
-- **Final Portfolio:** $160,650.12931575996
+- **Final Portfolio:** $154,039.2105519865
 
 ### Performance vs Goals
 
 - **CAGR Target:** 35.0%
-- **CAGR Achieved:** 34.30% (❌ FAILED)
+- **CAGR Achieved:** 30.83% (❌ FAILED)
 - **Max DD Target:** <12.0%
-- **Max DD Achieved:** 20.82% (❌ FAILED)
+- **Max DD Achieved:** 18.94% (❌ FAILED)
 
 ## Risk Metrics
 
-- **Sharpe Ratio:** 1.55
-- **Sortino Ratio:** 2.77
+- **Sharpe Ratio:** 1.54
+- **Sortino Ratio:** 2.69
 - **Average P&L:** 0.00%
 
 ## Portfolio Performance
 
 - **Initial Capital:** $100,000
-- **Final Capital:** $160,650.12931575996
-- **Total Return:** 60.65%
+- **Final Capital:** $154,039.2105519865
+- **Total Return:** 54.04%
 
 ## Trade Log
 
@@ -85,7 +85,7 @@ Last 10 simulated trades:
 
 ## Position Size Analysis
 
-- **Average Position Size:** 7.9%
+- **Average Position Size:** 7.2%
 - **Position Range:** 0.5% - 25.0%
 
 ## Exit Reason Analysis
@@ -98,8 +98,8 @@ Last 10 simulated trades:
 
 | Metric | NeuralTrader V7 | SPY | Outperformance |
 |--------|----------------|-----|----------------|
-| CAGR | 34.30% | 0.00% | 34.30% |
-| Max Drawdown | -20.82% | 0.00% | 20.82% |
+| CAGR | 30.83% | 0.00% | 30.83% |
+| Max Drawdown | -18.94% | 0.00% | 18.94% |
 
 ## Strategy V7 Details
 
