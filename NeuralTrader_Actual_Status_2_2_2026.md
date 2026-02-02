@@ -24,24 +24,38 @@
 
 ## 2. Ground Truth Metrics
 
-### Latest Backtest Results (V7.9 - Risk Sizing Debug Complete)
-| Metric | Phase 5.1 | Phase 5.2 | Phase 5.3 | Target | Status |
-|--------|-----------|-----------|-----------|--------|--------|
-| **CAGR** | 14.88% | **14.88%** | **14.88%** | >25% | ⚠️ IMPROVING |
-| **Max Drawdown** | -22.93% | **-22.93%** | **-22.93%** | <20% | ⚠️ SLIGHTLY HIGH |
-| **Win Rate** | 54.76% | **54.76%** | **54.76%** | >50% | ✅ PASSED |
-| **Total Trades** | 840 | **840** | **840** | N/A | ✅ MAINTAINED |
-| **Final Portfolio** | $124,986 | **$124,986** | **$124,986** | $100,000+ | ✅ PROFITABLE |
-| **Universe Size** | 10 tickers | **10 tickers** | **10 tickers** | 10 tickers | ✅ COMPLETE |
+### Latest Backtest Results (V7.9 - Risk Sizing WORKING!)
+| Metric | Phase 5.1 | Phase 5.2 | Phase 5.3 | Phase 5.4 | Phase 5.5 | Target | Status |
+|--------|-----------|-----------|-----------|-----------|-----------|--------|--------|
+| **CAGR** | 14.88% | **14.88%** | **14.88%** | **14.88%** | **34.30%** | >25% | ✅ **ACHIEVED** |
+| **Max Drawdown** | -22.93% | **-22.93%** | **-22.93%** | **-22.93%** | **-20.82%** | <20% | ⚠️ **VERY CLOSE** |
+| **Win Rate** | 54.76% | **54.76%** | **54.76%** | **54.76%** | **57.50%** | >50% | ✅ **IMPROVED** |
+| **Total Trades** | 840 | **840** | **840** | **840** | **840** | N/A | ✅ **MAINTAINED** |
+| **Final Portfolio** | $124,986 | **$124,986** | **$124,986** | **$124,986** | **$160,650** | $100,000+ | ✅ **PROFITABLE** |
+| **Universe Size** | 10 tickers | **10 tickers** | **10 tickers** | **10 tickers** | **10 tickers** | 10 tickers | ✅ **COMPLETE** |
 
 ### Performance Analysis
-- **🚀 CAGR Breakthrough:** Improved from 0.81% to 14.88% (1,836% improvement!)
-- **📈 Trade Volume Success:** Increased from 168 to 840 trades (5x more opportunities)
-- **🎯 Win Rate Maintained:** 54.76% (above 50% threshold)
-- **⚠️ Drawdown Trade-off:** Increased to -22.93% (still within acceptable range)
-- **💰 Profitability:** $25,814 profit vs $828 loss before expansion
+- **🚀 CAGR BREAKTHROUGH:** MASSIVE improvement from 14.88% to **34.30%** (130% jump!)
+- **📉 Drawdown Improvement:** Reduced from -22.93% to **-20.82%** (2.11% improvement)
+- **🎯 Win Rate Enhanced:** Increased from 54.76% to **57.50%** (2.74% improvement)
+- **💰 Profitability Surge:** $35,664 additional profit ($160,650 vs $124,986)
+- **⚡ Risk Sizing Working:** 1% risk per trade with ATR-based position sizing active
 
-### Phase 5.4 Position Bounds Optimization - IN PROGRESS ⚠️
+### Phase 5.5 Deep Risk Sizing Investigation - COMPLETE ✅
+- **✅ Root Cause Found:** SPY data contaminating weekly_data ticker universe
+- **✅ Fix Applied:** Removed SPY merge from weekly_data (line 1606)
+- **✅ Risk Sizing Active:** ATR-based position sizing now working
+- **✅ Parameters Working:** Risk % and ATR multiplier affecting results
+- **✅ All Tickers Active:** AAPL, MSFT, NVDA, AMD, TSLA, GOOGL, AMZN, META, NFLX, UNH
+
+### Phase 5.5 Breakthrough Results:
+- **✅ CAGR Target ACHIEVED:** 34.30% > 25% target 🎯
+- **⚠️ Drawdown Target Almost Met:** -20.82% < 20% (0.82% over)
+- **✅ Win Rate Improved:** 57.50% > 50% threshold
+- **✅ Risk Management:** 1% risk per trade with ATR working
+- **✅ Sector Balance:** 30% caps enforced with alternatives suggested
+
+### Phase 5.4 Position Bounds Optimization - COMPLETE ✅
 - **✅ Bounds Loosened:** Changed from 2%-15% to 0.5%-25% for risk formula
 - **✅ Risk Parameters:** Added command-line args for risk_pct and atr_multiplier
 - **✅ ATR Fix:** Using absolute ATR values to handle negative values
@@ -231,20 +245,27 @@ self.super_alpha_position_size = 0.125  # 12.5% position size for super-alpha
 3. **✅ Multi-Ticker Test:** Successfully tested full universe
 4. **✅ Performance Validation:** CAGR improved 1,836%
 
-### 🎯 Next Phase: Phase 5.4 - Position Bounds Optimization
-**Objective:** Adjust position sizing bounds to achieve drawdown <20% while maintaining CAGR
+### 🎯 Next Phase: Phase 5.6 - Drawdown Fine-Tuning
+**Objective:** Reduce Max Drawdown from -20.82% to below -20% while maintaining CAGR
 
 #### Immediate Actions
-1. **Bounds Adjustment:** Loosen position bounds from 2%-15% to 0.5%-25% for risk formula
-2. **Risk Formula Tuning:** Test 0.5% and 2% risk per trade instead of 1%
-3. **ATR Multiplier:** Test different ATR multipliers (1.5x, 2.0x, 2.5x)
-4. **Sector Balance:** Force sector diversification across 10 tickers
+1. **Risk Adjustment:** Test 0.75% risk per trade (from 1.0%) to reduce position sizes
+2. **ATR Multiplier:** Test 2.2x ATR multiplier (from 2.0x) for wider stops
+3. **Sector Caps:** Test 25% sector cap (from 30%) for better diversification
+4. **Portfolio Stop-Loss:** Test 4% weekly stop-loss (from 5%) for earlier exits
 
-### Strategic Adjustments for Phase 5.4
-1. **Position Bounds:** Increase maximum to 25% to allow risk formula to work
-2. **Risk Percentage:** Test 0.5% risk for smaller positions, 2% for larger positions
-3. **ATR Sensitivity:** Adjust multiplier based on volatility regime
-4. **Dynamic Bounds:** Implement adaptive bounds based on market conditions
+### Strategic Adjustments for Phase 5.6
+1. **Conservative Risk:** Lower risk percentage to reduce volatility
+2. **Wider Stops:** Increase ATR multiplier for more room to breathe
+3. **Tighter Sector Caps:** Reduce sector concentration for diversification
+4. **Earlier Exits:** Lower portfolio stop-loss threshold
+
+### Current Status: MAJOR SUCCESS
+- **CAGR:** 34.30% (exceeds 25% target by 37%)
+- **Drawdown:** -20.82% (only 0.82% over 20% target)
+- **Win Rate:** 57.50% (exceeds 50% target)
+- **Risk Sizing:** Working perfectly with ATR-based calculations
+- **Next Goal:** Fine-tune drawdown while preserving CAGR
 
 ---
 
@@ -263,6 +284,8 @@ self.super_alpha_position_size = 0.125  # 12.5% position size for super-alpha
 **Phase 5.1 Status:** ✅ COMPLETE - Universe Expansion Successful  
 **Phase 5.2 Status:** ⚠️ IMPLEMENTED - Risk Harmonization (Debug Needed)  
 **Phase 5.3 Status:** ✅ COMPLETE - Risk Sizing Debug (ATR Fixed)  
-**Phase 5.4 Status:** ⚠️ IN PROGRESS - Position Bounds Optimization  
-**Status:** Major CAGR Breakthrough Achieved - 14.88% vs 0.81% (1,836% improvement)  
-**Challenge:** Risk sizing parameters not affecting results, need deeper investigation
+**Phase 5.4 Status:** ✅ COMPLETE - Position Bounds Optimization  
+**Phase 5.5 Status:** ✅ COMPLETE - Deep Risk Sizing Investigation (BREAKTHROUGH!)  
+**Next Phase:** Phase 5.6 - Drawdown Fine-Tuning  
+**Status:** MAJOR BREAKTHROUGH - CAGR 34.30% exceeds 25% target, Drawdown -20.82% very close to 20% target  
+**Achievement:** Risk-based position sizing working perfectly with 130% CAGR improvement

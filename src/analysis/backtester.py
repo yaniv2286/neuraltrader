@@ -1019,7 +1019,6 @@ class Backtester:
         
         # Calculate configurable risk position size
         risk_amount = total_equity * self.risk_pct  # Configurable risk percentage
-        print(f"V7.9 Risk Calc: {ticker} - Risk={self.risk_pct:.1%}, ATR={atr_14:.3f}, Multiplier={atr_multiplier}x, Risk_Amt=${risk_amount:,.0f}")
         stop_distance = atr_14 * atr_multiplier  # Distance to Chandelier Exit
         
         # Calculate position size based on risk
@@ -1583,21 +1582,13 @@ class Backtester:
         df.index = pd.to_datetime(df.index).tz_localize(None)  # V7.2: Normalize main data index
         self.weekly_data = {date: group.set_index('ticker') for date, group in df.groupby(level=0)}
         
-        # V7.2: Join global SPY/VXX data and forward fill gaps
+        # V7.2: Join global SPY/VXX data and forward fill gaps - REMOVED FROM weekly_data
+        # SPY data should only be used for filtering, not for position sizing
+        # This prevents SPY from contaminating the ticker universe in weekly_data
         if hasattr(self, '_global_spy_vxx_data') and not self._global_spy_vxx_data.empty:
-            logger.info("V7.2: Joining global SPY/VXX data with forward fill...")
-            for date, group in self.weekly_data.items():
-                # V7.8: Skip dates where SPY data is not available
-                if date not in self._global_spy_vxx_data.index:
-                    continue
-                # Get global data for this date
-                global_data_for_date = self._global_spy_vxx_data.loc[date:date]
-                if not global_data_for_date.empty:
-                    # Forward fill with limit 5
-                    global_data_for_date = global_data_for_date.ffill(limit=5)
-                    # Merge with existing data
-                    self.weekly_data[date] = pd.concat([group, global_data_for_date], ignore_index=False)
-                    self.weekly_data[date] = self.weekly_data[date].set_index('ticker')
+            logger.info("V7.2: SPY/VXX data available for filtering only (not merged into weekly_data)")
+            # Store SPY data separately for filtering purposes
+            self._spy_data_for_filtering = self._global_spy_vxx_data
         
         logger.info(f"Created O(1) lookup for {len(self.weekly_data)} dates")
         
@@ -4121,7 +4112,6 @@ def main():
         # Apply risk parameters if specified
         backtester.risk_pct = args.risk_pct
         backtester.atr_multiplier = args.atr_multiplier
-        print(f"V7.9: Risk parameters set - Risk: {args.risk_pct:.1%}, ATR Multiplier: {args.atr_multiplier}x")
         logger.info(f"V7.9: Risk parameters - Risk: {args.risk_pct:.1%}, ATR Multiplier: {args.atr_multiplier}x")
         
         with open("debug_output.txt", "a") as f:
