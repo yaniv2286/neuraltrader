@@ -79,6 +79,25 @@ class VirtualEngine:
             if os.path.exists(self.portfolio_file):
                 with open(self.portfolio_file, 'r') as f:
                     portfolio = json.load(f)
+                
+                # Ensure all required keys exist
+                if 'history' not in portfolio:
+                    portfolio['history'] = []
+                if 'trades' not in portfolio:
+                    portfolio['trades'] = []
+                if 'positions' not in portfolio:
+                    portfolio['positions'] = {}
+                if 'performance' not in portfolio:
+                    portfolio['performance'] = {
+                        'total_value': self.initial_cash,
+                        'total_return': 0.0,
+                        'total_return_pct': 0.0,
+                        'unrealized_pnl': 0.0,
+                        'realized_pnl': 0.0
+                    }
+                elif 'total_value' not in portfolio['performance']:
+                    portfolio['performance']['total_value'] = portfolio.get('cash', self.initial_cash)
+                
                 logger.info(f"Loaded existing portfolio: {len(portfolio.get('positions', {}))} positions")
                 return portfolio
             else:
@@ -107,7 +126,9 @@ class VirtualEngine:
                 'cash': self.initial_cash,
                 'positions': {},
                 'history': [],
+                'trades': [],
                 'performance': {
+                    'total_value': self.initial_cash,
                     'total_return': 0.0,
                     'total_return_pct': 0.0,
                     'unrealized_pnl': 0.0,
@@ -152,6 +173,7 @@ class VirtualEngine:
                 return None
             
             # Get adjusted close price for Daily Adjusted Close
+            price = None
             if 'Adj Close' in data.columns:
                 price = data['Adj Close'].iloc[-1]
             elif 'Close' in data.columns:
@@ -160,7 +182,14 @@ class VirtualEngine:
                 logger.warning(f"No price data found for {ticker}")
                 return None
             
-            if pd.notna(price) and price > 0:
+            # Handle potential Series/DataFrame if MultiIndex
+            if isinstance(price, (pd.Series, pd.DataFrame)):
+                try:
+                    price = price.iloc[0] if len(price) > 0 else None
+                except:
+                    price = float(price)
+
+            if price is not None and pd.notna(price) and float(price) > 0:
                 return float(price)
             else:
                 logger.warning(f"Invalid price for {ticker}: {price}")

@@ -172,10 +172,11 @@ class RiskManager:
                 return RiskDecision.REJECT_RISK, {'reason': 'Invalid position size calculation'}
             
             # Trade approved
+            portfolio_value = account_info.get('portfolio_value', 0)
             details = {
                 'position_size': position_size,
                 'position_value': position_size * current_price,
-                'risk_amount': account_info['portfolio_value'] * self.risk_per_trade,
+                'risk_amount': portfolio_value * self.risk_per_trade,
                 'sector': self.sector_mappings.get(ticker, 'Unknown'),
                 'current_sector_exposure': self._get_sector_exposure(self.sector_mappings.get(ticker), current_positions, account_info)
             }

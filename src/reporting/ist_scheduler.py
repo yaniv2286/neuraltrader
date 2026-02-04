@@ -357,53 +357,53 @@ Constitution: Risk Management First
                 'is_weekday': is_weekday,
                 'is_market_open': is_market_hours,
                 'market_open_time': market_open.strftime('%H:%M EST'),
-                'market_close_time': market_close.strftime('%H:%M EST')
+                'market_close_time': market_close.strftime('%H:%M EST'),
+                'market_status': 'OPEN' if is_market_hours else 'CLOSED'
             }
             
         except Exception as e:
             logger.error(f"Error getting market status: {e}")
             return {}
     
-    def send_daily_report(self):
-        """Send daily executive brief email"""
-        try:
-            logger.info("📧 Sending daily executive brief...")
+    def send_daily_report(self) -> bool:
+    """Send daily executive brief with portfolio updates"""
+    try:
+        self.logger.info("📧 Sending daily executive brief...")
             
-            # Update portfolio values
-            updated_portfolio = self.update_portfolio_values()
+        # Update portfolio values with latest prices
+        self._update_portfolio_values()
             
-            if not updated_portfolio:
-                logger.error("Failed to update portfolio values")
-                return False
+        # Get portfolio info
+        account_info = self.virtual_engine.get_account_info()
+        current_positions = self.virtual_engine.get_current_positions()
+        trades_today = self.virtual_engine.get_trades_today()
             
-            # Generate report content
-            report = self.generate_daily_executive_brief(updated_portfolio)
+        # Generate daily executive brief content
+        brief_content = self._generate_daily_brief(account_info, current_positions, trades_today)
             
-            if not report:
-                logger.error("Failed to generate report content")
-                return False
+        # Send email with logs
+        success = self.email_notifier.send_email_with_logs(
+            to_email=self.email_notifier.recipient_email,
+            subject=f"📧 NeuralTrader Daily Executive Brief - {datetime.now(self.israel).strftime('%Y-%m-%d %H:%M IST')}",
+            body=brief_content,
+            log_file_path=os.path.join(self.project_root, 'logs', 'automation.log')
+        )
             
-            # Send email using EmailNotifier
-            from src.utils.notifier import EmailNotifier
-            notifier = EmailNotifier()
+        if success:
+            self.logger.info("✅ Daily executive brief sent successfully")
+        else:
+            self.logger.error("❌ Failed to send daily executive brief")
             
-            notifier.send_email(
-                to_email="lugassy.ai@gmail.com",
-                subject=report['subject'],
-                body=report['body']
-            )
+        return success
             
-            logger.info("✅ Daily executive brief sent successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error sending daily report: {e}")
-            return False
+    except Exception as e:
+        self.logger.error(f"Error sending daily report: {e}")
+        return False
     
-    def start_scheduler(self):
-        """Start the IST scheduler for daily reporting"""
-        try:
-            logger.info("🕐 Starting IST scheduler...")
+def start_scheduler(self):
+    """Start the IST scheduler for daily reporting"""
+    try:
+        logger.info("🕐 Starting IST scheduler...")
             
             # Schedule daily report at 23:15 IST
             schedule.every().day.at("23:15").do(self.send_daily_report)

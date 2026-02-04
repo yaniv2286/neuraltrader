@@ -27,6 +27,10 @@ from email.mime.multipart import MIMEMultipart
 from typing import Dict, List, Optional
 import pytz
 
+# Force load environment variables immediately
+from dotenv import load_dotenv
+load_dotenv()
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -44,48 +48,118 @@ class EmailNotifier:
         """Initialize email notifier"""
         self.smtp_server = smtp_server
         self.smtp_port = smtp_port
-        self.sender_email = os.getenv('NOTIFIER_EMAIL', 'neuraltrader@system.com')
-        self.sender_password = os.getenv('NOTIFIER_PASSWORD', '')
-        self.recipient_email = 'lugassy.ai@gmail.com'
+        
+        # Load email credentials from environment with fallback logic
+        # Priority: NOTIFIER_EMAIL/NOTIFIER_PASSWORD (from .env) -> EMAIL_USER/EMAIL_PASS (legacy)
+        self.sender_email = (
+            os.getenv('NOTIFIER_EMAIL') or 
+            os.getenv('EMAIL_USER') or
+            os.getenv('EMAIL_ADDRESS')
+        )
+        self.sender_password = (
+            os.getenv('NOTIFIER_PASSWORD') or 
+            os.getenv('EMAIL_PASS') or
+            os.getenv('EMAIL_PASSWORD')
+        )
+        self.recipient_email = (
+            os.getenv('EMAIL_RECIPIENT') or 
+            os.getenv('RECIPIENT_EMAIL') or 
+            'lugassy.ai@gmail.com'
+        )
+        
+        # Validate credentials
+        if not self.sender_email:
+            raise ValueError("Email credentials not found. Set NOTIFIER_EMAIL or EMAIL_USER in .env")
+        if not self.sender_password:
+            raise ValueError("Email password not found. Set NOTIFIER_PASSWORD or EMAIL_PASS in .env")
         
         # Timezone handling
         self.eastern = pytz.timezone('US/Eastern')
         self.israel = pytz.timezone('Asia/Jerusalem')
         
         logger.info("Email Notifier initialized")
+        logger.info(f"Sender: {self.sender_email}")
         logger.info(f"Recipient: {self.recipient_email}")
+        logger.info("✅ Environment variables loaded successfully")
     
-    def send_email(self, to_email: str, subject: str, body: str) -> bool:
+    def send_email_with_logs(self, to_email: str, subject: str, body: str, 
+                          log_file_path: str = None) -> bool:
         """
-        Send simple email
+        Send email with full logs attached
         
         Args:
             to_email: Recipient email address
             subject: Email subject
             body: Email body
+            log_file_path: Path to log file to attach
             
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Create message
-            msg = MIMEText(body, 'plain')
+            # Create message with explicit headers
+            msg = MIMEMultipart()
             msg['Subject'] = subject
-            msg['From'] = self.sender_email
+            msg['From'] = self.sender_email  # Force From to match login email
             msg['To'] = to_email
             
-            # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                if self.sender_password:
-                    server.login(self.sender_email, self.sender_password)
-                server.send_message(msg)
+            # Add body
+            msg.attach(MIMEText(body, 'plain'))
             
-            logger.info(f"Email sent successfully to {to_email}")
-            return True
+            # Attach log file if provided
+            if log_file_path and os.path.exists(log_file_path):
+                try:
+                    with open(log_file_path, 'r', encoding='utf-8') as f:
+                        log_content = f.read()
+                    
+                    # Create attachment
+                    attachment = MIMEText(log_content, 'plain')
+                    attachment.add_header(
+                        'Content-Disposition',
+                        f'attachment; filename="{os.path.basename(log_file_path)}"'
+                    )
+                    msg.attach(attachment)
+                    
+                    logger.info(f"📎 Log file attached: {log_file_path}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error attaching log file: {e}")
+            
+            logger.info(f"📧 Sending email to {to_email}")
+            logger.info(f"📧 From: {self.sender_email}")
+            logger.info(f"📧 Subject: {subject}")
+            
+            # Send email with debug mode
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                # Enable SMTP debugging
+                server.set_debuglevel(1)
+                logger.info(f"🔗 Connecting to {self.smtp_server}:{self.smtp_port}")
+                
+                # Start TLS
+                server.starttls()
+                logger.info("🔒 TLS connection established")
+                
+                # Login (credentials are guaranteed to exist due to constructor validation)
+                logger.info(f"🔐 Logging in as {self.sender_email}")
+                server.login(self.sender_email, self.sender_password)
+                logger.info("✅ Login successful")
+                
+                # Send message with verification
+                try:
+                    logger.info("📤 Sending message...")
+                    server.send_message(msg)
+                    logger.info("✅ [SUCCESS] Message accepted by Gmail server")
+                    logger.info(f"📨 Email sent successfully to {to_email}")
+                    return True
+                    
+                except Exception as send_error:
+                    logger.error(f"❌ [FAILED] Message rejected by server: {send_error}")
+                    logger.error(f"❌ Full error details: {type(send_error).__name__}: {send_error}")
+                    return False
             
         except Exception as e:
-            logger.error(f"Error sending email: {e}")
+            logger.error(f"❌ Error sending email: {e}")
+            logger.error(f"❌ Full error details: {type(e).__name__}: {e}")
             return False
     
     def send_daily_brief(self, account_info: Dict, current_positions: List[Dict], 

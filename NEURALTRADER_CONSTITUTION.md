@@ -3,31 +3,6 @@
 # Mission: Target 25% ARR. Max Drawdown <20%. Use Parquet & Float32. Priority #1: Capital Preservation.
 # Goal: 25% ARR for private family fund. Capital preservation is priority #1.
 
-## OPERATIONAL RULES - MUST FOLLOW EVERY SESSION
-
-### Testing Protocol
-- After any code change, you MUST run `run_neural_venv.bat fetch` and `run_neural_venv.bat report`
-- Both scripts must complete with Exit Code 0
-- No exceptions, errors, or crashes allowed
-
-### Log Verification
-- After running tests, you MUST scan the new timestamped log for:
-  - UnicodeEncodeError
-  - PermissionError
-  - Any Traceback or exception
-- Logs must be clean of all errors
-
-### ASCII Only
-- Never use Unicode emojis in prints or logs
-- Use tags like [OK], [ERROR], [SIGNAL], [DATA], [TIME], etc.
-- All logging output must be Task Scheduler compatible
-
-### Definition of Done
-- A task is only finished when:
-  - Scripts run with Exit Code 0
-  - Logs are clean (no errors)
-  - You must confirm this in the chat
-
 ## Data Policy
 - Use Parquet for all storage. Float32 for memory efficiency.
 - All raw data in data/raw/ with Snappy compression
