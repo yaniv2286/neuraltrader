@@ -31,6 +31,14 @@ from .strategy import (
     RiskManager
 )
 
+from .integrity import (
+    verify_system_integrity,
+    verify_model_loaded,
+    verify_strategy_safety,
+    verify_risk_limits,
+    verify_complete_system
+)
+
 __all__ = [
     # AI Models
     'XGBoostInference',
@@ -49,6 +57,13 @@ __all__ = [
     # Strategy
     'TradingStrategy',
     'RiskManager',
+    
+    # Integrity
+    'verify_system_integrity',
+    'verify_model_loaded',
+    'verify_strategy_safety',
+    'verify_risk_limits',
+    'verify_complete_system',
 ]
 
 __version__ = '1.0.0'
