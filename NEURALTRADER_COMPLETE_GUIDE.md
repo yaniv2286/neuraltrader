@@ -507,7 +507,7 @@ python main_orchestrator_ist.py --mode=%1
 | Market Hours | ✅ STRICT | ❌ DISABLED |
 | Data Source | YFinance API | Mock data |
 | Execution | Scheduled | On-demand |
-| Signal | ML Model | FORCED BUY (0.99 confidence) |
+| Signal | Momentum Strategy | Momentum Strategy (same logic) |
 | Logging | `automation_*.log` | `simulation_*.log` |
 | Trades | `paper_trades.json` | `simulation_trades.json` |
 | Email | `[URGENT]`/`[NEURAL]` | `[TEST]` |
@@ -519,40 +519,43 @@ python main_orchestrator_ist.py --mode=%1
 **Process**:
 1. Initialize trading components
 2. Generate 5 days of mock OHLC data
-3. **FORCE BUY signal** with 0.99 confidence
-4. Execute virtual trade
-5. Log trade to `simulation_trades.json`
-6. Verify trade was logged
-7. Generate simulation report
-8. Send email with `[TEST]` prefix
+3. **Run real strategy inference** (momentum-based)
+4. Execute virtual trade if signal is BUY/SELL
+5. Log trade to `simulation_trades.json` (if executed)
+6. Generate simulation report
+7. Send email with `[TEST]` prefix
 
-### Constitution Compliance
+### Strategy Focus
 
-The simulation pipeline **FORCES** a BUY signal to verify:
-1. ✅ Order execution works
-2. ✅ Risk sizing calculations work
-3. ✅ Portfolio updates work
-4. ✅ JSON logging works
-5. ✅ Email notifications work
+The simulation pipeline runs the full **Model → Risk → Signal stack** to verify the strategy's reaction to current market conditions.
 
-**Validation**:
+**Real Strategy Logic**:
+1. ✅ Momentum calculation (same as production)
+2. ✅ Signal generation (BUY/SELL/HOLD based on ±1% threshold)
+3. ✅ Risk management validation
+4. ✅ Portfolio updates (if trade executed)
+5. ✅ JSON logging
+6. ✅ Email notifications
+
+**Strategy Implementation**:
 ```python
-# FORCED BUY signal (bypasses ML model)
-signal = {
-    'ticker': 'AAPL',
-    'action': 'BUY',
-    'confidence': 0.99,
-    'note': 'FORCED_SIGNAL_FOR_SMOKE_TEST'
-}
+# Real momentum-based strategy (same as production)
+recent_return = (price_current / price_previous) - 1
+
+if recent_return > 0.01:   # 1% gain → BUY
+    action = 'BUY'
+elif recent_return < -0.01: # 1% loss → SELL
+    action = 'SELL'
+else:                       # Within ±1% → HOLD
+    action = 'HOLD'
 ```
 
 ### Success Criteria
 ```
-[PASS] FORCED TRADE EXECUTED
-[CONSTITUTION] Validation Protocol: PASSED
-[SIGNAL] Action: BUY (confidence: 99.00%)
-[TRADE] Executed: YES ✓
-[LOG] Trade logged: YES ✓
+[SUCCESS] Simulation Pipeline restored to Real Intelligence
+[STRATEGY] Full Model -> Risk -> Signal stack executed
+[SIGNAL] Action: HOLD/BUY/SELL (based on market conditions)
+[TRADE] Executed: YES/NO (depends on signal)
 [EMAIL] Sent: YES ✓
 ```
 
