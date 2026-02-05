@@ -79,7 +79,7 @@ class YFinanceManager:
             Dictionary of ticker -> DataFrame with OHLCV data
         """
         try:
-            logger.info("🕐 Starting scheduled data fetch (16:45 IST / 09:45 EST)")
+            logger.info("[FETCH] Starting scheduled data fetch (16:45 IST / 09:45 EST)")
             
             # Get current time in IST
             now_ist = datetime.now(self.ist)
@@ -89,7 +89,7 @@ class YFinanceManager:
             data = self.fetch_daily_data(self.sp100_tickers, period="5d")
             
             if not data:
-                logger.error("❌ No data fetched during scheduled run")
+                logger.error("[ERROR] No data fetched during scheduled run")
                 return {}
             
             # Analyze opening trends
@@ -98,13 +98,13 @@ class YFinanceManager:
             # Cache the data
             self._cache_data(data, opening_trends)
             
-            logger.info(f"✅ Scheduled data fetch completed: {len(data)} tickers")
-            logger.info(f"   Opening trends captured: {len(opening_trends)} tickers")
+            logger.info(f"[OK] Scheduled data fetch completed: {len(data)} tickers")
+            logger.info(f"[TRENDS] Opening trends captured: {len(opening_trends)} tickers")
             
             return data
             
         except Exception as e:
-            logger.error(f"❌ Error in scheduled data fetch: {e}")
+            logger.error(f"[ERROR] Error in scheduled data fetch: {e}")
             return {}
     
     def fetch_daily_data(self, tickers: List[str] = None, period: str = "5d") -> Dict[str, pd.DataFrame]:
@@ -279,16 +279,29 @@ class YFinanceManager:
                 logger.warning(f"{ticker}: Insufficient data ({len(df)} days < 2)")
                 return False
             
-            # Check for null values
-            if df.isnull().any().any():
-                logger.warning(f"{ticker}: Contains null values")
+            # Check for null values - Enhanced Data Integrity Check
+            null_check = df.isnull().any()
+            if null_check.any():
+                null_cols = null_check[null_check].index.tolist()
+                logger.warning(f"{ticker}: Contains null values in columns: {null_cols}")
+                return False
+            
+            # Check for NaN values specifically
+            nan_check = df.isna().any()
+            if nan_check.any():
+                nan_cols = nan_check[nan_check].index.tolist()
+                logger.warning(f"{ticker}: Contains NaN values in columns: {nan_cols}")
                 return False
             
             # Check for zero or negative prices
             price_cols = ['open', 'high', 'low', 'close']
             for col in price_cols:
-                if (df[col] <= 0).any():
-                    logger.warning(f"{ticker}: Contains non-positive {col} values")
+                if col in df.columns:
+                    if (df[col] <= 0).any():
+                        logger.warning(f"{ticker}: Contains non-positive {col} values")
+                        return False
+                else:
+                    logger.warning(f"{ticker}: Missing required column: {col}")
                     return False
             
             # Check price consistency
@@ -297,17 +310,39 @@ class YFinanceManager:
                 return False
             
             if not ((df['high'] >= df['open']) & (df['high'] >= df['close'])).all():
-                logger.warning(f"{ticker}: High price inconsistency")
+                logger.warning(f"{ticker}: High < Open/Close inconsistency")
                 return False
             
             if not ((df['low'] <= df['open']) & (df['low'] <= df['close'])).all():
-                logger.warning(f"{ticker}: Low price inconsistency")
+                logger.warning(f"{ticker}: Low > Open/Close inconsistency")
                 return False
             
+            # Check for extreme price movements (potential data errors)
+            price_changes = df['close'].pct_change().abs()
+            if (price_changes > 0.5).any():  # 50%+ daily change
+                logger.warning(f"{ticker}: Extreme price movements detected")
+                return False
+            
+            # Check volume data
+            if 'volume' in df.columns:
+                if (df['volume'] < 0).any():
+                    logger.warning(f"{ticker}: Negative volume values")
+                    return False
+            else:
+                logger.warning(f"{ticker}: Missing volume column")
+                return False
+            
+            # Data freshness check (avoid stale data)
+            latest_date = df['date'].max()
+            if pd.to_datetime(latest_date) < pd.Timestamp.now() - pd.Timedelta(days=7):
+                logger.warning(f"{ticker}: Data appears stale (latest: {latest_date})")
+                return False
+            
+            logger.debug(f"{ticker}: Data quality validation passed")
             return True
             
         except Exception as e:
-            logger.error(f"Error validating {ticker}: {e}")
+            logger.error(f"{ticker}: Error in data validation - {e}")
             return False
     
     def _cache_data(self, data: Dict[str, pd.DataFrame], trends: Dict[str, Dict]):
@@ -384,12 +419,12 @@ class YFinanceManager:
     def start_scheduler(self):
         """Start the IST scheduler for automated data fetching"""
         try:
-            logger.info("🕐 Starting IST scheduler...")
+            logger.info("[SCHEDULER] Starting IST scheduler...")
             
             # Schedule data fetch at 16:45 IST (09:45 EST)
             schedule.every().day.at("16:45").do(self.fetch_scheduled_data)
             
-            logger.info("✅ Scheduler started - Daily fetch at 16:45 IST (09:45 EST)")
+            logger.info("[OK] Scheduler started - Daily fetch at 16:45 IST (09:45 EST)")
             
             # Run the scheduler
             while True:
@@ -397,9 +432,9 @@ class YFinanceManager:
                 time.sleep(60)  # Check every minute
                 
         except KeyboardInterrupt:
-            logger.info("🛑 Scheduler stopped by user")
+            logger.info("[STOP] Scheduler stopped by user")
         except Exception as e:
-            logger.error(f"❌ Error in scheduler: {e}")
+            logger.error(f"[ERROR] Error in scheduler: {e}")
     
     def get_market_status(self) -> Dict:
         """

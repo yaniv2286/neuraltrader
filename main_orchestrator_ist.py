@@ -33,16 +33,17 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import logging
 import argparse
-import pandas as pd
-import pytz
-from datetime import datetime, time
-from pathlib import Path
+from datetime import datetime
 from typing import Dict, List, Optional
 
-# ==================== MASTER RUNNER SAFETY CHECKS ====================
+# Force UTF-8 encoding
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# 1. Working Directory Lock - Force project root directory
+# Project root directory
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# Global variable to store current log file path for email attachments
+CURRENT_LOG_FILE = None
 os.chdir(PROJECT_ROOT)
 sys.path.insert(0, PROJECT_ROOT)
 
@@ -85,12 +86,17 @@ def setup_daily_supervision():
 # 3. Logging Setup - automation.log for Task Scheduler debugging
 def setup_automation_logging():
     """Setup comprehensive logging for Task Scheduler debugging"""
+    global CURRENT_LOG_FILE
+    
     log_dir = os.path.join(PROJECT_ROOT, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     
     # Add timestamp and process ID to avoid file locking issues
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"automation_{timestamp}.log")
+    
+    # Store log file path globally for email attachments
+    CURRENT_LOG_FILE = log_file
     
     # Configure logging with both file and console output
     logging.basicConfig(
@@ -229,10 +235,39 @@ Phase 6: Shadow Trading Simulator
         except Exception as e:
             self.logger.error(f"[ERROR] Error sending data fetch notification: {e}")
     
+    def _send_urgent_notification(self, subject: str, message: str):
+        """Send urgent notification email with log file attached"""
+        try:
+            from src.utils.notifier import EmailNotifier
+            
+            notifier = EmailNotifier()
+            
+            # Format subject with [URGENT] prefix
+            formatted_subject = f"[URGENT] NeuralTrader {subject}"
+            
+            # Get current log file path from global variable
+            log_file_path = CURRENT_LOG_FILE if CURRENT_LOG_FILE else None
+            
+            # Send email with logs attached
+            success = notifier.send_email_with_logs(
+                to_email=notifier.recipient_email,
+                subject=formatted_subject,
+                body=message,
+                log_file_path=log_file_path
+            )
+            
+            if success:
+                self.logger.info(f"[OK] Urgent notification sent: {formatted_subject}")
+            else:
+                self.logger.error(f"[ERROR] Failed to send urgent notification")
+                
+        except Exception as e:
+            self.logger.error(f"[ERROR] Error sending urgent notification: {e}")
+    
     def _send_daily_report_notification(self, report_content: str):
         """Send daily report notification with full logs"""
         try:
-            subject = f"[EMAIL] NeuralTrader Daily Executive Brief - {datetime.now().strftime('%Y-%m-%d %H:%M IST')}"
+            subject = f"[NEURAL] Daily Executive Brief - {datetime.now().strftime('%Y-%m-%d %H:%M IST')}"
             
             body = f"""
 {report_content}
@@ -827,7 +862,21 @@ For Task Scheduler:
         # Determine mode
         if args.mode == 'fetch' or args.data_fetch:
             success = orchestrator.run_fetch_mode()
-            sys.exit(0 if success else 1)
+            # Smart notification logic for fetch mode
+            if success:
+                logger.info("[INFO] Fetch successful. Email skipped.")
+                sys.exit(0)
+            else:
+                logger.error("[ERROR] Fetch failed. Sending urgent notification.")
+                # Send urgent email for fetch failure with logs attached
+                try:
+                    orchestrator._send_urgent_notification(
+                        "Data Fetch FAILED", 
+                        "NeuralTrader data fetch operation failed. Please check logs immediately."
+                    )
+                except Exception as e:
+                    logger.error(f"[ERROR] Failed to send urgent notification: {e}")
+                sys.exit(1)
             
         elif args.mode == 'trade' or args.trading:
             success = orchestrator.run_trade_mode()
@@ -835,10 +884,12 @@ For Task Scheduler:
             
         elif args.mode == 'report' or args.report:
             success = orchestrator.run_report_mode()
+            # Always send email for report mode
             sys.exit(0 if success else 1)
             
         elif args.mode == 'saturday_retrain':
             success = orchestrator.run_saturday_retrain_mode()
+            # Always send email for saturday retrain
             sys.exit(0 if success else 1)
         
         elif args.mode == 'auto':

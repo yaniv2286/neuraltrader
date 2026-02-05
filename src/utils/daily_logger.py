@@ -64,7 +64,7 @@ class DailySupervisionLogger:
         }
         
         self._write_daily_log(log_entry)
-        self.logger.info(f"🚀 Run started: {mode} [{run_id}]")
+        self.logger.info(f"[START] Run started: {mode} [{run_id}]")
         
         return log_entry
     
@@ -88,8 +88,8 @@ class DailySupervisionLogger:
         
         self._write_daily_log(log_entry)
         
-        status_emoji = "✅" if success else "❌"
-        self.logger.info(f"{status_emoji} Run completed: {mode} [{run_id}] in {duration:.2f}s")
+        status_tag = "[OK]" if success else "[ERROR]"
+        self.logger.info(f"{status_tag} Run completed: {mode} [{run_id}] in {duration:.2f}s")
         
         return log_entry
     
@@ -109,7 +109,7 @@ class DailySupervisionLogger:
         }
         
         self._write_daily_log(log_entry)
-        self.logger.error(f"❌ Error in {mode} [{run_id}]: {error}")
+        self.logger.error(f"[ERROR] Error in {mode} [{run_id}]: {error}")
         
         return log_entry
     
@@ -185,19 +185,19 @@ class DailySupervisionLogger:
         mode_stats = daily_data["mode_stats"]
         
         report = f"""
-📊 NEURALTRADER DAILY SUPERVISION REPORT
+[SUMMARY] NEURALTRADER DAILY SUPERVISION REPORT
 =====================================
-📅 Date: {daily_data['date']}
-🕐 Generated: {datetime.now(self.israel).strftime('%Y-%m-%d %H:%M:%S IST')}
+[DATE] Date: {daily_data['date']}
+[TIME] Generated: {datetime.now(self.israel).strftime('%Y-%m-%d %H:%M:%S IST')}
 
-📈 EXECUTION SUMMARY:
+[SUMMARY] EXECUTION SUMMARY:
 ---------------------
 Total Runs: {summary['total_runs']}
-✅ Successful: {summary['successful_runs']}
-❌ Failed: {summary['failed_runs']}
-📊 Success Rate: {(summary['successful_runs'] / summary['total_runs'] * 100) if summary['total_runs'] > 0 else 0:.1f}%
+[OK] Successful: {summary['successful_runs']}
+[ERROR] Failed: {summary['failed_runs']}
+[RATE] Success Rate: {(summary['successful_runs'] / summary['total_runs'] * 100) if summary['total_runs'] > 0 else 0:.1f}%
 
-🎭 MODE BREAKDOWN:
+[BREAKDOWN] MODE BREAKDOWN:
 -----------------"""
         
         for mode, stats in mode_stats.items():
@@ -220,7 +220,7 @@ Last Run: {datetime.fromisoformat(summary['last_run']).strftime('%H:%M:%S IST')}
         if failed_runs:
             report += f"""
 
-❌ RECENT ERRORS:
+[ERROR] RECENT ERRORS:
 -----------------"""
             for error_run in failed_runs[-3:]:  # Show last 3 errors
                 report += f"""
@@ -287,12 +287,12 @@ Phase 6.2: Task Scheduler Integration
             )
             
             if success:
-                self.logger.info("📧 Daily supervision report sent successfully")
+                self.logger.info("[OK] Daily supervision report sent successfully")
             else:
-                self.logger.error("❌ Failed to send daily supervision report")
+                self.logger.error("[ERROR] Failed to send daily supervision report")
             
             return success
             
         except Exception as e:
-            self.logger.error(f"❌ Error sending daily supervision report: {e}")
+            self.logger.error(f"[ERROR] Error sending daily supervision report: {e}")
             return False

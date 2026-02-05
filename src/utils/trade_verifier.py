@@ -503,12 +503,12 @@ class TradeVerifier:
             execution_gaps = results.get("execution_gaps", [])
             
             report = f"""
-🔍 NEURALTRADER TRADE VERIFICATION REPORT
+[SUMMARY] NEURALTRADER TRADE VERIFICATION REPORT
 =====================================
-📅 Date: {results.get('date', date.strftime('%Y-%m-%d'))}
-🕐 Generated: {results.get('verification_time', datetime.now(self.israel).strftime('%Y-%m-%d %H:%M:%S IST'))}
+[DATE] Date: {results.get('date', date.strftime('%Y-%m-%d'))}
+[TIME] Generated: {results.get('verification_time', datetime.now(self.israel).strftime('%Y-%m-%d %H:%M:%S IST'))}
 
-📊 VERIFICATION SUMMARY:
+[SUMMARY] VERIFICATION SUMMARY:
 ------------------------
 Total Signals Generated: {summary.get('total_signals', 0)}
 Strong Signals (>0.5): {summary.get('strong_signals', 0)}
@@ -517,14 +517,14 @@ Approved Opportunities: {summary.get('approved_opportunities', 0)}
 Trades Executed: {summary.get('trades_executed', 0)}
 Missed Opportunities: {summary.get('missed_opportunities', 0)}
 
-📈 EXECUTION METRICS:
+[METRICS] EXECUTION METRICS:
 -------------------
 Execution Rate: {summary.get('execution_rate', 0):.1%}
 Approval Rate: {summary.get('approval_rate', 0):.1%}
 Missed P&L Estimate: ${summary.get('missed_pnl_estimate', 0):,.2f}
 Verification Status: {summary.get('verification_status', 'UNKNOWN')}
 
-🚨 MISSED OPPORTUNITIES:
+[ALERT] MISSED OPPORTUNITIES:
 -----------------------"""
             
             if missed_opps:

@@ -80,7 +80,7 @@ class EmailNotifier:
         logger.info("Email Notifier initialized")
         logger.info(f"Sender: {self.sender_email}")
         logger.info(f"Recipient: {self.recipient_email}")
-        logger.info("✅ Environment variables loaded successfully")
+        logger.info("[OK] Environment variables loaded successfully")
     
     def send_email_with_logs(self, to_email: str, subject: str, body: str, 
                           log_file_path: str = None) -> bool:
@@ -142,13 +142,13 @@ class EmailNotifier:
                 # Login (credentials are guaranteed to exist due to constructor validation)
                 logger.info(f"🔐 Logging in as {self.sender_email}")
                 server.login(self.sender_email, self.sender_password)
-                logger.info("✅ Login successful")
+                logger.info("[OK] Login successful")
                 
                 # Send message with verification
                 try:
                     logger.info("📤 Sending message...")
                     server.send_message(msg)
-                    logger.info("✅ [SUCCESS] Message accepted by Gmail server")
+                    logger.info("[OK] [SUCCESS] Message accepted by Gmail server")
                     logger.info(f"📨 Email sent successfully to {to_email}")
                     return True
                     

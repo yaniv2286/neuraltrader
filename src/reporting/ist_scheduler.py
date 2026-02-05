@@ -403,22 +403,22 @@ Constitution: Risk Management First
 def start_scheduler(self):
     """Start the IST scheduler for daily reporting"""
     try:
-        logger.info("🕐 Starting IST scheduler...")
+        logger.info("[SCHEDULER] Starting IST scheduler...")
+        
+        # Schedule daily report at 23:15 IST
+        schedule.every().day.at("23:15").do(self.send_daily_report)
+        
+        logger.info("[OK] Scheduler started - Daily report at 23:15 IST")
+        
+        # Run the scheduler
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # Check every minute
             
-            # Schedule daily report at 23:15 IST
-            schedule.every().day.at("23:15").do(self.send_daily_report)
-            
-            logger.info("✅ Scheduler started - Daily report at 23:15 IST")
-            
-            # Run the scheduler
-            while True:
-                schedule.run_pending()
-                time.sleep(60)  # Check every minute
-                
-        except KeyboardInterrupt:
-            logger.info("🛑 Scheduler stopped by user")
-        except Exception as e:
-            logger.error(f"❌ Error in scheduler: {e}")
+    except KeyboardInterrupt:
+        logger.info("[STOP] Scheduler stopped by user")
+    except Exception as e:
+        logger.error(f"[ERROR] Error in scheduler: {e}")
 
 # Usage example
 if __name__ == "__main__":
