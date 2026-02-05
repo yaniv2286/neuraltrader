@@ -200,8 +200,20 @@ class VirtualEngine:
                 logger.warning("No price data available for SPY, assuming bullish")
                 return True
             
-            market_bullish = float(current_spy.iloc[0]) > float(spy_20_days_ago_price.iloc[0])
-            logger.info(f"Market Filter: SPY ${float(current_spy.iloc[0]):.2f} vs 20-day ago ${float(spy_20_days_ago_price.iloc[0]):.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
+            # Robust price handling for both float and pandas Series
+            def get_price_value(price):
+                if isinstance(price, (int, float)):
+                    return float(price)
+                elif hasattr(price, 'iloc'):
+                    return float(price.iloc[0])
+                else:
+                    return float(price)
+            
+            current_price = get_price_value(current_spy)
+            sma_price = get_price_value(spy_20_days_ago_price)
+            
+            market_bullish = current_price > sma_price
+            logger.info(f"Market Filter: SPY ${current_price:.2f} vs 20-day ago ${sma_price:.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
             
             return market_bullish
             
