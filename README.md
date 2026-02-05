@@ -1,10 +1,18 @@
-# NeuralTrader Private Fund
+# 🏛️ NeuralTrader: AI-Driven Quantitative Fund
+**Target:** 25%+ ARR | **Risk Limit:** <20% Drawdown
+**Current Status:** [Active Production]
+**Architecture:** Core Kernel (Protected) + Execution Layer (Flexible)
 
-🏛️ **High-Edge ML-Driven Private Fund**  
-🏆 **PHASE 6.2 COMPLETE - TASK SCHEDULER INTEGRATION!**  
-Target: 25% ARR with <20% drawdowns → **ACHIEVED 30.83% CAGR, -18.94% Drawdown**
+> **⚠️ ARCHITECTURAL WARNING:**
+> This system operates under the **"No Silent Failures"** protocol.
+> 1. The `core/` directory is **IMMUTABLE** without explicit authorization.
+> 2. The Orchestrator will refuse to run if `core/integrity.py` validation fails.
+> 3. **Priority #1** is always Capital Preservation.
 
 ---
+
+## 🏆 CURRENT MILESTONE: PHASE 6.2 (COMPLETE)
+**Status:** ✅ **PRODUCTION READY** | **Task Scheduler:** Fully Automated
 
 ## 🎉 **MAJOR MILESTONE: PHASE 6.2 COMPLETE - PRODUCTION READY!**
 
