@@ -912,7 +912,7 @@ For Task Scheduler:
     
     parser.add_argument(
         '--mode', 
-        choices=['fetch', 'trade', 'report', 'auto', 'saturday_retrain'],
+        choices=['fetch', 'trade', 'report', 'paper', 'auto', 'saturday_retrain'],
         help='Operation mode for NeuralTrader'
     )
     
@@ -975,11 +975,16 @@ For Task Scheduler:
             # Always send email for saturday retrain
             sys.exit(0 if success else 1)
         
+        elif args.mode == 'paper':
+            success = orchestrator.run_trade_mode()
+            logger.info("[PAPER] Paper trading mode completed")
+            sys.exit(0 if success else 1)
+        
         elif args.mode == 'auto':
             orchestrator.run_auto_mode()
             
         else:
-            logger.error("[ERROR] No mode specified. Use --mode=fetch|trade|report|auto")
+            logger.error("[ERROR] No mode specified. Use --mode=fetch|trade|report|paper|auto")
             parser.print_help()
             sys.exit(1)
     
