@@ -98,6 +98,8 @@ Build a **reliable, automated trading platform** that:
 
 ## Phase 7: Sentiment Analysis Integration ⏳
 
+> **Note:** Implementation must adhere to the Core Kernel architecture. Logic goes in `execution/` or `plugins/`, not `core/`.
+
 **Objective:** Add market sentiment signals to improve predictions.
 
 ### Deliverables
@@ -292,32 +294,6 @@ Build a **reliable, automated trading platform** that:
 | **Uptime** | > 99.5% | HIGH |
 | **Capital Preservation** | No catastrophic loss | CRITICAL |
 | **Automation Reliability** | > 99.9% | HIGH |
-
----
-
-## Trading Constitution (Core Rules)
-
-### Hard Veto Rules (Absolute)
-A trade is **INVALID** if ANY apply:
-- Low confidence (< 45%)
-- Poor risk/reward (< 1.5)
-- Low liquidity (< 100K volume)
-- High spread (> 0.5%)
-- Blacklisted ticker
-
-### Exit Rules (ONLY allowed)
-- Trailing stop
-- Signal invalidation
-- Manual override
-
-❌ No fixed take-profit
-❌ No time-based exits
-
-### Risk Limits
-- Max 2% risk per trade
-- Max 20% portfolio drawdown
-- Max 5% daily loss
-- Max 20 positions
 
 ---
 
