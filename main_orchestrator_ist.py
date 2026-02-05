@@ -138,10 +138,19 @@ class TradingOrchestrator:
     Handles all automation modes with comprehensive safety checks
     """
     
-    def __init__(self):
-        """Initialize the trading orchestrator"""
+    def __init__(self, ai_model=None, trading_strategy=None):
+        """Initialize the trading orchestrator with REAL AI and strategy"""
         self.logger = setup_automation_logging()
         self.supervision_logger = setup_daily_supervision()
+        
+        # Store REAL AI model and strategy (passed from integrity check)
+        self.ai_model = ai_model
+        self.trading_strategy = trading_strategy
+        
+        if self.ai_model is not None:
+            self.logger.info("[AI] Real AI model (EnsemblePredictor) loaded into orchestrator")
+        if self.trading_strategy is not None:
+            self.logger.info("[STRATEGY] Real trading strategy loaded into orchestrator")
         
         # Lazy initialization of trading modules
         self.yfinance_manager = None
@@ -883,8 +892,10 @@ For Task Scheduler:
     
     args = parser.parse_args()
     
-    # Initialize orchestrator
-    orchestrator = TradingOrchestrator()
+    # Initialize orchestrator with REAL AI and strategy objects
+    # These objects have already passed integrity validation
+    orchestrator = TradingOrchestrator(ai_model=real_ai, trading_strategy=real_strategy)
+    logger.info("[STARTUP] Orchestrator initialized with validated AI and strategy components")
     
     try:
         # Determine mode
