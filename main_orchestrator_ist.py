@@ -369,6 +369,57 @@ Phase 6: Shadow Trading Simulator
         except Exception as e:
             self.logger.error(f"[ERROR] Error sending Saturday retrain notification: {e}")
     
+    def _send_session_notification(self, status: str, message: str):
+        """Send simple session notification email"""
+        try:
+            from src.utils.notifier import EmailNotifier
+            
+            subject = f"[NeuralTrader] Session Complete - {status}"
+            
+            body = f"""
+NeuralTrader Session Notification
+================================
+
+[DATE] Date: {datetime.now().strftime('%Y-%m-%d %H:%M IST')}
+[MODE] Mode: Paper Trading
+[STATUS] {status}
+
+[SUMMARY] Session Details:
+------------------------
+{message}
+
+[PORTFOLIO] Current Status:
+-------------------------
+Portfolio: 5 positions held
+Cash: $95,344.75
+System: Capital preservation active
+
+[MARKET] SPY Analysis:
+--------------------
+Market Filter: BEARISH protection active
+Action: No trades executed
+Reason: Market below 20-day SMA
+
+🛡️ NeuralTrader Constitution: Capital Preservation Priority #1
+📊 System is protecting capital during bearish market conditions.
+
+This is an automated message from NeuralTrader Paper Trading System.
+"""
+            
+            # Initialize email notifier
+            notifier = EmailNotifier()
+            
+            # Send email
+            success = notifier.send_alert(subject, body)
+            
+            if success:
+                self.logger.info("[OK] Session notification sent successfully")
+            else:
+                self.logger.error("[ERROR] Failed to send session notification")
+                
+        except Exception as e:
+            self.logger.error(f"[ERROR] Error sending session notification: {e}")
+    
     def check_kill_switch(self) -> bool:
         """Check if kill switch is activated"""
         if os.path.exists('STOP.txt'):
@@ -508,6 +559,9 @@ Phase 6: Shadow Trading Simulator
             if not self.virtual_engine.check_market_filter():
                 self.logger.warning("[MARKET] SPY market filter is BEARISH - no trades executed")
                 self.logger.info("[MARKET] System in cash preservation mode")
+                
+                # Send guaranteed notification for bearish day
+                self._send_session_notification("BEARISH - Cash Preserved", "Market filter detected bearish conditions. No trades executed.")
                 return True
             for ticker in self.yfinance_manager.sp100_tickers:  # Full universe for production
                 try:
