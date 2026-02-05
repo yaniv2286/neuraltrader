@@ -200,8 +200,8 @@ class VirtualEngine:
                 logger.warning("No price data available for SPY, assuming bullish")
                 return True
             
-            market_bullish = float(current_spy) > float(spy_20_days_ago_price)
-            logger.info(f"Market Filter: SPY ${float(current_spy):.2f} vs 20-day ago ${float(spy_20_days_ago_price):.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
+            market_bullish = float(current_spy.iloc[0]) > float(spy_20_days_ago_price.iloc[0])
+            logger.info(f"Market Filter: SPY ${float(current_spy.iloc[0]):.2f} vs 20-day ago ${float(spy_20_days_ago_price.iloc[0]):.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
             
             return market_bullish
             
