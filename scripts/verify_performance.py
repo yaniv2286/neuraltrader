@@ -10,6 +10,7 @@ def verify_performance():
     print("🚀 NEURALTRADER: PHASE 7 PERFORMANCE VERIFICATION (TURBO MODE)")
     print("   Target: CAGR > 25% | Drawdown < 20%")
     print("   Risk: 10% Stop Loss | Market Filter: SPY > 20-day MA")
+    print("   Stress: 0.1% Slippage Penalty per Trade")
     print("="*60)
 
     # --- 1. Load Data (Merge Brain + Market) ---
@@ -96,6 +97,7 @@ def verify_performance():
 
     current_holdings = {} # {ticker: shares}
     entry_prices = {} # {ticker: entry_price} for stop loss
+    trade_count = 0  # Track number of completed trades for slippage penalty
     
     for i in range(len(fridays)-1):
         curr_date = fridays[i]
@@ -140,12 +142,18 @@ def verify_performance():
                 if current_price < entry_price * 0.90:
                     # STOP LOSS TRIGGERED - Sell at -10%
                     stop_loss_value = shares * entry_price * 0.90
-                    portfolio_val += stop_loss_value
+                    # Apply 0.1% slippage penalty on completed trade
+                    slippage_adjusted_value = stop_loss_value * 0.999
+                    portfolio_val += slippage_adjusted_value
+                    trade_count += 1
                     # Remove from holdings
                     del current_holdings[ticker]
                     del entry_prices[ticker]
                 else:
-                    portfolio_val += shares * current_price
+                    # Apply 0.1% slippage penalty on completed trade (weekly rebalance)
+                    slippage_adjusted_value = shares * current_price * 0.999
+                    portfolio_val += slippage_adjusted_value
+                    trade_count += 1
             else:
                 # If checking a holding that has no data today, assume last known value
                 pass
@@ -186,13 +194,20 @@ def verify_performance():
     final_value = equity_curve[-1]
     total_return_pct = (final_value - 100000) / 100000 * 100
     
-    # CAGR
+    # Calculate slippage adjusted return (0.1% penalty per trade)
+    slippage_penalty = trade_count * 0.001 * 100  # 0.1% per trade in percentage
+    slippage_adjusted_return = total_return_pct - slippage_penalty
+    slippage_adjusted_final = 100000 * (1 + slippage_adjusted_return / 100)
+    
+    # CAGR (Slippage Adjusted)
     days = (dates[-1] - dates[0]).days
     if days > 0:
         years = days / 365.25
         cagr = ((final_value / 100000) ** (1/years) - 1) * 100
+        slippage_adjusted_cagr = ((slippage_adjusted_final / 100000) ** (1/years) - 1) * 100
     else:
         cagr = 0
+        slippage_adjusted_cagr = 0
     
     # Drawdown
     equity_series = pd.Series(equity_curve)
@@ -211,14 +226,16 @@ def verify_performance():
     print(f"💰 Initial Capital: $100,000")
     print(f"💰 Final Capital:   ${final_value:,.2f}")
     print(f"📈 Total Return:    {total_return_pct:.2f}%")
+    print(f"🔧 Slippage Adj:   {slippage_adjusted_return:.2f}% (0.1% penalty x {trade_count} trades)")
     print("-" * 30)
     print(f"🚀 CAGR:            {cagr:.2f}%   (Target: 25%)")
+    print(f"🔧 Slippage CAGR:   {slippage_adjusted_cagr:.2f}%   (Stress Test)")
     print(f"🛡️ Max Drawdown:    {max_dd:.2f}%  (Target: <20%)")
     print(f"⚖️ Sharpe Ratio:    {sharpe:.2f}")
     print("="*60)
     
-    status = "✅ READY FOR LIVE" if cagr > 20 and max_dd > -25 else "⚠️ NEEDS OPTIMIZATION"
-    print(f"🏆 SYSTEM STATUS: {status}")
+    status = "✅ READY FOR LIVE" if slippage_adjusted_cagr > 20 and max_dd > -25 else "⚠️ NEEDS OPTIMIZATION"
+    print(f"🏆 SYSTEM STATUS: {status} (Stress Test Results)")
     print("="*60)
 
 if __name__ == "__main__":
