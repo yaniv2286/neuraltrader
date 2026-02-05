@@ -130,6 +130,9 @@ from core.integrity import verify_system_integrity
 from core.ai_models import EnsemblePredictor
 from core.strategy import TradingStrategy
 
+# Global flag for paper trading mode
+PAPER_TRADING = False
+
 # ==================== MASTER RUNNER CLASS ====================
 
 class TradingOrchestrator:
@@ -976,6 +979,13 @@ For Task Scheduler:
             sys.exit(0 if success else 1)
         
         elif args.mode == 'paper':
+            # Set global paper trading flag
+            global PAPER_TRADING
+            PAPER_TRADING = True
+            
+            logger.info("[PAPER] Running in PAPER TRADING mode (No real money)")
+            logger.info("[PAPER] Core Protection Protocol active with paper trading")
+            
             success = orchestrator.run_trade_mode()
             logger.info("[PAPER] Paper trading mode completed")
             sys.exit(0 if success else 1)
