@@ -79,7 +79,7 @@ class ManualDryRun:
             from src.trading.risk_manager import RiskManager
             from src.trading.virtual_engine import VirtualEngine
             from src.utils.notifier import EmailNotifier
-            from src.models.inference_engine import EnsemblePredictor
+            from core.ai_models import EnsemblePredictor
             
             self.logger.info("[INIT] Initializing trading components...")
             
