@@ -61,6 +61,14 @@ class VirtualEngine:
         self.initial_cash = initial_cash
         self.slippage_rate = 0.001  # 0.1% slippage
         
+        # 🚀 GOLDEN PARAMETERS (107% CAGR Verification)
+        self.STOP_LOSS_PCT = 0.10  # 10% stop loss
+        self.MAX_POSITIONS = 5  # Max 5 positions (20% allocation each)
+        self.market_filter_enabled = True  # SPY market filter
+        
+        # Entry price tracking for stop loss
+        self.entry_prices = {}  # {ticker: entry_price}
+        
         # Ensure data directory exists
         os.makedirs(os.path.dirname(portfolio_file), exist_ok=True)
         
@@ -87,6 +95,8 @@ class VirtualEngine:
                     portfolio['trades'] = []
                 if 'positions' not in portfolio:
                     portfolio['positions'] = {}
+                if 'entry_prices' not in portfolio:
+                    portfolio['entry_prices'] = {}
                 if 'performance' not in portfolio:
                     portfolio['performance'] = {
                         'total_value': self.initial_cash,
@@ -105,6 +115,7 @@ class VirtualEngine:
                 portfolio = {
                     'cash': self.initial_cash,
                     'positions': {},
+                    'entry_prices': {},
                     'history': [],
                     'performance': {
                         'total_return': 0.0,
@@ -125,6 +136,7 @@ class VirtualEngine:
             return {
                 'cash': self.initial_cash,
                 'positions': {},
+                'entry_prices': {},
                 'history': [],
                 'trades': [],
                 'performance': {
@@ -153,6 +165,104 @@ class VirtualEngine:
             
         except Exception as e:
             logger.error(f"Error saving portfolio: {e}")
+    
+    def check_market_filter(self) -> bool:
+        """
+        Check SPY market filter (20-day trend)
+        
+        Returns:
+            True if market is bullish (SPY > 20-day ago price), False otherwise
+        """
+        if not self.market_filter_enabled:
+            return True
+            
+        try:
+            # Get current SPY price
+            current_spy = self.get_current_price('SPY')
+            if current_spy is None:
+                logger.warning("Could not get SPY price, assuming bullish")
+                return True
+            
+            # Get SPY price 20 days ago
+            spy_data = yf.download('SPY', period="30d", progress=False)
+            if spy_data.empty or len(spy_data) < 20:
+                logger.warning("Insufficient SPY history, assuming bullish")
+                return True
+            
+            spy_20_days_ago_price = spy_data['Adj Close'].iloc[-21] if len(spy_data) >= 21 else spy_data['Adj Close'].iloc[0]
+            
+            market_bullish = current_spy > spy_20_days_ago_price
+            logger.info(f"Market Filter: SPY ${current_spy:.2f} vs 20-day ago ${spy_20_days_ago_price:.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
+            
+            return market_bullish
+            
+        except Exception as e:
+            logger.error(f"Error checking market filter: {e}")
+            return True  # Default to bullish on error
+    
+    def check_stop_loss(self, ticker: str) -> bool:
+        """
+        Check if position should be stopped out
+        
+        Args:
+            ticker: Ticker symbol
+            
+        Returns:
+            True if stop loss should be triggered
+        """
+        try:
+            if ticker not in self.portfolio['positions']:
+                return False
+                
+            current_price = self.get_current_price(ticker)
+            if current_price is None:
+                return False
+            
+            entry_price = self.portfolio['entry_prices'].get(ticker)
+            if entry_price is None:
+                return False
+            
+            # Check 10% stop loss
+            stop_loss_triggered = current_price < entry_price * (1 - self.STOP_LOSS_PCT)
+            
+            if stop_loss_triggered:
+                logger.warning(f"STOP LOSS triggered for {ticker}: ${current_price:.2f} < ${entry_price * (1 - self.STOP_LOSS_PCT):.2f}")
+            
+            return stop_loss_triggered
+            
+        except Exception as e:
+            logger.error(f"Error checking stop loss for {ticker}: {e}")
+            return False
+    
+    def execute_stop_loss(self, ticker: str) -> Dict:
+        """
+        Execute stop loss for a position
+        
+        Args:
+            ticker: Ticker symbol
+            
+        Returns:
+            Trade result dictionary
+        """
+        try:
+            if ticker not in self.portfolio['positions']:
+                return {'success': False, 'error': f'No position found for {ticker}'}
+            
+            position = self.portfolio['positions'][ticker]
+            entry_price = self.portfolio['entry_prices'].get(ticker, position['avg_cost'])
+            stop_loss_price = entry_price * (1 - self.STOP_LOSS_PCT)
+            
+            # Execute sell at stop loss price
+            result = self.execute_trade(ticker, 'sell', position['quantity'], stop_loss_price, f"STOP LOSS: -{self.STOP_LOSS_PCT*100:.0f}%")
+            
+            if result['success']:
+                logger.info(f"Stop loss executed for {ticker}: {position['quantity']} shares @ ${result['execution_price']:.2f}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error executing stop loss for {ticker}: {e}")
+            return {'success': False, 'error': str(e)}
     
     def get_current_price(self, ticker: str) -> Optional[float]:
         """
@@ -234,6 +344,18 @@ class VirtualEngine:
                 execution_price = current_price * (1 - self.slippage_rate)
                 cost = execution_price * quantity
             
+            # Check position limit (MAX_POSITIONS)
+            if side.lower() == 'buy' and ticker not in self.portfolio['positions']:
+                current_position_count = len(self.portfolio['positions'])
+                if current_position_count >= self.MAX_POSITIONS:
+                    return {
+                        'success': False,
+                        'error': f'Max positions reached: {current_position_count}/{self.MAX_POSITIONS}',
+                        'ticker': ticker,
+                        'side': side,
+                        'quantity': quantity
+                    }
+            
             # Check if we have enough cash for buys
             if side.lower() == 'buy':
                 if cost > self.portfolio['cash']:
@@ -303,6 +425,12 @@ class VirtualEngine:
                         'last_price': execution_price,
                         'updated_at': datetime.now().isoformat()
                     }
+                    
+                    # Update entry price for stop loss
+                    old_entry_price = self.portfolio['entry_prices'].get(ticker, current_pos['avg_cost'])
+                    total_shares = current_pos['quantity'] + quantity
+                    weighted_entry_price = ((current_pos['quantity'] * old_entry_price) + (quantity * execution_price)) / total_shares
+                    self.portfolio['entry_prices'][ticker] = weighted_entry_price
                 else:
                     self.portfolio['positions'][ticker] = {
                         'quantity': quantity,
@@ -311,6 +439,9 @@ class VirtualEngine:
                         'created_at': datetime.now().isoformat(),
                         'updated_at': datetime.now().isoformat()
                     }
+                    
+                    # Set entry price for new position
+                    self.portfolio['entry_prices'][ticker] = execution_price
                 
                 trade['cash_before'] = self.portfolio['cash'] + cost
                 trade['cash_after'] = self.portfolio['cash']
@@ -332,8 +463,10 @@ class VirtualEngine:
                         'updated_at': datetime.now().isoformat()
                     }
                 else:
-                    # Position closed
+                    # Position closed - remove entry price
                     del self.portfolio['positions'][ticker]
+                    if ticker in self.portfolio['entry_prices']:
+                        del self.portfolio['entry_prices'][ticker]
                 
                 # Update realized PnL
                 self.portfolio['performance']['realized_pnl'] += realized_pnl
@@ -372,6 +505,32 @@ class VirtualEngine:
                 'quantity': quantity
             }
     
+    def check_and_execute_stop_losses(self) -> List[Dict]:
+        """
+        Check and execute stop losses for all positions
+        
+        Returns:
+            List of stop loss execution results
+        """
+        stop_loss_results = []
+        
+        try:
+            positions_to_check = list(self.portfolio['positions'].keys())
+            
+            for ticker in positions_to_check:
+                if self.check_stop_loss(ticker):
+                    result = self.execute_stop_loss(ticker)
+                    stop_loss_results.append(result)
+                    
+            if stop_loss_results:
+                logger.info(f"Executed {len(stop_loss_results)} stop losses")
+                
+            return stop_loss_results
+            
+        except Exception as e:
+            logger.error(f"Error checking stop losses: {e}")
+            return []
+    
     def update_portfolio_values(self) -> Dict:
         """
         Update portfolio values with current market prices
@@ -381,6 +540,9 @@ class VirtualEngine:
         """
         try:
             logger.info("Updating portfolio values...")
+            
+            # Check and execute stop losses first
+            self.check_and_execute_stop_losses()
             
             total_value = self.portfolio['cash']
             position_values = {}

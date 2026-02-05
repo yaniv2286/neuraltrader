@@ -503,6 +503,12 @@ Phase 6: Shadow Trading Simulator
             
             # Process signals and execute trades
             trades_executed = 0
+            
+            # 🚀 MARKET FILTER CHECK (Golden Parameter)
+            if not self.virtual_engine.check_market_filter():
+                self.logger.warning("[MARKET] SPY market filter is BEARISH - no trades executed")
+                self.logger.info("[MARKET] System in cash preservation mode")
+                return True
             for ticker in self.yfinance_manager.sp100_tickers:  # Full universe for production
                 try:
                     # Get latest price
@@ -514,6 +520,11 @@ Phase 6: Shadow Trading Simulator
                     signal_strength = self._generate_signal_simple(ticker)
                     
                     if signal_strength > 0.5:  # Buy signal
+                        # 🚀 POSITION LIMIT CHECK (Golden Parameter)
+                        current_position_count = len(self.virtual_engine.portfolio['positions'])
+                        if current_position_count >= self.virtual_engine.MAX_POSITIONS:
+                            self.logger.info(f"[LIMIT] Max positions reached: {current_position_count}/{self.virtual_engine.MAX_POSITIONS}")
+                            continue
                         # Evaluate trade
                         decision, details = self.risk_manager.evaluate_trade(
                             ticker, current_price, account_info, current_positions
