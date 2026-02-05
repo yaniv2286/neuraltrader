@@ -18,20 +18,19 @@
 - **Execution:** 1x Leverage ONLY. No Shorting. Limit Orders only.
 - **Costs:** Assume 0.15% round-trip slippage/commissions.
 
+## 🏛️ CORE KERNEL ARCHITECTURE (The "Holy Ground")
+- **Protected Zone:** The `core/` directory (`ai_models.py`, `indicators.py`, `strategy_logic.py`) is **IMMUTABLE** by default.
+- **Modification Rule:** You are FORBIDDEN from modifying `core/` logic unless the user explicitly prompts: "UNLOCK CORE LOGIC."
+- **Dependency Flow:** `execution/` depends on `core/`. `core/` NEVER depends on `execution/`.
+
+## 🔒 SYSTEM INTEGRITY RULE (The "No Silent Failures" Law)
+- **Startup Validation:** The Orchestrator MUST call `core.integrity.verify_system_integrity()` before any market interaction.
+- **Fail Fast:** If the AI model or Strategy Logic is missing/invalid, the system must CRASH (Raise SystemExit).
+- **Prohibited:** Never allow the system to default to "fallback logic" (like simple Momentum) if the AI fails to load.
+- **Logs:** Logs must explicitly state which Intelligence is driving the decision (e.g., "[AI] XGBoost Online").
+
 ## 💻 TECHNICAL STANDARDS
 - **Format:** Parquet + Float32 (PyArrow) for efficiency.
 - **Time:** All operations on UTC; Reporting on IST.
-- **Logs:** ASCII ONLY. No emojis. Use tags: [OK], [DATA], [ERROR], [SIGNAL].
+- **Logs:** ASCII ONLY. No emojis. Use tags: [OK], [DATA], [ERROR], [CRITICAL].
 - **Integrity:** No hardcoded keys. No deleting `ROADMAP.md`.
-
-## 🧪 VALIDATION PROTOCOL
-- **Production Pipeline:** `main_orchestrator_ist.py` (Strict, Market Hours, Scheduled).
-- **Simulation Pipeline:** `scripts/manual_dry_run.py` (Flexible, Mock Data, On-Demand).
-- **Rule:** Never test logic in Production. Always verify in Simulation first.
-
-## 🔒 SYSTEM INTEGRITY RULE (The "No Silent Failures" Law)
-- **Architecture Validation:** Before marking ANY task as complete, you must verify that:
-  1. The **Active Model** is present in `models/`.
-  2. The **Orchestrator** is explicitly importing the Model Inference Class (not a placeholder).
-  3. The **Logs** explicitly state which Intelligence is driving the decision (e.g., "[AI] XGBoost").
-- **Prohibited:** Never allow the system to default to "fallback logic" (like Momentum) without a [WARNING] log and an explicit user override.
