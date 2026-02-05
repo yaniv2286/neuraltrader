@@ -1,5 +1,16 @@
 # 🏛️ NeuralTrader Roadmap
 
+## 🛡️ SYSTEM FOUNDATIONS (IMMUTABLE)
+> **STATUS:** 🔒 LOCKED & ACTIVE
+> These are the permanent architectural laws of NeuralTrader. They do not change between phases.
+
+- [x] **Core Kernel Architecture**: The `core/` directory (`ai_models`, `indicators`, `strategy`) is physically isolated from execution logic.
+- [x] **Fail-Safe Integrity**: `verify_system_integrity()` is hardwired into the startup sequence.
+- [x] **"No Silent Failures"**: The system is programmed to crash (Fail Fast) if Intelligence is missing.
+- [x] **The "Holy Ground" Rule**: Future features must be built as modules in `execution/` or `plugins/`. **NEVER** modify `core/` without explicit "UNLOCK" authorization.
+
+---
+
 ## 🏆 **PHASE 6.2 COMPLETE - TASK SCHEDULER INTEGRATION!**
 
 **Date**: February 4, 2026  
