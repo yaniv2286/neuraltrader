@@ -201,7 +201,7 @@ class VirtualEngine:
                 return True
             
             market_bullish = current_spy > spy_20_days_ago_price
-            logger.info(f"Market Filter: SPY ${current_spy:.2f} vs 20-day ago ${spy_20_days_ago_price:.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
+            logger.info(f"Market Filter: SPY ${float(current_spy):.2f} vs 20-day ago ${float(spy_20_days_ago_price):.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
             
             return market_bullish
             
