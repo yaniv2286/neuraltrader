@@ -9,6 +9,7 @@ def verify_performance():
     print("\n" + "="*60)
     print("🚀 NEURALTRADER: PHASE 7 PERFORMANCE VERIFICATION (TURBO MODE)")
     print("   Target: CAGR > 25% | Drawdown < 20%")
+    print("   Risk: 10% Stop Loss | Market Filter: SPY > 20-day MA")
     print("="*60)
 
     # --- 1. Load Data (Merge Brain + Market) ---
@@ -94,6 +95,7 @@ def verify_performance():
         return
 
     current_holdings = {} # {ticker: shares}
+    entry_prices = {} # {ticker: entry_price} for stop loss
     
     for i in range(len(fridays)-1):
         curr_date = fridays[i]
@@ -109,25 +111,51 @@ def verify_performance():
             # No data for this specific date (Market Holiday?)
             continue
 
-        # A. Mark-to-Market (Value Current Portfolio)
+        # A. MARKET FILTER CHECK
+        market_bullish = True
+        spy_data = day_data[day_data['ticker'] == 'SPY']
+        if not spy_data.empty:
+            # Simple market filter: If SPY is down from 20 days ago, it's bearish
+            try:
+                spy_20_days_ago = full_df.loc[curr_date - pd.Timedelta(days=20)]
+                spy_20_days_ago_price = spy_20_days_ago[spy_20_days_ago['ticker'] == 'SPY']
+                if not spy_20_days_ago_price.empty:
+                    current_spy_price = spy_data['price'].iloc[0]
+                    old_spy_price = spy_20_days_ago_price['price'].iloc[0]
+                    market_bullish = current_spy_price > old_spy_price
+            except KeyError:
+                pass  # If no 20-day data, assume bullish
+        
+        # B. Mark-to-Market (Value Current Portfolio)
         portfolio_val = cash
         
-        for ticker, shares in current_holdings.items():
+        for ticker, shares in list(current_holdings.items()):
             # Fast filter on the sliced day_data
             row = day_data[day_data['ticker'] == ticker]
             if not row.empty:
-                portfolio_val += shares * row['price'].iloc[0]
+                current_price = row['price'].iloc[0]
+                entry_price = entry_prices.get(ticker, current_price)
+                
+                # C. STOP LOSS CHECK (-10%)
+                if current_price < entry_price * 0.90:
+                    # STOP LOSS TRIGGERED - Sell at -10%
+                    stop_loss_value = shares * entry_price * 0.90
+                    portfolio_val += stop_loss_value
+                    # Remove from holdings
+                    del current_holdings[ticker]
+                    del entry_prices[ticker]
+                else:
+                    portfolio_val += shares * current_price
             else:
-                # If checking a holding that has no data today, check holdings dict for last known price? 
-                # Simplified: Assume cash value holds.
+                # If checking a holding that has no data today, assume last known value
                 pass
         
         # Reset for new buys (Virtual Sell)
         cash = portfolio_val
         current_holdings = {}
         
-        # B. Buy Top 5 Scores
-        if not day_data.empty:
+        # D. Buy Top 5 Scores (ONLY IF BULLISH)
+        if market_bullish and not day_data.empty:
             # THE COUNCIL'S VOTE: Pick top 5 by Score
             top_picks = day_data.sort_values('score', ascending=False).head(5)
             # Filter: Positive Score Only
@@ -140,9 +168,10 @@ def verify_performance():
                     if price > 0:
                         shares = allocation / price
                         current_holdings[row['ticker']] = shares
+                        entry_prices[row['ticker']] = price  # Track entry price for stop loss
                         cash -= allocation
         
-        # D. Record Equity for this week
+        # E. Record Equity for this week
         # (Simplified: We just use the portfolio_val we calculated at the start of rebalance)
         equity_curve.append(portfolio_val) 
         dates.append(curr_date)
