@@ -127,43 +127,8 @@ from src.trading.virtual_engine import VirtualEngine
 # from src.reporting.ist_scheduler import ISTScheduler
 from src.utils.notifier import EmailNotifier
 from core.integrity import verify_system_integrity
-
-# ==================== MODEL AND STRATEGY WRAPPERS ====================
-
-class AIModelWrapper:
-    """Wrapper for AI model to satisfy integrity check requirements"""
-    
-    def __init__(self):
-        """Initialize AI model wrapper"""
-        self.model_type = "Ensemble"
-        self.is_loaded = True
-    
-    def predict(self, X):
-        """Predict method required by integrity check"""
-        # This is a placeholder - actual prediction logic is in _generate_signal
-        return [0.5]
-
-
-class TradingStrategyWrapper:
-    """Wrapper for trading strategy to satisfy integrity check requirements"""
-    
-    def __init__(self):
-        """Initialize strategy wrapper with safety constraints"""
-        # Safety constraints from Trading Constitution
-        self.max_drawdown = 0.20  # 20% max drawdown limit
-        self.max_position_size = 0.20  # 20% max position size
-        self.stop_loss = 0.02  # 2% stop loss
-    
-    def check_entry(self, data):
-        """Entry condition check required by integrity check"""
-        # Placeholder - actual entry logic is in trading flow
-        return True
-    
-    def check_exit(self, data):
-        """Exit condition check required by integrity check"""
-        # Placeholder - actual exit logic is in trading flow
-        return False
-
+from core.ai_models import EnsemblePredictor
+from core.strategy import TradingStrategy
 
 # ==================== MASTER RUNNER CLASS ====================
 
@@ -850,14 +815,21 @@ def main():
     # ==================== CORE PROTECTION PROTOCOL ====================
     logger.info("[STARTUP] Initiating NeuralTrader Core Protection Protocol...")
     
-    # Initialize AI model and strategy for integrity verification
-    ai_model = AIModelWrapper()
-    trading_strategy = TradingStrategyWrapper()
+    # Load the REAL brains - EnsemblePredictor and TradingStrategy
+    try:
+        logger.info("[STARTUP] Loading real AI model (EnsemblePredictor)...")
+        real_ai = EnsemblePredictor()
+        logger.info("[STARTUP] Loading real trading strategy (TradingStrategy)...")
+        real_strategy = TradingStrategy()
+    except Exception as e:
+        logger.critical(f"[CRITICAL] Failed to load core components: {e}")
+        logger.critical("[CRITICAL] System cannot operate without AI model and strategy")
+        sys.exit(1)
     
-    # Verify system integrity - CRITICAL: Must pass or system terminates
+    # Verify the REAL brains - CRITICAL: Must pass or system terminates
     # This enforces the "No Silent Failures" law
     try:
-        verify_system_integrity(ai_model, trading_strategy)
+        verify_system_integrity(real_ai, real_strategy)
         logger.info("[STARTUP] Core Protection Protocol verification complete")
     except SystemExit:
         logger.critical("[CRITICAL] Core Protection Protocol FAILED - System terminating")
