@@ -28,3 +28,10 @@
 - **Production Pipeline:** `main_orchestrator_ist.py` (Strict, Market Hours, Scheduled).
 - **Simulation Pipeline:** `scripts/manual_dry_run.py` (Flexible, Mock Data, On-Demand).
 - **Rule:** Never test logic in Production. Always verify in Simulation first.
+
+## 🔒 SYSTEM INTEGRITY RULE (The "No Silent Failures" Law)
+- **Architecture Validation:** Before marking ANY task as complete, you must verify that:
+  1. The **Active Model** is present in `models/`.
+  2. The **Orchestrator** is explicitly importing the Model Inference Class (not a placeholder).
+  3. The **Logs** explicitly state which Intelligence is driving the decision (e.g., "[AI] XGBoost").
+- **Prohibited:** Never allow the system to default to "fallback logic" (like Momentum) without a [WARNING] log and an explicit user override.

@@ -29,13 +29,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-# Setup simulation-specific logging
 def setup_simulation_logging():
-    """Setup logging for simulation pipeline with timestamped files"""
+    """Setup logging for simulation pipeline"""
     log_dir = project_root / "logs" / "dry_run"
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    # Timestamped log file to prevent permission errors
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f"simulation_{timestamp}.log"
     
@@ -44,16 +42,11 @@ def setup_simulation_logging():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
+            logging.StreamHandler()
         ]
     )
     
     logger = logging.getLogger('ManualDryRun')
-    logger.info("=" * 80)
-    logger.info("[SIMULATION] Manual Dry Run - Simulation Pipeline Started")
-    logger.info(f"[TIME] Timestamp: {datetime.now()}")
-    logger.info(f"[MODE] Mode: ON-DEMAND TESTING (No market hours check)")
-    logger.info(f"[LOG] Log file: {log_file}")
     logger.info("=" * 80)
     
     return logger, log_file
@@ -86,8 +79,14 @@ class ManualDryRun:
             from src.trading.risk_manager import RiskManager
             from src.trading.virtual_engine import VirtualEngine
             from src.utils.notifier import EmailNotifier
+            from src.models.inference import XGBoostInference
             
             self.logger.info("[INIT] Initializing trading components...")
+            
+            # Load XGBoost model
+            self.logger.info("[ML] Loading XGBoost model...")
+            self.xgboost_inference = XGBoostInference()
+            self.logger.info("[OK] XGBoost model loaded successfully")
             
             self.yfinance_manager = YFinanceManager()
             self.logger.info("[OK] YFinance Manager initialized")
@@ -127,15 +126,16 @@ class ManualDryRun:
             prices = base_price + np.cumsum(price_changes)
             
             data = pd.DataFrame({
-                'Open': prices * 0.995,
-                'High': prices * 1.01,
-                'Low': prices * 0.99,
-                'Close': prices,
-                'Volume': np.random.randint(50000000, 100000000, 5)
-            }, index=dates)
+                'date': dates,
+                'open': prices - 1,
+                'high': prices + 2,
+                'low': prices - 2,
+                'close': prices,
+                'volume': [1000000] * 5
+            })
             
             self.logger.info(f"[OK] Generated {len(data)} days of mock data for {ticker}")
-            self.logger.info(f"[DATA] Latest close: ${data['Close'].iloc[-1]:.2f}")
+            self.logger.info(f"[DATA] Latest close: ${data['close'].iloc[-1]:.2f}")
             self.logger.info(f"[INFO] Using MOCK DATA for simulation (avoids API rate limits)")
             
             return data
@@ -145,47 +145,38 @@ class ManualDryRun:
             return None
     
     def generate_mock_signal(self, ticker: str, data: pd.DataFrame) -> dict:
-        """Generate trading signal using real strategy logic (momentum-based)"""
+        """Generate trading signal using XGBoost ML model"""
         try:
-            self.logger.info(f"[SIGNAL] Running strategy inference for {ticker}...")
+            self.logger.info(f"[SIGNAL] Running XGBoost inference for {ticker}...")
             
-            # Real strategy logic: Momentum-based signal generation
-            # This is the ACTUAL strategy used in production
-            if len(data) < 2:
-                self.logger.warning(f"[WARN] Insufficient data for signal generation")
-                return {'action': 'HOLD', 'confidence': 0.0, 'ticker': ticker, 'price': data['Close'].iloc[-1]}
+            # Use XGBoost model for signal generation
+            if self.xgboost_inference is None:
+                self.logger.error("[ERROR] XGBoost inference engine not initialized")
+                return {'action': 'HOLD', 'confidence': 0.0, 'ticker': ticker, 'price': data['close'].iloc[-1]}
             
-            # Calculate momentum (same logic as production pipeline)
-            recent_return = (data['Close'].iloc[-1] / data['Close'].iloc[-2]) - 1
-            price = data['Close'].iloc[-1]
+            # Get signal from XGBoost model
+            action, confidence, details = self.xgboost_inference.predict_from_ohlcv(data)
             
-            # Generate signal based on momentum thresholds
-            if recent_return > 0.01:  # 1% gain → BUY signal
-                action = 'BUY'
-                confidence = min(0.75 + (recent_return * 10), 0.95)
-            elif recent_return < -0.01:  # 1% loss → SELL signal
-                action = 'SELL'
-                confidence = min(0.75 + (abs(recent_return) * 10), 0.95)
-            else:  # Within ±1% → HOLD
-                action = 'HOLD'
-                confidence = 0.5
+            price = data['close'].iloc[-1]
             
             signal = {
                 'ticker': ticker,
                 'action': action,
                 'confidence': confidence,
                 'price': price,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'ml_details': details
             }
             
-            self.logger.info(f"[SIGNAL] Strategy output: {action} with {confidence:.2%} confidence")
-            self.logger.info(f"[SIGNAL] Price: ${price:.2f}, Momentum: {recent_return:.2%}")
+            self.logger.info(f"[ML] XGBoost Signal: {action} with {confidence:.2%} confidence")
+            self.logger.info(f"[ML] Probabilities - UP: {details.get('prob_up', 0):.2%}, DOWN: {details.get('prob_down', 0):.2%}")
+            self.logger.info(f"[SIGNAL] Price: ${price:.2f}")
             
             return signal
             
         except Exception as e:
             self.logger.error(f"[ERROR] Failed to generate signal: {e}")
-            return {'action': 'HOLD', 'confidence': 0.0, 'ticker': ticker, 'price': data['Close'].iloc[-1] if len(data) > 0 else 0.0}
+            return {'action': 'HOLD', 'confidence': 0.0, 'ticker': ticker, 'price': data['close'].iloc[-1] if len(data) > 0 else 0.0}
     
     def execute_simulation_trade(self, signal: dict):
         """Execute a simulation trade using virtual engine"""
@@ -402,7 +393,7 @@ NeuralTrader Simulation Pipeline
         """Run the complete manual dry run simulation"""
         try:
             self.logger.info("[START] Starting manual dry run simulation...")
-            self.logger.info("[MODE] Strategy Focus: Running real ML inference (momentum-based strategy)")
+            self.logger.info("[MODE] Phase 7: XGBoost ML Model Integration")
             
             # Step 1: Initialize components
             if not self.initialize_components():
@@ -437,8 +428,8 @@ NeuralTrader Simulation Pipeline
             
             # FINAL SUMMARY
             self.logger.info("=" * 80)
-            self.logger.info("[SUCCESS] Simulation Pipeline restored to Real Intelligence")
-            self.logger.info(f"[STRATEGY] Full Model -> Risk -> Signal stack executed")
+            self.logger.info("[SUCCESS] Phase 7 - XGBoost ML Integration Complete")
+            self.logger.info(f"[ML] XGBoost model inference executed successfully")
             self.logger.info(f"[SIGNAL] Action: {signal['action']} (confidence: {signal.get('confidence', 0):.2%})")
             self.logger.info(f"[TRADE] Executed: {'YES' if trade_result else 'NO'}")
             if trade_result:
