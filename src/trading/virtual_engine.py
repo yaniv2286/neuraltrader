@@ -656,10 +656,10 @@ class VirtualEngine:
             
             summary = {
                 'portfolio_info': {
-                    'created_at': self.portfolio['created_at'],
-                    'updated_at': self.portfolio['updated_at'],
-                    'initial_cash': self.portfolio['initial_cash'],
-                    'current_cash': self.portfolio['cash']
+                    'created_at': self.portfolio.get('created_at', 'Unknown'),
+                    'updated_at': self.portfolio.get('updated_at', 'Unknown'),
+                    'initial_cash': self.portfolio.get('initial_cash', self.initial_cash),
+                    'current_cash': self.portfolio.get('cash', 0.0)
                 },
                 'performance': values,
                 'positions': self.portfolio['positions'],

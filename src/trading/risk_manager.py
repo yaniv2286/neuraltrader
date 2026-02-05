@@ -209,10 +209,10 @@ class RiskManager:
             five_days_ago_close = vxx_data['Close'].iloc[0]
             vxx_return = (recent_close - five_days_ago_close) / five_days_ago_close
             
-            logger.info(f"VXX 5-day return: {vxx_return:.2%}")
+            logger.info(f"VXX 5-day return: {float(vxx_return):.2%}")
             
             if vxx_return > self.black_swan_threshold:
-                logger.warning(f"🚨 BLACK SWAN EVENT: VXX surged {vxx_return:.1%} > {self.black_swan_threshold:.1%}")
+                logger.warning(f"🚨 BLACK SWAN EVENT: VXX surged {float(vxx_return):.1%} > {self.black_swan_threshold:.1%}")
                 return RiskDecision.REJECT_BLACK_SWAN
             
             return RiskDecision.APPROVED
