@@ -369,75 +369,6 @@ Phase 6: Shadow Trading Simulator
         except Exception as e:
             self.logger.error(f"[ERROR] Error sending Saturday retrain notification: {e}")
     
-    def _send_bearish_protection_notification(self):
-        """Send bearish market protection notification"""
-        try:
-            subject = f"[NeuralTrader] Session Complete - BEARISH PROTECTION ACTIVE"
-            
-            # Get current portfolio status
-            portfolio_summary = self.virtual_engine.get_portfolio_summary()
-            
-            body = f"""
-NeuralTrader Bearish Market Protection Notification
-===============================================
-
-[DATE] Date: {datetime.now().strftime('%Y-%m-%d %H:%M IST')}
-[MODE] Mode: Paper Trading
-[STATUS] Market Status: BEARISH - Cash Preserved
-[CONSTITUTION] Constitution: Risk Management Active
-
-[MARKET FILTER] SPY Market Analysis:
----------------------------------
-Status: BEARISH (SPY below 20-day SMA)
-Action: Cash Preservation Mode Activated
-Risk: No trades executed due to bearish market conditions
-
-[PORTFOLIO] Current Status:
--------------------------
-Total Value: ${portfolio_summary.get('performance', {}).get('total_value', 0):,.2f}
-Cash: ${portfolio_summary.get('portfolio_info', {}).get('current_cash', 0):,.2f}
-Positions: {len(portfolio_summary.get('positions', {}))} held
-
-[PROTECTION] Risk Management:
----------------------------
-✅ Market Filter: BEARISH protection active
-✅ Position Limits: Enforced
-✅ Stop Loss: Ready for activation
-✅ Black Swan: Monitoring VXX volatility
-
-[SUMMARY] Session Outcome:
-------------------------
-Market Condition: Bearish detected
-System Response: Cash preservation mode
-Capital Protection: 100% preserved
-Next Check: Next scheduled run
-
-🛡️ NeuralTrader Constitution: Capital Preservation Priority #1
-📊 System is protecting capital during bearish market conditions.
-🔄 Will resume trading when market turns bullish.
-
-This is an automated message from NeuralTrader Paper Trading System.
-"""
-            
-            # Get automation log file path
-            automation_log_path = os.path.join(PROJECT_ROOT, 'logs', 'automation.log')
-            
-            # Send email with logs
-            success = self.email_notifier.send_email_with_logs(
-                to_email=self.email_notifier.recipient_email,
-                subject=subject,
-                body=body,
-                log_file_path=automation_log_path
-            )
-            
-            if success:
-                self.logger.info("[OK] Bearish protection notification with logs sent successfully")
-            else:
-                self.logger.error("[ERROR] Failed to send bearish protection notification with logs")
-                
-        except Exception as e:
-            self.logger.error(f"[ERROR] Error sending bearish protection notification: {e}")
-    
     def check_kill_switch(self) -> bool:
         """Check if kill switch is activated"""
         if os.path.exists('STOP.txt'):
@@ -577,9 +508,6 @@ This is an automated message from NeuralTrader Paper Trading System.
             if not self.virtual_engine.check_market_filter():
                 self.logger.warning("[MARKET] SPY market filter is BEARISH - no trades executed")
                 self.logger.info("[MARKET] System in cash preservation mode")
-                
-                # Send bearish market protection notification
-                self._send_bearish_protection_notification()
                 return True
             for ticker in self.yfinance_manager.sp100_tickers:  # Full universe for production
                 try:
