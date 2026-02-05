@@ -716,31 +716,75 @@ Phase 6: Shadow Trading Simulator
     
     def _perform_saturday_retrain(self) -> Dict:
         """Perform Saturday retrain operations"""
+        import subprocess
+        import sys
+        import time
+        
         try:
-            # Placeholder for Saturday retrain logic
-            # In a real implementation, this would:
-            # 1. Retrain ML models on latest data
-            # 2. Validate model performance
-            # 3. Update model files
-            # 4. Update risk parameters if needed
+            self.logger.info("[RETRAIN] Starting Saturday model retraining...")
+            start_time = time.time()
             
-            retrain_results = {
-                "status": "SUCCESS",
-                "models_updated": 5,
-                "performance": "Improved by 2.3%",
-                "duration": "45 minutes",
-                "details": {
-                    "models": ["neural_ranker_v1", "risk_model_v2", "signal_model_v1"],
-                    "validation_score": 0.87,
-                    "previous_score": 0.85
+            # Execute the real ensemble training script
+            self.logger.info("[RETRAIN] Executing: python scripts/train_ensemble.py")
+            
+            result = subprocess.run(
+                [sys.executable, "scripts/train_ensemble.py"],
+                capture_output=True,
+                text=True,
+                cwd="."  # Run from project root
+            )
+            
+            duration = time.time() - start_time
+            
+            if result.returncode == 0:
+                self.logger.info("[OK] Ensemble training completed successfully")
+                self.logger.info(f"   Duration: {duration:.1f} seconds")
+                
+                # Parse output for key metrics
+                output_lines = result.stdout.split('\n')
+                models_updated = 0
+                performance_improvement = "N/A"
+                
+                for line in output_lines:
+                    if "models trained" in line.lower():
+                        models_updated = 3  # XGBoost, LightGBM, RandomForest
+                    elif "accuracy" in line.lower() or "performance" in line.lower():
+                        # Extract performance metric if available
+                        performance_improvement = "Training completed"
+                
+                retrain_results = {
+                    "status": "SUCCESS",
+                    "models_updated": models_updated,
+                    "performance": performance_improvement,
+                    "duration": f"{duration:.1f} seconds",
+                    "details": {
+                        "models": ["XGBoost", "LightGBM", "RandomForest"],
+                        "exit_code": result.returncode,
+                        "output_length": len(result.stdout)
+                    }
                 }
-            }
-            
-            self.logger.info("[OK] Saturday retrain completed successfully")
-            self.logger.info(f"   Models updated: {retrain_results['models_updated']}")
-            self.logger.info(f"   Performance: {retrain_results['performance']}")
-            
-            return retrain_results
+                
+                self.logger.info(f"[OK] Models updated: {retrain_results['models_updated']}")
+                self.logger.info(f"[OK] Performance: {retrain_results['performance']}")
+                self.logger.info(f"[OK] Duration: {retrain_results['duration']}")
+                
+                return retrain_results
+                
+            else:
+                self.logger.error(f"[ERROR] Ensemble training failed with exit code: {result.returncode}")
+                self.logger.error(f"[ERROR] Error output: {result.stderr}")
+                
+                return {
+                    "status": "FAILED",
+                    "models_updated": 0,
+                    "performance": "Training failed",
+                    "duration": f"{duration:.1f} seconds",
+                    "details": {
+                        "exit_code": result.returncode,
+                        "error": result.stderr,
+                        "output": result.stdout
+                    }
+                }
             
         except Exception as e:
             self.logger.error(f"[ERROR] Error during Saturday retrain: {e}")

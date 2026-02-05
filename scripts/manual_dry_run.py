@@ -116,13 +116,13 @@ class ManualDryRun:
             
             import numpy as np
             
-            # Create 5 days of mock OHLC data
-            dates = pd.date_range(end=datetime.now(), periods=5, freq='D')
+            # Create 100 days of mock OHLC data (sufficient for technical indicators)
+            dates = pd.date_range(end=datetime.now(), periods=100, freq='D')
             base_price = 150.0
             
             # Generate realistic price movements
             np.random.seed(42)
-            price_changes = np.random.randn(5) * 2  # Random changes
+            price_changes = np.random.randn(100) * 2  # Random changes
             prices = base_price + np.cumsum(price_changes)
             
             data = pd.DataFrame({
@@ -131,7 +131,7 @@ class ManualDryRun:
                 'high': prices + 2,
                 'low': prices - 2,
                 'close': prices,
-                'volume': [1000000] * 5
+                'volume': [1000000] * 100
             })
             
             self.logger.info(f"[OK] Generated {len(data)} days of mock data for {ticker}")
@@ -402,6 +402,36 @@ NeuralTrader Simulation Pipeline
         try:
             self.logger.info("[START] Starting manual dry run simulation...")
             self.logger.info("[MODE] Phase 7: Grand Unification - Ensemble Voting System")
+            
+            # ==================== CORE PROTECTION PROTOCOL ====================
+            self.logger.info("[STARTUP] Initiating NeuralTrader Core Protection Protocol...")
+            
+            # Import and run integrity check
+            from core.integrity import verify_system_integrity
+            from core.ai_models import EnsemblePredictor
+            from core.strategy import TradingStrategy
+            
+            # Load REAL components for integrity verification
+            try:
+                self.logger.info("[STARTUP] Loading real AI model (EnsemblePredictor)...")
+                real_ai = EnsemblePredictor()
+                self.logger.info("[STARTUP] Loading real trading strategy (TradingStrategy)...")
+                real_strategy = TradingStrategy()
+            except Exception as e:
+                self.logger.critical(f"[CRITICAL] Failed to load core components: {e}")
+                self.logger.critical("[CRITICAL] Simulation cannot operate without AI model and strategy")
+                return False
+            
+            # Verify the REAL brains - CRITICAL: Must pass or system terminates
+            try:
+                verify_system_integrity(real_ai, real_strategy)
+                self.logger.info("[STARTUP] Core Protection Protocol verification complete")
+            except SystemExit:
+                self.logger.critical("[CRITICAL] Core Protection Protocol FAILED - Simulation terminating")
+                self.logger.critical("[CRITICAL] Trading operations BLOCKED - Integrity check failed")
+                return False
+            
+            # ==================== END CORE PROTECTION PROTOCOL ====================
             
             # Step 1: Initialize components
             if not self.initialize_components():
