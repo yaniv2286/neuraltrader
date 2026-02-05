@@ -79,14 +79,14 @@ class ManualDryRun:
             from src.trading.risk_manager import RiskManager
             from src.trading.virtual_engine import VirtualEngine
             from src.utils.notifier import EmailNotifier
-            from src.models.inference import XGBoostInference
+            from src.models.inference_engine import EnsemblePredictor
             
             self.logger.info("[INIT] Initializing trading components...")
             
-            # Load XGBoost model
-            self.logger.info("[ML] Loading XGBoost model...")
-            self.xgboost_inference = XGBoostInference()
-            self.logger.info("[OK] XGBoost model loaded successfully")
+            # Load Ensemble models (The Council)
+            self.logger.info("[AI] Loading Ensemble models (The Council)...")
+            self.ensemble_predictor = EnsemblePredictor()
+            self.logger.info("[OK] Ensemble models loaded successfully")
             
             self.yfinance_manager = YFinanceManager()
             self.logger.info("[OK] YFinance Manager initialized")
@@ -145,17 +145,17 @@ class ManualDryRun:
             return None
     
     def generate_mock_signal(self, ticker: str, data: pd.DataFrame) -> dict:
-        """Generate trading signal using XGBoost ML model"""
+        """Generate trading signal using Ensemble ML models (The Council)"""
         try:
-            self.logger.info(f"[SIGNAL] Running XGBoost inference for {ticker}...")
+            self.logger.info(f"[SIGNAL] Running Ensemble inference for {ticker}...")
             
-            # Use XGBoost model for signal generation
-            if self.xgboost_inference is None:
-                self.logger.error("[ERROR] XGBoost inference engine not initialized")
+            # Use Ensemble predictor for signal generation
+            if self.ensemble_predictor is None:
+                self.logger.error("[ERROR] Ensemble predictor not initialized")
                 return {'action': 'HOLD', 'confidence': 0.0, 'ticker': ticker, 'price': data['close'].iloc[-1]}
             
-            # Get signal from XGBoost model
-            action, confidence, details = self.xgboost_inference.predict_from_ohlcv(data)
+            # Get signal from Ensemble models
+            action, confidence, details = self.ensemble_predictor.predict_from_ohlcv(data)
             
             price = data['close'].iloc[-1]
             
@@ -165,11 +165,19 @@ class ManualDryRun:
                 'confidence': confidence,
                 'price': price,
                 'timestamp': datetime.now().isoformat(),
-                'ml_details': details
+                'ensemble_details': details
             }
             
-            self.logger.info(f"[ML] XGBoost Signal: {action} with {confidence:.2%} confidence")
-            self.logger.info(f"[ML] Probabilities - UP: {details.get('prob_up', 0):.2%}, DOWN: {details.get('prob_down', 0):.2%}")
+            # Log ensemble vote breakdown
+            model_votes = details.get('model_votes', {})
+            vote_breakdown = " | ".join([
+                f"{name.upper()}:{vote['prob_up']:.2f}"
+                for name, vote in sorted(model_votes.items())
+            ])
+            
+            ensemble_prob = details.get('ensemble_prob_up', 0.5)
+            
+            self.logger.info(f"[AI] Ensemble Vote: {ensemble_prob:.2f} ({action}) | {vote_breakdown}")
             self.logger.info(f"[SIGNAL] Price: ${price:.2f}")
             
             return signal
@@ -393,7 +401,7 @@ NeuralTrader Simulation Pipeline
         """Run the complete manual dry run simulation"""
         try:
             self.logger.info("[START] Starting manual dry run simulation...")
-            self.logger.info("[MODE] Phase 7: XGBoost ML Model Integration")
+            self.logger.info("[MODE] Phase 7: Grand Unification - Ensemble Voting System")
             
             # Step 1: Initialize components
             if not self.initialize_components():
@@ -428,8 +436,17 @@ NeuralTrader Simulation Pipeline
             
             # FINAL SUMMARY
             self.logger.info("=" * 80)
-            self.logger.info("[SUCCESS] Phase 7 - XGBoost ML Integration Complete")
-            self.logger.info(f"[ML] XGBoost model inference executed successfully")
+            self.logger.info("[SUCCESS] Phase 7 - Grand Unification Complete")
+            self.logger.info(f"[AI] Ensemble voting system operational")
+            
+            # Show ensemble vote breakdown
+            ensemble_details = signal.get('ensemble_details', {})
+            model_votes = ensemble_details.get('model_votes', {})
+            if model_votes:
+                self.logger.info(f"[COUNCIL] Vote Breakdown:")
+                for model_name, vote in sorted(model_votes.items()):
+                    self.logger.info(f"  {model_name.upper()}: {vote['prob_up']:.2f} (weight: {vote['weight']:.2f})")
+            
             self.logger.info(f"[SIGNAL] Action: {signal['action']} (confidence: {signal.get('confidence', 0):.2%})")
             self.logger.info(f"[TRADE] Executed: {'YES' if trade_result else 'NO'}")
             if trade_result:
