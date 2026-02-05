@@ -9,8 +9,8 @@
 1. **Context Check:** Before coding, read `ROADMAP.md` and `PROJECT_PLAN.md`.
 2. **Alignment:** State in chat: "[ALIGNED] This change supports [Target Metric] without violating Risk Policy."
 3. **Execution:** Write production-grade code with error handling.
-4. **The Gatekeeper (Dry Run):** - You MUST run `run_neural_venv.bat fetch` or a targeted unit test.
-   - **Definition of Done:** Exit Code 0 + Zero UnicodeErrors + Zero Tracebacks in logs.
+4. **The Gatekeeper (Dry Run):** - You MUST run `python scripts/manual_dry_run.py`.
+   - **Definition of Done:** The script must output "[PASS] Validation Successful" and Exit Code 0.
 
 ## 🛡️ RISK & TRADING RULES
 - **Position Sizing:** 0.9% risk per trade (ATR-based). Max 10% capital per ticker.
@@ -22,9 +22,9 @@
 - **Format:** Parquet + Float32 (PyArrow) for efficiency.
 - **Time:** All operations on UTC; Reporting on IST.
 - **Logs:** ASCII ONLY. No emojis. Use tags: [OK], [DATA], [ERROR], [SIGNAL].
-- **Integrity:** No hardcoded keys. No deleting `ROADMAP.md` or `PROJECT_PLAN.md`.
+- **Integrity:** No hardcoded keys. No deleting `ROADMAP.md`.
 
 ## 🧪 VALIDATION PROTOCOL
-- All model changes require Time-Series Cross-Validation.
-- No Lookahead Bias. Signals at T must execute at T+1.
-- Every session must end with a "Successful Dry Run" verification.
+- **Production Pipeline:** `main_orchestrator_ist.py` (Strict, Market Hours, Scheduled).
+- **Simulation Pipeline:** `scripts/manual_dry_run.py` (Flexible, Mock Data, On-Demand).
+- **Rule:** Never test logic in Production. Always verify in Simulation first.

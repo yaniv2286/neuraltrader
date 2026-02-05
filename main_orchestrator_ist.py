@@ -28,16 +28,14 @@ import os
 import sys
 import io
 
-# Force UTF-8 encoding
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+# Force UTF-8 encoding (only once)
+if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import logging
 import argparse
 from datetime import datetime
 from typing import Dict, List, Optional
-
-# Force UTF-8 encoding
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Project root directory
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -122,6 +120,7 @@ def setup_automation_logging():
 # ==================== IMPORTS AFTER ENVIRONMENT CHECK ====================
 
 # Import after environment verification
+import pandas as pd
 from src.data.yfinance_manager import YFinanceManager
 from src.trading.risk_manager import RiskManager, RiskDecision
 from src.trading.virtual_engine import VirtualEngine
