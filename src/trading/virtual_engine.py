@@ -95,6 +95,8 @@ class VirtualEngine:
                     portfolio['trades'] = []
                 if 'positions' not in portfolio:
                     portfolio['positions'] = {}
+                if 'initial_cash' not in portfolio:
+                    portfolio['initial_cash'] = self.initial_cash
                 if 'entry_prices' not in portfolio:
                     portfolio['entry_prices'] = {}
                 if 'performance' not in portfolio:
@@ -189,7 +191,14 @@ class VirtualEngine:
                 logger.warning("Insufficient SPY history, assuming bullish")
                 return True
             
-            spy_20_days_ago_price = spy_data['Adj Close'].iloc[-21] if len(spy_data) >= 21 else spy_data['Adj Close'].iloc[0]
+            # Handle both Adj Close and Close columns
+            if 'Adj Close' in spy_data.columns:
+                spy_20_days_ago_price = spy_data['Adj Close'].iloc[-21] if len(spy_data) >= 21 else spy_data['Adj Close'].iloc[0]
+            elif 'Close' in spy_data.columns:
+                spy_20_days_ago_price = spy_data['Close'].iloc[-21] if len(spy_data) >= 21 else spy_data['Close'].iloc[0]
+            else:
+                logger.warning("No price data available for SPY, assuming bullish")
+                return True
             
             market_bullish = current_spy > spy_20_days_ago_price
             logger.info(f"Market Filter: SPY ${current_spy:.2f} vs 20-day ago ${spy_20_days_ago_price:.2f} = {'BULLISH' if market_bullish else 'BEARISH'}")
@@ -585,8 +594,9 @@ class VirtualEngine:
                     total_value += position_value
             
             # Calculate performance metrics
-            total_return = total_value - self.portfolio['initial_cash']
-            total_return_pct = (total_return / self.portfolio['initial_cash']) * 100
+            initial_cash = self.portfolio.get('initial_cash', self.initial_cash)
+            total_return = total_value - initial_cash
+            total_return_pct = (total_return / initial_cash) * 100
             
             total_unrealized_pnl = sum(pos['unrealized_pnl'] for pos in position_values.values())
             

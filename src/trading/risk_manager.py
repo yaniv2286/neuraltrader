@@ -22,6 +22,7 @@ Usage:
 
 import os
 import logging
+import json
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -420,20 +421,17 @@ class RiskManager:
                     chandelier_exit = highest_high - (3 * atr)
                     return chandelier_exit
             
-            # Fallback: fetch from API
-            bars = self.api.get_bars(
-                symbol=ticker,
-                timeframe=tradeapi.TimeFrame.Day,
-                limit=30
-            ).df
+            # Fallback: fetch from yfinance
+            import yfinance as yf
+            ticker_data = yf.download(ticker, period="30d", progress=False)
             
-            if not bars.empty and len(bars) >= 22:
-                highest_high = bars['high'].rolling(window=22).max().iloc[-1]
+            if not ticker_data.empty and len(ticker_data) >= 22:
+                highest_high = ticker_data['High'].rolling(window=22).max().iloc[-1]
                 
                 # Calculate ATR
-                high_low = bars['high'] - bars['low']
-                high_close = abs(bars['high'] - bars['close'].shift())
-                low_close = abs(bars['low'] - bars['close'].shift())
+                high_low = ticker_data['High'] - ticker_data['Low']
+                high_close = abs(ticker_data['High'] - ticker_data['Close'].shift())
+                low_close = abs(ticker_data['Low'] - ticker_data['Close'].shift())
                 
                 true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
                 atr = true_range.rolling(window=22).mean().iloc[-1]
@@ -550,17 +548,14 @@ class RiskManager:
                     
                     return atr
             
-            # Fallback: fetch from API
-            bars = self.api.get_bars(
-                symbol=ticker,
-                timeframe=tradeapi.TimeFrame.Day,
-                limit=20
-            ).df
+            # Fallback: fetch from yfinance
+            import yfinance as yf
+            ticker_data = yf.download(ticker, period="30d", progress=False)
             
-            if not bars.empty and len(bars) >= 14:
-                high_low = bars['high'] - bars['low']
-                high_close = abs(bars['high'] - bars['close'].shift())
-                low_close = abs(bars['low'] - bars['close'].shift())
+            if not ticker_data.empty and len(ticker_data) >= 14:
+                high_low = ticker_data['High'] - ticker_data['Low']
+                high_close = abs(ticker_data['High'] - ticker_data['Close'].shift())
+                low_close = abs(ticker_data['Low'] - ticker_data['Close'].shift())
                 
                 true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
                 atr = true_range.rolling(window=14).mean().iloc[-1]
