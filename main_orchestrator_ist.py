@@ -539,11 +539,14 @@ This is an automated message from NeuralTrader Paper Trading System.
             if not self.initialize_modules():
                 return False
             
-            # Check if market is open
-            market_status = self.yfinance_manager.get_market_status()
-            if not market_status.get('is_market_open', False):
-                self.logger.info("[TIME] Market is closed - no trading")
-                return False
+            # Check if market is open (bypass for paper trading)
+            if not PAPER_TRADING:
+                market_status = self.yfinance_manager.get_market_status()
+                if not market_status.get('is_market_open', False):
+                    self.logger.info("[TIME] Market is closed - no trading")
+                    return False
+            else:
+                self.logger.info("[PAPER] Bypassing market hours check - paper trading mode")
             
             # Trigger VirtualEngine to execute shadow trades
             self.logger.info("[TRADING] Triggering VirtualEngine to execute shadow trades...")
