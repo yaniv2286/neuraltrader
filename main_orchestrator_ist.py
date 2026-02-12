@@ -1028,10 +1028,8 @@ This is an automated message from NeuralTrader Paper Trading System.
             
             # Initialize Email Notifier - ALWAYS initialize for report mode
             try:
-                # Import EmailNotifier from legacy location
-                import sys
-                sys.path.insert(0, os.path.join(os.path.dirname(__file__), '_LEGACY_VAULT', '_archive_src'))
-                from utils.notifier import EmailNotifier
+                # Import EmailNotifier from new src location
+                from src.utils.notifier import EmailNotifier
                 
                 self.email_notifier = EmailNotifier()
                 self.logger.info("[OK] Email Notifier initialized")

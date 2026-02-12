@@ -12,10 +12,9 @@ from pathlib import Path
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / '_LEGACY_VAULT' / '_archive_src'))
 
 from scripts.report_generator import HTMLDashboardGenerator
-from utils.notifier import EmailNotifier
+from src.utils.notifier import EmailNotifier
 
 def send_html_dashboard_report():
     """Generate HTML dashboard and send via email with log attachment"""

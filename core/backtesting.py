@@ -31,9 +31,7 @@ import seaborn as sns
 warnings.filterwarnings('ignore')
 
 # Import our live ranker for feature calculation
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
-from _LEGACY_VAULT._archive_src.execution.live_ranker import LiveRanker
+from src.execution.live_ranker import LiveRanker
 
 # Configure logging
 logging.basicConfig(
@@ -1648,7 +1646,8 @@ class Backtester:
             # Calculate P&L
             pnl = (exit_price - entry_price) / entry_price
             pnl_pct = pnl * 100
-            week_pnl += pnl_pct * position_size  # Adjust for position size
+            pnl_amount = portfolio_value * position_size * pnl_pct / 100  # Calculate dollar amount
+            week_pnl += pnl_amount  # Adjust for position size
             
             trade = {
                 'ticker': ticker,
@@ -2022,6 +2021,7 @@ class Backtester:
                     exit_price = float(exit_price.iloc[0])
                 else:
                     exit_price = float(exit_price)
+                print(f"DEBUG EXIT: {ticker} entry={entry_price:.2f} exit={exit_price:.2f} pnl={((exit_price - entry_price) / entry_price * 100):.2f}%")
             
             if exit_price is None:
                 continue
@@ -2487,14 +2487,15 @@ class Backtester:
             exit_reason = "week_end"
             
             # Get all dates between entry and exit
-            trade_dates = [d for d in date_dict.keys() if entry_date < d <= exit_date]
+            week_dates = [d for d in date_dict.keys() if entry_date < d <= exit_date]
             
-            for trade_date in trade_dates:
+            for trade_date in week_dates:
                 if trade_date in date_dict and ticker in date_dict[trade_date].index:
                     row = date_dict[trade_date].loc[ticker]
-                    if row['low'] <= chandelier_exit:
-                        exit_price = chandelier_exit
+                    if float(row['low']) <= float(chandelier_exit):
+                        exit_price = float(chandelier_exit)
                         exit_reason = "chandelier_exit"
+                        print(f"DEBUG CHANDELIER: {ticker} entry={entry_price:.2f} chandelier_exit={chandelier_exit:.2f} low={float(row['low']):.2f} TRIGGERED")
                         break
             
             # If no Chandelier Exit hit, exit at week end
