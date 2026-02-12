@@ -15,9 +15,11 @@
 * **Take Profit:** Trend Extension Mode (No static TP; winners run until Shield/ATR trigger).
 * **Fail-Fast Guard:** Data Freshness Sentinel mandatory check before every execution.
 
-## � 3. PERFORMANCE METRICS (v5.0)
-* **CAGR:** 34.30% (Sector Tax + Volatility Gate Optimized)
-* **Max Drawdown:** -20.82% (Within 20% Risk Policy)
+## 📊 3. PERFORMANCE METRICS (v5.0)
+* **CAGR:** 34.3% (Sector Tax + Volatility Gate Optimized)
+* **Max Drawdown:** -20.8% (Within 20% Risk Policy)
+* **Universe:** 217 Tickers | 1.28M Rows (Modern Era Data)
+* **Strategy:** Sector Authority Active (15% Tax on Bottom 3 Sectors)
 * **Sector Tax:** 15% penalty applied to tickers in bottom 3 weakest sectors
 * **Volatility Shield:** VXX Bollinger Band logic prevents entries during extreme volatility
 
