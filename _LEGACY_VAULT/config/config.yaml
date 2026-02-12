@@ -1,0 +1,137 @@
+# NeuralTrader Configuration
+# Professional 4-Pillar Architecture
+
+neuraltrader:
+  # Broker Mode: VIRTUAL | LIVE
+  broker_mode: VIRTUAL
+  
+  # Environment: DEVELOPMENT | PRODUCTION
+  environment: PRODUCTION
+  
+  # Fund Settings (from fund_config.yaml)
+  fund:
+    name: "NeuralTrader Private Fund"
+    version: "1.0.0"
+    initial_capital: 100000
+    target_arr: 0.25  # 25% annualized return
+    max_drawdown: 0.20  # 20% maximum drawdown
+  
+  # Data Sources Configuration
+  data:
+    primary_source: tiingo
+    fallback_source: yfinance
+    cache_directory: data/cache
+    max_age_days: 7
+    batch_size: 50  # Tiingo API compliance
+    raw_path: "data/raw"
+    processed_path: "data/processed"
+    start_date: "1975-01-01"
+    end_date: "2024-12-31"
+    max_tickers: 1000  # Top 1000 by liquidity
+    
+  # AI Models Configuration
+  models:
+    directory: models
+    production_directory: models/production
+    ensemble_weights:
+      xgboost: 0.35
+      lightgbm: 0.35
+      randomforest: 0.30
+    retrain_schedule: saturday_09_10_ist
+    min_test_accuracy: 0.52  # Minimum accuracy threshold
+    ensemble_method: "weighted"
+    cross_validation_folds: 5
+    feature_selection: true
+    hyperparameter_tuning: true
+    
+  # Risk Management Configuration
+  risk:
+    max_positions: 10  # Updated from fund_config.yaml
+    risk_per_trade: 0.009  # 0.9% risk per trade
+    max_sector_exposure: 0.30  # 30% max per sector
+    stop_loss_pct: 0.10  # 10% stop loss
+    black_swan_threshold: 0.15  # 15% VXX surge
+    position_size: 0.10  # 10% per position (from fund_config.yaml)
+    sector_limit: 3  # Max 3 positions per sector (from fund_config.yaml)
+    leverage: 1.0  # No leverage (from fund_config.yaml)
+    daily_loss_limit: 0.05  # 5% daily loss limit (from fund_config.yaml)
+    max_position_risk: 0.02  # 2% risk per position (from fund_config.yaml)
+    stop_loss_atr_multiplier: 2.0  # 2x ATR stop loss (from fund_config.yaml)
+    volatility_target: 0.20  # 20% annual volatility target (from fund_config.yaml)
+    
+  # Cost Model (from fund_config.yaml)
+  costs:
+    commission_per_trade: 1.0
+    spread_pct: 0.001  # 0.1%
+    slippage_pct: 0.0005  # 0.05%
+    
+  # Market Regime (from fund_config.yaml)
+  regime:
+    spy_ticker: "SPY"
+    vix_ticker: "VIX"
+    sma_period: 200
+    volatility_multiplier: 1.5
+    
+  # ML Features (from fund_config.yaml)
+  features:
+    price_features: true
+    volume_features: true
+    technical_indicators: true
+    regime_features: true
+    cross_sectional: true
+    
+  # Trading Configuration
+  trading:
+    slippage_rate: 0.001  # 0.1% slippage
+    market_filter_enabled: true
+    universe: sp100
+    position_sizing: risk_based
+    order_type: "LIMIT"  # from fund_config.yaml
+    time_in_force: "DAY"  # from fund_config.yaml
+    max_order_size: 1000000  # $1M max per order (from fund_config.yaml)
+    
+  # Notifications Configuration
+  notifications:
+    email_enabled: true
+    pulse_emails: true
+    executive_brief: true
+    failure_alerts: true
+    log_attachments: true
+    
+  # Logging Configuration
+  logging:
+    level: INFO
+    daily_logs: true
+    log_directory: logs
+    accumulative: true
+    console_output: true
+    file: "data/processed/neuraltrader.log"  # from fund_config.yaml
+    max_size_mb: 100  # from fund_config.yaml
+    backup_count: 5  # from fund_config.yaml
+    
+  # Monitoring (from fund_config.yaml)
+  monitoring:
+    real_time_pnl: true
+    risk_alerts: true
+    daily_report: true
+    monthly_report: true
+    
+  # Development (from fund_config.yaml)
+  development:
+    dry_run: false
+    paper_trading: true
+    live_trading: false
+    api_key_required: true
+    
+  # System Configuration
+  system:
+    pre_flight_check: true
+    integrity_validation: true
+    backup_models: true
+    auto_cleanup: true
+    
+  # Performance Configuration
+  performance:
+    max_execution_time: 300  # 5 minutes per pillar
+    memory_limit_mb: 2048
+    parallel_processing: false

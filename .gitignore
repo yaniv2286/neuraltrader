@@ -15,6 +15,9 @@ venv/
 env/
 .env/
 
+# === UV ===
+uv.lock
+
 # === Streamlit ===
 .cache/
 .streamlit/
@@ -22,6 +25,8 @@ env/
 # === Logs & Debug ===
 *.log
 *.tmp
+logs/
+debug_output.txt
 
 # === Jupyter Notebooks ===
 .ipynb_checkpoints
@@ -32,6 +37,9 @@ env/
 *.feather
 *.db
 *.sqlite
+data/cache/
+data/*.csv
+data/*.json
 
 # === Model Files ===
 *.h5
@@ -43,9 +51,10 @@ env/
 *.joblib
 *.sav
 *.zip
+models/cache/
+models/backup/
 
 # === TensorBoard ===
-logs/
 events.out.tfevents.*
 
 # === VS Code ===
@@ -65,8 +74,31 @@ desktop.ini
 .pytest_cache/
 __pypackages__/
 
-# === Archive Folder (for audit files and old code) ===
+# === Archive Folder ===
 archive/
 temp/
 
+# === Reports ===
+reports/
+*.xlsx
 *.csv
+
+# === Local Development ===
+monitor_logs.py
+test_integrity.py
+
+# === Legacy Scripts (replaced by unified integrity_test.py) ===
+scripts/test_*.py
+scripts/verify_*.py
+scripts/manual_dry_run.py
+scripts/train_ensemble*.py
+scripts/daily_supervision_report.py
+scripts/supervision_dashboard.py
+
+# === Legacy Documentation ===
+ARCHITECTURAL_UNIFICATION_PLAN.md
+EMAIL_SETUP_GUIDE.md
+GOLDEN_PARAMETERS_SYNC_COMPLETE.md
+IMPLEMENTATION_SUMMARY.md
+NEURALTRADER_CONSTITUTION.md
+SYSTEM_TOPOLOGY_ANALYSIS.md

@@ -93,7 +93,7 @@ class XGBoostInference:
             DataFrame with features matching training
         """
         try:
-            from src.features.feature_engineer import FeatureEngineer
+            from core.feature_engineer import FeatureEngineer
             
             # Create feature engineer
             feature_engineer = FeatureEngineer(use_advanced_features=True)
@@ -146,8 +146,11 @@ class XGBoostInference:
                 self.logger.warning("[WARN] NaN values detected in features, filling with 0")
                 latest_features = latest_features.fillna(0)
             
-            # Scale features
-            features_scaled = self.scaler.transform(latest_features)
+            # 🦅 BRAIN TRANSPLANT - Tree-based models don't need scaling
+            if self.scaler is not None:
+                features_scaled = self.scaler.transform(latest_features)
+            else:
+                features_scaled = latest_features
             
             # Get predictions
             probabilities = self.model.predict_proba(features_scaled)[0]
@@ -260,61 +263,73 @@ class EnsemblePredictor:
     def _load_ensemble(self):
         """Load all ensemble models and metadata"""
         try:
-            # Load metadata
-            metadata_path = self.models_dir / "ensemble_metadata.json"
+            # 🦅 BRAIN TRANSPLANT - Load from production models with new nomenclature
+            production_dir = self.models_dir / "production"
+            
+            # Load metadata from production
+            metadata_path = production_dir / "ensemble_metadata.pkl"
             if metadata_path.exists():
-                with open(metadata_path, 'r') as f:
-                    self.metadata = json.load(f)
-                self.logger.info(f"[OK] Ensemble metadata loaded")
+                with open(metadata_path, 'rb') as f:
+                    self.metadata = pickle.load(f)
+                self.feature_names = self.metadata.get('feature_names', None)
+                self.logger.info(f"[OK] Production ensemble metadata loaded")
+            else:
+                # Fallback to old metadata
+                metadata_path = self.models_dir / "ensemble_metadata.json"
+                if metadata_path.exists():
+                    with open(metadata_path, 'r') as f:
+                        self.metadata = json.load(f)
+                    self.logger.info(f"[OK] Legacy ensemble metadata loaded")
             
-            # Load scaler
-            scaler_path = self.models_dir / "feature_scaler.pkl"
-            if scaler_path.exists():
-                with open(scaler_path, 'rb') as f:
-                    self.scaler = pickle.load(f)
-                self.logger.info(f"[OK] Feature scaler loaded")
+            # 🦅 BRAIN TRANSPLANT - Load new production models with STANDARD names
+            model_files = {
+                'xgboost': 'xgboost_model.pkl',
+                'lightgbm': 'lightgbm_model.pkl', 
+                'randomforest': 'rf_model.pkl'
+            }
             
-            # Load feature names
-            feature_names_path = self.models_dir / "feature_names.pkl"
+            # Default weights for production models
+            default_weights = {
+                'xgboost': 0.35,
+                'lightgbm': 0.35,
+                'randomforest': 0.30
+            }
+            
+            for model_name, filename in model_files.items():
+                model_path = production_dir / filename
+                if model_path.exists():
+                    with open(model_path, 'rb') as f:
+                        self.models[model_name] = pickle.load(f)
+                    self.weights[model_name] = default_weights[model_name]
+                    self.logger.info(f"[OK] {model_name} model loaded from production (weight: {default_weights[model_name]:.2f})")
+                else:
+                    self.logger.warning(f"[WARN] {model_name} model not found: {model_path}")
+            
+            # Load feature names and scaler from production directory
+            feature_names_path = production_dir / 'feature_names.pkl'
+            scaler_path = production_dir / 'feature_scaler.pkl'
+            
             if feature_names_path.exists():
                 with open(feature_names_path, 'rb') as f:
                     self.feature_names = pickle.load(f)
-                self.logger.info(f"[OK] Feature names loaded: {len(self.feature_names)} features")
+                self.logger.info(f"[OK] Feature names loaded from {feature_names_path}")
+            else:
+                self.logger.warning("[WARN] Feature names not found, will be generated during training")
             
-            # Load XGBoost
-            xgb_path = self.models_dir / "xgboost_model.pkl"
-            if xgb_path.exists():
-                with open(xgb_path, 'rb') as f:
-                    self.models['xgboost'] = pickle.load(f)
-                self.weights['xgboost'] = self.metadata['models']['xgboost']['weight'] if self.metadata else 0.35
-                self.logger.info(f"[OK] XGBoost loaded (weight: {self.weights['xgboost']:.2f})")
+            if scaler_path.exists():
+                with open(scaler_path, 'rb') as f:
+                    self.scaler = pickle.load(f)
+                self.logger.info(f"[OK] Scaler loaded from {scaler_path}")
+            else:
+                self.logger.warning("[WARN] Scaler not found, will be created during training")
             
-            # Load LightGBM
-            lgbm_path = self.models_dir / "lightgbm_model.pkl"
-            if lgbm_path.exists():
-                with open(lgbm_path, 'rb') as f:
-                    self.models['lightgbm'] = pickle.load(f)
-                self.weights['lightgbm'] = self.metadata['models']['lightgbm']['weight'] if self.metadata else 0.35
-                self.logger.info(f"[OK] LightGBM loaded (weight: {self.weights['lightgbm']:.2f})")
+            # No scaler needed for tree-based models
             
-            # Load RandomForest
-            rf_path = self.models_dir / "rf_model.pkl"
-            if rf_path.exists():
-                with open(rf_path, 'rb') as f:
-                    self.models['rf'] = pickle.load(f)
-                self.weights['rf'] = self.metadata['models']['rf']['weight'] if self.metadata else 0.30
-                self.logger.info(f"[OK] RandomForest loaded (weight: {self.weights['rf']:.2f})")
-            
-            # Check for Neural Ranker (optional)
-            neural_ranker_path = self.models_dir / "neural_ranker_v1.json"
-            if neural_ranker_path.exists():
-                self.logger.info(f"[INFO] Neural Ranker found but not yet integrated")
-            
-            if not self.models:
-                raise ValueError("No models loaded! Ensemble requires at least one model.")
-            
-            self.logger.info(f"[OK] Ensemble loaded with {len(self.models)} models")
-            
+            if self.models:
+                self.logger.info(f"[OK] Loaded {len(self.models)} production models")
+            else:
+                self.logger.error("[ERROR] No production models found")
+                
         except Exception as e:
             self.logger.error(f"[ERROR] Failed to load ensemble: {e}")
             raise
@@ -330,7 +345,7 @@ class EnsemblePredictor:
             DataFrame with features matching training
         """
         try:
-            from src.features.feature_engineer import FeatureEngineer
+            from core.feature_engineer import FeatureEngineer
             
             # Create feature engineer
             feature_engineer = FeatureEngineer(use_advanced_features=True)
@@ -358,16 +373,79 @@ class EnsemblePredictor:
             self.logger.error(f"[ERROR] Feature generation failed: {e}")
             raise
     
-    def predict(self, features: pd.DataFrame) -> Tuple[str, float, Dict]:
+    def predict_batch(self, features: pd.DataFrame) -> np.ndarray:
         """
-        Generate ensemble trading signal from features
+        Generate ensemble probabilities for all rows in features
         
         Args:
             features: DataFrame with features (must match training features)
             
         Returns:
+            numpy.ndarray: Array of probabilities for class 1 (UP)
+        """
+        try:
+            if len(features) == 0:
+                return np.array([])
+            
+            # Check for NaN values
+            if features.isnull().any().any():
+                self.logger.warning("[WARN] NaN values detected in features, filling with 0")
+                features = features.fillna(0)
+            
+            # 🦅 BRAIN TRANSPLANT - Tree-based models don't need scaling
+            if self.scaler is not None:
+                features_scaled = self.scaler.transform(features)
+            else:
+                features_scaled = features
+            
+            # Get predictions from each model for all rows
+            all_probs = []
+            
+            for model_name, model in self.models.items():
+                try:
+                    # Get probability of UP (class 1) for all rows
+                    probs = model.predict_proba(features_scaled)[:, 1]  # All rows, class 1
+                    all_probs.append(probs)
+                    
+                except Exception as e:
+                    self.logger.error(f"[ERROR] {model_name} batch prediction failed: {e}")
+                    # Add zeros for failed model
+                    all_probs.append(np.zeros(len(features)))
+            
+            if not all_probs:
+                return np.array([])
+            
+            # Weighted average of all model probabilities
+            weighted_probs = np.zeros(len(features))
+            total_weight = 0
+            
+            for i, (model_name, model) in enumerate(self.models.items()):
+                if model_name in self.weights:
+                    weight = self.weights[model_name]
+                    weighted_probs += all_probs[i] * weight
+                    total_weight += weight
+            
+            # Normalize by total weight
+            if total_weight > 0:
+                weighted_probs /= total_weight
+            
+            return weighted_probs
+            
+        except Exception as e:
+            self.logger.error(f"[ERROR] Batch prediction failed: {e}")
+            return np.array([])
+    
+    def predict(self, features: pd.DataFrame, threshold: Optional[float] = 0.5) -> Tuple[str, float, Dict]:
+        """
+        Generate ensemble trading signal from features with dynamic threshold
+        
+        Args:
+            features: DataFrame with features (must match training features)
+            threshold: Dynamic threshold for BUY decision (None = return raw score only)
+            
+        Returns:
             Tuple of (signal, confidence, details)
-            - signal: 'BUY', 'SELL', or 'HOLD'
+            - signal: 'BUY' or 'HOLD' (based on threshold if provided)
             - confidence: 0.0 to 1.0 (weighted average probability)
             - details: Dict with vote breakdown and individual model predictions
         """
@@ -383,8 +461,11 @@ class EnsemblePredictor:
                 self.logger.warning("[WARN] NaN values detected in features, filling with 0")
                 latest_features = latest_features.fillna(0)
             
-            # Scale features
-            features_scaled = self.scaler.transform(latest_features)
+            # 🦅 BRAIN TRANSPLANT - Tree-based models don't need scaling
+            if self.scaler is not None:
+                features_scaled = self.scaler.transform(latest_features)
+            else:
+                features_scaled = latest_features
             
             # Get predictions from each model
             model_votes = {}
@@ -424,16 +505,20 @@ class EnsemblePredictor:
             if total_weight > 0:
                 weighted_prob_up /= total_weight
             
-            # Determine signal based on ensemble confidence
-            if weighted_prob_up > 0.70:  # Strong BUY signal
+            # DYNAMIC THRESHOLD - Free the Sniper!
+            if threshold is None:
+                # Return raw score without threshold decision
+                signal = 'HOLD'  # Default, will be overridden by backtester
+                confidence = weighted_prob_up
+                threshold_used = None
+            elif weighted_prob_up > threshold:
                 signal = 'BUY'
                 confidence = weighted_prob_up
-            elif weighted_prob_up < 0.45:  # Strong SELL signal
-                signal = 'SELL'
-                confidence = 1.0 - weighted_prob_up
-            else:  # Weak signal - HOLD
+                threshold_used = threshold
+            else:
                 signal = 'HOLD'
-                confidence = max(weighted_prob_up, 1.0 - weighted_prob_up)
+                confidence = weighted_prob_up
+                threshold_used = threshold
             
             # Prepare details
             details = {
@@ -441,16 +526,19 @@ class EnsemblePredictor:
                 'ensemble_prob_down': float(1.0 - weighted_prob_up),
                 'model_votes': model_votes,
                 'n_models': len(self.models),
-                'ensemble_accuracy': self.metadata.get('ensemble', {}).get('test_acc', 0) if self.metadata else 0
+                'ensemble_accuracy': self.metadata.get('ensemble', {}).get('test_acc', 0) if self.metadata else 0,
+                'threshold_used': threshold_used
             }
             
-            # Log ensemble vote
+            # Log ensemble vote - show raw score
             vote_str = " | ".join([
                 f"{name.upper()}:{model_probs[name]:.2f}"
                 for name in sorted(model_probs.keys())
             ])
-            
-            self.logger.info(f"[AI] Ensemble Vote: {weighted_prob_up:.2f} ({signal}) | {vote_str}")
+            if threshold is None:
+                self.logger.info(f"[AI] Ensemble Raw Score: {weighted_prob_up:.3f} | {vote_str}")
+            else:
+                self.logger.info(f"[AI] Ensemble Vote: {weighted_prob_up:.2f} ({signal}) | {vote_str} | Threshold: {threshold}")
             
             return signal, confidence, details
             

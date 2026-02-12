@@ -1,70 +1,17 @@
 """
-Core Protection Protocol - Critical Trading Logic
-==================================================
-
-This package contains the protected core trading logic:
-- AI Models: Machine learning inference engines
-- Indicators: Technical indicators (RSI, ATR, volatility, momentum)
-- Strategy: Entry/exit decision rules and risk management
-
-All critical trading logic is isolated here for protection and maintainability.
+CPU Models Library
+Models that run efficiently on CPU without GPU requirements
+Optimized for performance on standard hardware
 """
 
-from .ai_models import (
-    XGBoostInference,
-    EnsemblePredictor,
-    get_trading_signal,
-    get_ensemble_signal
-)
-
-from .indicators import (
-    TechnicalIndicators,
-    calculate_volatility,
-    calculate_historical_volatility,
-    calculate_rsi,
-    calculate_macd,
-    calculate_momentum_score
-)
-
-from .strategy import (
-    TradingStrategy,
-    RiskManager
-)
-
-from .integrity import (
-    verify_system_integrity,
-    verify_model_loaded,
-    verify_strategy_safety,
-    verify_risk_limits,
-    verify_complete_system
-)
+from .random_forest_model import RandomForestModel
+from .xgboost_model import XGBoostModel
+from .lightgbm_model import LightGBMModel
+from .base_cpu_model import BaseCPUModel
 
 __all__ = [
-    # AI Models
-    'XGBoostInference',
-    'EnsemblePredictor',
-    'get_trading_signal',
-    'get_ensemble_signal',
-    
-    # Indicators
-    'TechnicalIndicators',
-    'calculate_volatility',
-    'calculate_historical_volatility',
-    'calculate_rsi',
-    'calculate_macd',
-    'calculate_momentum_score',
-    
-    # Strategy
-    'TradingStrategy',
-    'RiskManager',
-    
-    # Integrity
-    'verify_system_integrity',
-    'verify_model_loaded',
-    'verify_strategy_safety',
-    'verify_risk_limits',
-    'verify_complete_system',
+    'RandomForestModel',
+    'XGBoostModel',
+    'LightGBMModel',
+    'BaseCPUModel'
 ]
-
-__version__ = '1.0.0'
-__author__ = 'NeuralTrader Team'

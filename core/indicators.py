@@ -254,7 +254,8 @@ def calculate_volatility(close: pd.Series, window: int = 20) -> pd.Series:
 
 def calculate_historical_volatility(close: pd.Series, window: int = 20, annualize: bool = True) -> pd.Series:
     """Calculate historical volatility"""
-    returns = np.log(close / close.shift(1))
+    # 🦅 NUCLEAR MATH SAFETY - Prevent log-zero crashes
+    returns = np.log(close.div(close.shift(1).replace(0, np.nan))).fillna(0)
     volatility = returns.rolling(window=window).std()
     if annualize:
         volatility = volatility * np.sqrt(252)  # Annualize assuming 252 trading days
@@ -263,15 +264,17 @@ def calculate_historical_volatility(close: pd.Series, window: int = 20, annualiz
 
 def calculate_parkinson_volatility(high: pd.Series, low: pd.Series, window: int = 20) -> pd.Series:
     """Parkinson volatility estimator (uses high-low range)"""
-    hl_ratio = np.log(high / low)
+    # 🦅 NUCLEAR MATH SAFETY - Prevent log-zero crashes
+    hl_ratio = np.log(high.div(low.replace(0, np.nan))).fillna(0)
     parkinson = np.sqrt((1 / (4 * np.log(2))) * (hl_ratio ** 2))
     return parkinson.rolling(window=window).mean()
 
 
 def calculate_garman_klass_volatility(open_: pd.Series, high: pd.Series, low: pd.Series, close: pd.Series, window: int = 20) -> pd.Series:
     """Garman-Klass volatility estimator"""
-    hl = np.log(high / low) ** 2
-    co = np.log(close / open_) ** 2
+    # 🦅 NUCLEAR MATH SAFETY - Prevent log-zero crashes
+    hl = np.log(high.div(low.replace(0, np.nan))).fillna(0) ** 2
+    co = np.log(close.div(open_.replace(0, np.nan))).fillna(0) ** 2
     gk = 0.5 * hl - (2 * np.log(2) - 1) * co
     return np.sqrt(gk.rolling(window=window).mean())
 

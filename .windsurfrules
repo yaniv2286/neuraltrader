@@ -1,5 +1,7 @@
 # 🏛️ NeuralTrader Constitution
 
+-**Errors in runtime**- if usee an error in runtime stop and fix immediatly dont continue until the end
+
 ## 🎯 THE NORTH STAR (The Target)
 - **Primary Goal:** 25%+ ARR for Private Family Fund (Current: 30.83% CAGR).
 - **Hard Constraint:** Max Drawdown < 20% (Current: -18.94%).
@@ -34,3 +36,4 @@
 - **Time:** All operations on UTC; Reporting on IST.
 - **Logs:** ASCII ONLY. No emojis. Use tags: [OK], [DATA], [ERROR], [CRITICAL].
 - **Integrity:** No hardcoded keys. No deleting `ROADMAP.md`.
+
