@@ -596,18 +596,42 @@ class MockVirtualEngine:
                 tickers = [s['ticker'] for s in buy_signals]
                 volatilities = []
                 
+                import pandas as pd
+                import numpy as np
+                
                 for ticker in tickers:
                     try:
-                        # Get last 20 days of closing prices for volatility calculation
-                        df = data_manager._load_ticker_data(ticker)
-                        if df is not None and len(df) >= 20:
-                            closes = df['Close'].tail(20)
-                            volatility = closes.std()  # Standard deviation as volatility proxy
-                            volatilities.append(float(volatility))
+                        # Read real data from parquet file
+                        filepath = f"data/raw/{ticker}.parquet"
+                        
+                        if os.path.exists(filepath):
+                            # Read the parquet file
+                            df = pd.read_parquet(filepath)
+                            
+                            if len(df) >= 20:
+                                # Get last 20 rows of close prices
+                                closes = df['close'].tail(20)
+                                
+                                # Calculate daily returns
+                                returns = closes.pct_change().dropna()
+                                
+                                # Calculate annualized volatility (252 trading days)
+                                real_vol = returns.std() * np.sqrt(252)
+                                
+                                # Ensure reasonable bounds (0.05 to 1.0 = 5% to 100% annualized)
+                                real_vol = max(0.05, min(1.0, real_vol))
+                                
+                                volatilities.append(float(real_vol))
+                                self.logger.info(f"[RISK] Real volatility for {ticker}: {real_vol:.2%}")
+                            else:
+                                # Not enough data
+                                volatilities.append(0.25)
+                                self.logger.warning(f"[WARNING] Could not calculate real vol for {ticker}. Only {len(df)} rows available. Using 0.25 fallback.")
                         else:
-                            # Fallback to default volatility
-                            volatilities.append(0.25)  # 25% annualized volatility default
-                            self.logger.warning(f"[RISK] Using default volatility for {ticker}: 25%")
+                            # File doesn't exist
+                            volatilities.append(0.25)
+                            self.logger.warning(f"[WARNING] Could not calculate real vol for {ticker}. File {filepath} not found. Using 0.25 fallback.")
+                            
                     except Exception as e:
                         self.logger.error(f"[RISK] Error calculating volatility for {ticker}: {e}")
                         volatilities.append(0.25)  # Fallback
