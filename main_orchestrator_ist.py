@@ -38,6 +38,9 @@ import argparse
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# Import Quant Risk Machine
+from src.execution.risk_manager import RiskManager
+
 # Project root directory
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -150,11 +153,13 @@ class MockVirtualEngine:
         self.portfolio_file = os.path.join(self.project_root, 'data', 'portfolio.json')
         self.MAX_POSITIONS = 10
         
-        # Initialize portfolio structure
+        # Initialize portfolio structure with risk management keys
         self.portfolio = {
             'cash': 100000.0,
             'positions': {},
-            'history': []
+            'history': [],
+            'peak_portfolio_value': 100000.0,  # Track peak portfolio value for drawdown calculations
+            'circuit_breaker_cooldown_until': None  # Track circuit breaker cooldown period
         }
         
         # Load existing portfolio data
@@ -202,6 +207,18 @@ class MockVirtualEngine:
                         self.portfolio['history'] = []
                     if 'cash' not in self.portfolio:
                         self.portfolio['cash'] = 100000.0
+                    # Ensure risk management keys exist for backward compatibility
+                    if 'peak_portfolio_value' not in self.portfolio:
+                        # Calculate current portfolio value to set initial peak
+                        current_value = self.portfolio.get('cash', 100000.0)
+                        for ticker, pos_data in self.portfolio.get('positions', {}).items():
+                            shares = pos_data.get('shares', 0)
+                            current_price = pos_data.get('current_price', pos_data.get('cost_basis', 0))
+                            current_value += shares * current_price
+                        self.portfolio['peak_portfolio_value'] = max(current_value, 100000.0)
+                        self.logger.info(f"[MOCK] Set initial peak_portfolio_value: ${self.portfolio['peak_portfolio_value']:,.2f}")
+                    if 'circuit_breaker_cooldown_until' not in self.portfolio:
+                        self.portfolio['circuit_breaker_cooldown_until'] = None
                         
         except Exception as e:
             self.logger.warning(f"[MOCK] Could not load portfolio data: {e}")
@@ -498,6 +515,32 @@ class MockVirtualEngine:
             'positions_value': total_value - self.portfolio['cash']
         }
     
+    def update_portfolio_values(self):
+        """
+        Update portfolio values and track peak portfolio value for risk management.
+        This method should be called whenever portfolio values need to be recalculated.
+        """
+        try:
+            # Sync with current market prices first
+            self._sync_market_prices()
+            
+            # Calculate current total portfolio value
+            account_info = self.get_account_info()
+            total_equity = account_info['portfolio_value']
+            
+            # Update peak portfolio value if current value is higher
+            if total_equity > self.portfolio.get('peak_portfolio_value', 100000.0):
+                self.portfolio['peak_portfolio_value'] = total_equity
+                self.logger.info(f"[MOCK] New peak portfolio value: ${total_equity:,.2f}")
+            
+            # Save updated portfolio state
+            self.save_portfolio()
+            
+            self.logger.info(f"[MOCK] Portfolio values updated: Total=${total_equity:,.2f}, Peak=${self.portfolio['peak_portfolio_value']:,.2f}")
+            
+        except Exception as e:
+            self.logger.error(f"[MOCK] Failed to update portfolio values: {e}")
+    
     def get_current_positions(self):
         """Return current positions in the expected format"""
         positions_list = []
@@ -516,7 +559,7 @@ class MockVirtualEngine:
         return True
     
     def execute_shadow_trades(self, trading_strategy, data_manager, sector_auth):
-        """Execute shadow trades with full persistence"""
+        """Execute shadow trades with full persistence and risk management"""
         try:
             self.logger.info("[MOCK] Executing shadow trades with persistence...")
             
@@ -526,22 +569,118 @@ class MockVirtualEngine:
             trades_executed = []
             candidates_found = len(signals)
             
-            # Execute trades based on signals
-            for signal in signals:
+            # Filter for buy signals only (for inverse volatility sizing)
+            buy_signals = [s for s in signals if s['action'] == 'buy']
+            sell_signals = [s for s in signals if s['action'] == 'sell']
+            
+            # Execute sell signals first (to free up capital)
+            for signal in sell_signals:
                 ticker = signal['ticker']
-                action = signal['action']
                 quantity = signal['quantity']
                 price = signal['price']
                 reason = signal['reason']
                 
-                # Execute trade
-                result = self.execute_trade(ticker, action, quantity, price, reason)
+                result = self.execute_trade(ticker, 'sell', quantity, price, reason)
                 
                 if result['success']:
                     trades_executed.append(result)
-                    self.logger.info(f"[MOCK] Trade executed: {action.upper()} {quantity} {ticker} @ ${price:.2f}")
+                    self.logger.info(f"[MOCK] Sell executed: {quantity} {ticker} @ ${price:.2f}")
                 else:
-                    self.logger.warning(f"[MOCK] Trade failed: {action} {ticker} - {result.get('error', 'Unknown error')}")
+                    self.logger.warning(f"[MOCK] Sell failed: {ticker} - {result.get('error', 'Unknown error')}")
+            
+            # Inverse Volatility Sizing for buy signals
+            if buy_signals:
+                self.logger.info(f"[RISK] Calculating inverse volatility sizing for {len(buy_signals)} candidates...")
+                
+                # Calculate volatilities for buy candidates
+                tickers = [s['ticker'] for s in buy_signals]
+                volatilities = []
+                
+                for ticker in tickers:
+                    try:
+                        # Get last 20 days of closing prices for volatility calculation
+                        df = data_manager._load_ticker_data(ticker)
+                        if df is not None and len(df) >= 20:
+                            closes = df['Close'].tail(20)
+                            volatility = closes.std()  # Standard deviation as volatility proxy
+                            volatilities.append(float(volatility))
+                        else:
+                            # Fallback to default volatility
+                            volatilities.append(0.25)  # 25% annualized volatility default
+                            self.logger.warning(f"[RISK] Using default volatility for {ticker}: 25%")
+                    except Exception as e:
+                        self.logger.error(f"[RISK] Error calculating volatility for {ticker}: {e}")
+                        volatilities.append(0.25)  # Fallback
+                
+                # Calculate total risk capital (20% of available cash)
+                available_cash = self.portfolio.get('cash', 0)
+                total_risk_capital = available_cash * 0.20  # 20% of cash for new positions
+                
+                self.logger.info(f"[RISK] Available cash: ${available_cash:,.2f}")
+                self.logger.info(f"[RISK] Risk capital: ${total_risk_capital:,.2f} (20% of cash)")
+                
+                # Calculate inverse volatility allocations
+                risk_manager = RiskManager()
+                allocations = risk_manager.calculate_inverse_vol_sizing(tickers, volatilities, total_risk_capital)
+                
+                self.logger.info("[RISK] Inverse volatility allocations:")
+                for ticker, allocation in allocations.items():
+                    self.logger.info(f"  {ticker}: ${allocation:,.2f}")
+                
+                # Hysteresis Rule: Check if portfolio is at max capacity
+                current_positions = len(self.portfolio.get('positions', {}))
+                max_positions = getattr(self, 'MAX_POSITIONS', 10)
+                
+                # Calculate average AI score of current holdings
+                current_avg_score = 0.0
+                if current_positions >= max_positions and buy_signals:
+                    # Need to calculate average score of current holdings
+                    current_scores = []
+                    for ticker in self.portfolio.get('positions', {}):
+                        # Mock AI score based on recent performance (simplified)
+                        pos_data = self.portfolio['positions'][ticker]
+                        cost_basis = pos_data.get('cost_basis', 0)
+                        current_price = pos_data.get('current_price', cost_basis)
+                        if cost_basis > 0:
+                            performance = (current_price - cost_basis) / cost_basis
+                            # Convert performance to AI score (simplified mapping)
+                            ai_score = min(0.95, max(0.05, 0.5 + performance))
+                            current_scores.append(ai_score)
+                    
+                    if current_scores:
+                        current_avg_score = sum(current_scores) / len(current_scores)
+                        self.logger.info(f"[HYSTERESIS] Current holdings avg score: {current_avg_score:.3f}")
+                
+                # Execute buy signals with inverse volatility sizing
+                for signal in buy_signals:
+                    ticker = signal['ticker']
+                    price = signal['price']
+                    reason = signal['reason']
+                    ai_score = signal.get('ai_score', 0.5)  # Default score if not provided
+                    
+                    # Hysteresis Rule: Check if we need to swap positions
+                    if current_positions >= max_positions:
+                        required_score_improvement = current_avg_score * 1.15  # 15% higher
+                        if ai_score <= required_score_improvement:
+                            self.logger.info(f"[SKIP] {ticker} score {ai_score:.3f} not 15% greater than holding avg {current_avg_score:.3f}. Avoiding whipsaw.")
+                            continue
+                    
+                    # Calculate position size based on allocation
+                    allocation = allocations.get(ticker, 0)
+                    if allocation > 0 and price > 0:
+                        quantity = int(allocation / price)
+                        quantity = max(1, quantity)  # At least 1 share
+                    else:
+                        quantity = 1
+                    
+                    # Execute buy trade
+                    result = self.execute_trade(ticker, 'buy', quantity, price, reason)
+                    
+                    if result['success']:
+                        trades_executed.append(result)
+                        self.logger.info(f"[MOCK] Buy executed: {quantity} {ticker} @ ${price:.2f} (allocated: ${allocation:,.2f})")
+                    else:
+                        self.logger.warning(f"[MOCK] Buy failed: {ticker} - {result.get('error', 'Unknown error')}")
             
             # Update portfolio values after all trades
             self._sync_market_prices()
@@ -549,6 +688,8 @@ class MockVirtualEngine:
             # Log summary
             self.logger.info(f"[MOCK] Shadow trading session complete:")
             self.logger.info(f"  Candidates Found: {candidates_found}")
+            self.logger.info(f"  Buy Signals: {len(buy_signals)}")
+            self.logger.info(f"  Sell Signals: {len(sell_signals)}")
             self.logger.info(f"  Trades Executed: {len(trades_executed)}")
             self.logger.info(f"  Portfolio Value: ${self.get_account_info()['portfolio_value']:,.2f}")
             self.logger.info(f"  Available Cash: ${self.portfolio['cash']:,.2f}")
@@ -576,20 +717,27 @@ class MockVirtualEngine:
         # Generate some sample signals for testing
         signals = []
         
-        # Sample buy signals
+        # Sample buy signals with AI scores
         buy_signals = [
-            {'ticker': 'AAPL', 'action': 'buy', 'quantity': 5, 'price': 175.50, 'reason': 'Strong momentum'},
-            {'ticker': 'MSFT', 'action': 'buy', 'quantity': 3, 'price': 425.30, 'reason': 'Breakout pattern'}
+            {'ticker': 'AAPL', 'action': 'buy', 'quantity': 5, 'price': 175.50, 'reason': 'Strong momentum', 'ai_score': 0.82},
+            {'ticker': 'MSFT', 'action': 'buy', 'quantity': 3, 'price': 425.30, 'reason': 'Breakout pattern', 'ai_score': 0.75},
+            {'ticker': 'GOOGL', 'action': 'buy', 'quantity': 2, 'price': 330.02, 'reason': 'Technical breakout', 'ai_score': 0.68},
+            {'ticker': 'NVDA', 'action': 'buy', 'quantity': 1, 'price': 450.00, 'reason': 'AI signal strong', 'ai_score': 0.91}
         ]
         
-        # Sample sell signals
+        # Sample sell signals with AI scores
         sell_signals = [
-            {'ticker': 'TSLA', 'action': 'sell', 'quantity': 2, 'price': 395.00, 'reason': 'Overbought condition'}
+            {'ticker': 'TSLA', 'action': 'sell', 'quantity': 2, 'price': 395.00, 'reason': 'Overbought condition', 'ai_score': 0.45}
         ]
         
         # Combine signals
         signals.extend(buy_signals)
         signals.extend(sell_signals)
+        
+        self.logger.info(f"[MOCK] Generated {len(signals)} trading signals:")
+        for signal in signals:
+            score_info = f" (AI score: {signal.get('ai_score', 'N/A')})" if 'ai_score' in signal else ""
+            self.logger.info(f"  {signal['ticker']} {signal['action'].upper()}{score_info}")
         
         return signals
 
@@ -1117,6 +1265,39 @@ This is an automated message from NeuralTrader Paper Trading System.
             
             # Initialize modules
             if not self.initialize_modules():
+                return False
+            
+            # Check Portfolio Circuit Breaker (Uncle Point)
+            try:
+                portfolio = self.virtual_engine.portfolio
+                current_val = self.virtual_engine.get_account_info()['portfolio_value']
+                peak_val = portfolio.get('peak_portfolio_value', 100000.0)
+                cooldown_str = portfolio.get('circuit_breaker_cooldown_until')
+                
+                # Initialize risk manager
+                risk_manager = RiskManager()
+                
+                is_halted, new_cooldown = risk_manager.check_portfolio_circuit_breaker(
+                    current_val, peak_val, datetime.now(), cooldown_str
+                )
+                
+                if is_halted:
+                    self.logger.error("[SHIELD] PORTFOLIO CIRCUIT BREAKER ACTIVE. Drawdown > 12% or in cooldown.")
+                    self.logger.error(f"[SHIELD] Trading HALTED. Current: ${current_val:,.2f}, Peak: ${peak_val:,.2f}")
+                    
+                    # Update cooldown if changed
+                    if new_cooldown and new_cooldown != cooldown_str:
+                        portfolio['circuit_breaker_cooldown_until'] = new_cooldown
+                        self.virtual_engine.save_portfolio()
+                        self.logger.error(f"[SHIELD] Cooldown updated until: {new_cooldown}")
+                    
+                    return False
+                else:
+                    self.logger.info("[SHIELD] Circuit breaker SAFE - trading allowed")
+                    
+            except Exception as e:
+                self.logger.error(f"[ERROR] Circuit breaker check failed: {e}")
+                # Be conservative and halt trading on error
                 return False
             
             # Check if market is open (bypass for paper trading)
