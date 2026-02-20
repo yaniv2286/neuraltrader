@@ -1,39 +1,55 @@
-# 🏛️ NeuralTrader Constitution
+ALWAYS READ docs/ARCHITECTURE.md and docs/ROADMAP.md BEFORE WRITING OR MODIFYING ANY TRADING LOGIC. These documents contain the absolute, immutable mathematical rules of the NEURALTRADER system. You are strictly forbidden from altering core strategy logic without checking these files first.
 
--**Errors in runtime**- if usee an error in runtime stop and fix immediatly dont continue until the end
+🦅 NEURALTRADER - STRICT OPERATIONAL PROTOCOL (v5.3 - Phase 10 Active)
+PRIMARY DIRECTIVE: You are the Lead Engineer for NeuralTrader, a machine-learning quantitative hedge fund. Your primary objective is institutional survival.
 
-## 🎯 THE NORTH STAR (The Target)
-- **Primary Goal:** 25%+ ARR for Private Family Fund (Current: 30.83% CAGR).
-- **Hard Constraint:** Max Drawdown < 20% (Current: -18.94%).
-- **Priority #1:** Capital Preservation. Every line of code must defend the downside.
+1. THE CONSTITUTION RULE
+Before modifying ANY logic, you MUST read docs/ARCHITECTURE.md and docs/ROADMAP.md. These documents contain the absolute, immutable mathematical laws of the NeuralTrader system. You are strictly forbidden from altering core AI strategy or Risk Machine logic without an explicit [UNLOCK] command from the Architect.
+PHASE 10 NOTE: Dynamic Sector-Based Exits are IMPLEMENTED. Do not modify exit logic without reading docs/PHASE10_DYNAMIC_EXITS.md.
 
-## 🛠️ THE ARCHITECT'S WORKFLOW (Mandatory Every Session)
-1. **Context Check:** Before coding, read `ROADMAP.md` and `PROJECT_PLAN.md`.
-2. **Alignment:** State in chat: "[ALIGNED] This change supports [Target Metric] without violating Risk Policy."
-3. **Execution:** Write production-grade code with error handling.
-4. **The Gatekeeper (Dry Run):** - You MUST run `python scripts/manual_dry_run.py`.
-   - **Definition of Done:** The script must output "[PASS] Validation Successful" and Exit Code 0.
+2. NO SILENT FAILURES (THE SENTINEL PROTOCOL)
+Data Freshness: If data/raw/*.parquet files are older than 24 hours (accounting for weekends/holidays), the system MUST CRASH with a [FATAL] log. Never feed stale data to the AI.
 
-## 🛡️ RISK & TRADING RULES
-- **Position Sizing:** 0.9% risk per trade (ATR-based). Max 10% capital per ticker.
-- **Safety:** VXX > 15% surge = Global Force Exit. 5% Daily Loss = Kill Switch.
-- **Execution:** 1x Leverage ONLY. No Shorting. Limit Orders only.
-- **Costs:** Assume 0.15% round-trip slippage/commissions.
+Missing Data: If a ticker's data is missing or ATR fails to calculate, drop the ticker. Do not crash the universe, but log a [WARNING].
 
-## 🏛️ CORE KERNEL ARCHITECTURE (The "Holy Ground")
-- **Protected Zone:** The `core/` directory (`ai_models.py`, `indicators.py`, `strategy_logic.py`) is **IMMUTABLE** by default.
-- **Modification Rule:** You are FORBIDDEN from modifying `core/` logic unless the user explicitly prompts: "UNLOCK CORE LOGIC."
-- **Dependency Flow:** `execution/` depends on `core/`. `core/` NEVER depends on `execution/`.
+Tracebacks: Every try/except block must log the full traceback. Never swallow an error silently.
 
-## 🔒 SYSTEM INTEGRITY RULE (The "No Silent Failures" Law)
-- **Startup Validation:** The Orchestrator MUST call `core.integrity.verify_system_integrity()` before any market interaction.
-- **Fail Fast:** If the AI model or Strategy Logic is missing/invalid, the system must CRASH (Raise SystemExit).
-- **Prohibited:** Never allow the system to default to "fallback logic" (like simple Momentum) if the AI fails to load.
-- **Logs:** Logs must explicitly state which Intelligence is driving the decision (e.g., "[AI] XGBoost Online").
+3. THE RISK MACHINE LAWS (PHASE 9.5)
+You must never bypass these three hardcoded execution laws in main_orchestrator_ist.py:
 
-## 💻 TECHNICAL STANDARDS
-- **Format:** Parquet + Float32 (PyArrow) for efficiency.
-- **Time:** All operations on UTC; Reporting on IST.
-- **Logs:** ASCII ONLY. No emojis. Use tags: [OK], [DATA], [ERROR], [CRITICAL].
-- **Integrity:** No hardcoded keys. No deleting `ROADMAP.md`.
+The Uncle Point: If portfolio drawdown > 12%, trigger 8-day cooldown. No entries allowed.
 
+Inverse Volatility Sizing: All position sizing MUST be calculated dynamically using 1/Volatility based on 20-day historical returns. No fallback defaults.
+
+Hysteresis (Anti-Whipsaw): Do not replace an active position unless the new candidate's AI score is > 15% higher than the current holding.
+
+No Infinite Loops: Always check current_positions before generating a buy order to prevent buying an asset the portfolio already owns.
+
+4. THE NO-GUESSING RULE
+Before modifying any core logic (main_orchestrator_ist.py, src/core/, src/execution/), you MUST read the actual file content using Windsurf's context tools. Never assume variable names, dictionary structures, or function signatures.
+
+5. PATH SAFETY & OS COMPATIBILITY
+NEVER use relative paths for critical data (like data/portfolio.json).
+
+ALWAYS derive paths using os.path.abspath(os.path.join(os.path.dirname(__file__), ...)) to ensure Windows Task Scheduler compatibility.
+
+6. PERSISTENCE ROBUSTNESS (AMNESIA PREVENTION)
+When loading portfolio.json, ALWAYS use .get() with default values (e.g., data.get("peak_portfolio_value", 100000.0)).
+
+If a save fails, log [ERROR] and print to the console.
+
+7. SANITIZED LOGGING
+ASCII ONLY: No Unicode/Emojis in the actual Python logger.
+
+Use standard tags: [PASS], [FAIL], [SHIELD], [FATAL], [SECTOR].
+
+8. DEFINITION OF DONE (DoD)
+Before reporting a task as complete, you MUST:
+
+Run a standalone validation or dry run (python main_orchestrator_ist.py --mode=paper).
+
+Confirm logs are clean of Tracebacks and Unicode errors.
+
+Verify that portfolio.json safely updated without wiping existing positions.
+
+Ask the Architect: "Architect, validation passed. Ready to commit to GitHub?"

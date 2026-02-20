@@ -25,6 +25,19 @@
 * **Data Source:** Real volatility calculated from `data/raw/{ticker}.parquet` files (20-day returns, √252 annualization).
 * **Allocation Logic:** Low volatility stocks (e.g., GOOGL 18.46%) get MORE capital, high volatility (e.g., MSFT 43.38%) get LESS.
 
+### **Current Performance Metrics (Phase 10 Active)**
+* **CAGR:** 34.3% (Sector Tax + Volatility Gate Optimized)
+* **Max Drawdown:** -20.8% (Within 20% Risk Policy)
+* **Universe:** 217 Tickers | 1.28M Rows (Modern Era Data)
+* **Strategy:** Sector Authority Active (15% Tax on Bottom 3 Sectors)
+* **Dynamic Exits:** Phase 10 Adaptive Sector-Based Exits IMPLEMENTED
+* **Sector Tax:** 15% penalty applied to tickers in bottom 3 weakest sectors
+* **Volatility Shield:** VXX Bollinger Band logic prevents entries during extreme volatility
+* **Risk Management:** Circuit Breaker at 12% DD, Hysteresis at 15% premium, Real Inverse Vol sizing
+* **Volatility Sizing:** Real market volatility (18.46% - 43.38% range) with mathematical 1/σ weighting
+* **Data Integration:** Real volatility from parquet files, no fallback defaults
+* **Exit Intelligence:** 4-tier dynamic exit rules based on sector performance percentiles
+
 ## 📊 4. PERFORMANCE METRICS (v5.2)
 * **CAGR:** 34.3% (Sector Tax + Volatility Gate Optimized)
 * **Max Drawdown:** -20.8% (Within 20% Risk Policy)
@@ -35,6 +48,27 @@
 * **Risk Management:** Circuit Breaker at 12% DD, Hysteresis at 15% premium, Real Inverse Vol sizing
 * **Volatility Sizing:** Real market volatility (18.46% - 43.38% range) with mathematical 1/σ weighting
 * **Data Integration:** Real volatility from parquet files, no fallback defaults
+
+### **Phase 10: Sentiment & Dynamic Exits (ACTIVE)**
+**Objective**: Integrate alternative data and adaptive exit strategies
+
+#### **Dynamic Sector-Based Exits (IMPLEMENTED)**
+- **Sector-Aware Exit Logic**: Adaptive thresholds based on sector performance
+- **Real-Time Sector Analysis**: 11 sector ETFs ranked by 20-day ROC
+- **Dynamic Exit Rules**: 4 rule sets based on sector strength percentiles
+- **Integration**: Enhanced `evaluate_exit_conditions()` in `simulation_utils.py`
+- **Coverage**: All 220 tickers mapped to sectors with intelligent exits
+
+#### **Exit Priority System**
+1. **Weekly Shield**: Market structure protection (highest priority)
+2. **Emergency Stop Loss**: ATR 2.5x + 15% percentage backup
+3. **Dynamic Sector Exit**: Intelligent optimization (NEW)
+
+#### **Sector Exit Rules**
+- **Weakest 25%**: Exit on any loss or gain < 1%
+- **Bottom 50%**: Exit on losses > 2% or gains < 0.5%
+- **Top 25%**: Exit only on losses > 5%
+- **Negative Momentum**: Aggressive exits for sectors with ROC < -2%
 
 ## 📅 5. INSTITUTIONAL SCHEDULE (IST)
 * **16:05 (4:05 PM):** P1_DataSync - Daily candle capture.
