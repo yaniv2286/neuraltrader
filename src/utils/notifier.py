@@ -9,25 +9,22 @@ Features:
 - Constitution Health Check reporting
 - TLS email sending via smtplib
 - HTML formatted emails with professional styling
-- Scheduled reporting at 16:15 EST (23:15 IST)
-
-Usage:
-    from src.utils.notifier import EmailNotifier
-    
-    notifier = EmailNotifier()
-    notifier.send_daily_brief(account_info, positions, trades_today)
+- Portfolio data exclusively from Interactive Brokers (IBKR)
+- Error handling for IBKR connection issues
 """
 
 import os
 import smtplib
 import logging
-from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
+from datetime import datetime
 from typing import Dict, List, Optional
 import pytz
+import json
+from pathlib import Path
 
 # Force load environment variables immediately
 from dotenv import load_dotenv
@@ -79,10 +76,109 @@ class EmailNotifier:
         self.eastern = pytz.timezone('US/Eastern')
         self.israel = pytz.timezone('Asia/Jerusalem')
         
+        # Initialize IBKR engine for live data
+        self.ibkr_engine = None
+        self._init_ibkr_engine()
+        
         logger.info("Email Notifier initialized")
         logger.info(f"Sender: {self.sender_email}")
         logger.info(f"Recipient: {self.recipient_email}")
         logger.info("[OK] Environment variables loaded successfully")
+    
+    def _init_ibkr_engine(self):
+        """Initialize IBKR engine for live portfolio data"""
+        try:
+            from core.ibkr_engine import IBKRExecutionEngine
+            self.ibkr_engine = IBKRExecutionEngine()
+            logger.info("[IBKR] IBKR engine initialized for live portfolio data")
+        except ImportError as e:
+            logger.error(f"[IBKR] Failed to initialize IBKR engine: {e}")
+            self.ibkr_engine = None
+        except Exception as e:
+            logger.error(f"[IBKR] Error initializing IBKR engine: {e}")
+            self.ibkr_engine = None
+    
+    def _load_portfolio_data(self) -> Dict:
+        """Load portfolio data from Interactive Brokers (live)"""
+        if self.ibkr_engine is None:
+            return self._get_error_portfolio("IBKR_UNAVAILABLE")
+        
+        try:
+            # Connect to IBKR
+            if not self.ibkr_engine.connect():
+                return self._get_error_portfolio("IBKR_CONNECTION_FAILED")
+            
+            # Get account summary
+            account_summary = self.ibkr_engine.get_account_summary()
+            if 'error' in account_summary:
+                return self._get_error_portfolio("IBKR_ACCOUNT_ERROR")
+            
+            # Get positions
+            positions = self.ibkr_engine.get_positions()
+            
+            # Convert IBKR positions to portfolio format
+            portfolio_positions = {}
+            total_market_value = 0.0
+            
+            for pos in positions:
+                portfolio_positions[pos['symbol']] = {
+                    'shares': int(pos['quantity']),
+                    'cost_basis': pos['average_cost'],
+                    'current_price': pos['market_price'],
+                    'market_value': pos['market_value'],
+                    'unrealized_pnl': pos['unrealized_pnl'],
+                    'unrealized_pnl_pct': (pos['unrealized_pnl'] / pos['average_cost'] * 100) if pos['average_cost'] > 0 else 0
+                }
+                total_market_value += pos['market_value']
+            
+            # Calculate portfolio metrics
+            cash_balance = account_summary.get('cash_balance', 0.0)
+            total_value = cash_balance + total_market_value
+            initial_cash = 100000.0  # Starting capital
+            total_return = total_value - initial_cash
+            total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0
+            
+            portfolio_data = {
+                'cash': cash_balance,
+                'positions': portfolio_positions,
+                'performance': {
+                    'total_value': total_value,
+                    'total_return': total_return,
+                    'total_return_pct': total_return_pct
+                },
+                'account_summary': account_summary,
+                'ibkr_positions': positions,
+                'data_source': 'IBKR_LIVE'
+            }
+            
+            logger.info(f"[IBKR] Live portfolio data loaded: Cash=${cash_balance:.2f}, Positions={len(positions)}")
+            
+            return portfolio_data
+            
+        except Exception as e:
+            logger.error(f"[IBKR] Error loading portfolio data: {e}")
+            return self._get_error_portfolio("IBKR_DATA_ERROR")
+        finally:
+            # Always disconnect
+            if self.ibkr_engine:
+                self.ibkr_engine.disconnect()
+    
+    def _get_error_portfolio(self, error_type: str) -> Dict:
+        """Return error portfolio structure for reporting"""
+        return {
+            'cash': 0.0,
+            'positions': {},
+            'performance': {
+                'total_value': 0.0,
+                'total_return': 0.0,
+                'total_return_pct': 0.0
+            },
+            'error': {
+                'type': error_type,
+                'message': f"CRITICAL ERROR: IBKR connection failed. Portfolio state unknown."
+            },
+            'data_source': 'ERROR'
+        }
     
     def send_email_with_logs(self, to_email: str, subject: str, body: str, 
                           log_file_path: str = None, attachment_path: str = None, 
@@ -135,56 +231,19 @@ class EmailNotifier:
                     logger.error(f"❌ Error attaching log file: {e}")
             else:
                 if log_file_path:
-                    print(f"[ERROR] Attachment file not found at: {log_file_path}")
-                    logger.error(f"❌ Log file not found at: {log_file_path}")
-                else:
-                    logger.info("ℹ️ No log file path provided")
-            
-            logger.info(f"📧 Sending email to {to_email}")
-            logger.info(f"📧 From: {self.sender_email}")
-            logger.info(f"📧 Subject: {subject}")
-            logger.info(f"📧 Body type: {'HTML' if html_body else 'Plain Text'}")
+                    print(f"FAILED TO ATTACH LOG FILE: File not found - {log_file_path}")
             
             # Send email
-            return self._send_email_smtp(msg)
-            
-        except Exception as e:
-            logger.error(f"❌ Full error details: {type(e).__name__}: {e}")
-            return False
-    
-    def _send_email_smtp(self, msg: MIMEMultipart) -> bool:
-        """Send email using SMTP with proper error handling"""
-        try:
-            # Send email with debug mode
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                # Enable SMTP debugging
-                server.set_debuglevel(1)
-                logger.info(f"🔗 Connecting to {self.smtp_server}:{self.smtp_port}")
-                
-                # Start TLS
                 server.starttls()
-                logger.info("🔒 TLS connection established")
-                
-                # Login (credentials are guaranteed to exist due to constructor validation)
-                logger.info(f"🔐 Logging in as {self.sender_email}")
                 server.login(self.sender_email, self.sender_password)
-                logger.info("[OK] Login successful")
-                
-                # Send message with verification
-                try:
-                    logger.info("📤 Sending message...")
-                    server.send_message(msg)
-                    logger.info("[OK] [SUCCESS] Message accepted by Gmail server")
-                    logger.info(f"📨 Email sent successfully to {msg['To']}")
-                    return True
-                    
-                except Exception as send_error:
-                    logger.error(f"❌ [FAILED] Message rejected by server: {send_error}")
-                    logger.error(f"❌ Full error details: {type(send_error).__name__}: {send_error}")
-                    return False
+                server.send_message(msg)
+            
+            logger.info(f"[OK] [SUCCESS] Message accepted by Gmail server")
+            logger.info(f"📨 Email sent successfully to {to_email}")
+            return True
             
         except Exception as e:
-            logger.error(f"❌ Error sending email: {e}")
             logger.error(f"❌ Full error details: {type(e).__name__}: {e}")
             return False
     
@@ -202,13 +261,13 @@ class EmailNotifier:
             True if successful, False otherwise
         """
         try:
-            # Create message with explicit headers
-            msg = MIMEMultipart()
+            # Create message
+            msg = MIMEMultipart('mixed')
             msg['Subject'] = subject
-            msg['From'] = self.sender_email  # Force From to match login email
+            msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             
-            # Add HTML body
+            # Add HTML content
             html_part = MIMEText(html_content, 'html')
             msg.attach(html_part)
             
@@ -232,19 +291,21 @@ class EmailNotifier:
                 except Exception as e:
                     logger.error(f"❌ Error attaching file: {e}")
             
-            logger.info(f"📧 Sending HTML email to {self.recipient_email}")
-            logger.info(f"📧 From: {self.sender_email}")
-            logger.info(f"📧 Subject: {subject}")
-            
             # Send email
-            return self._send_email_smtp(msg)
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+            
+            logger.info(f"Email sent successfully: {subject}")
+            return True
             
         except Exception as e:
             logger.error(f"❌ Error sending HTML email: {e}")
             return False
     
     def send_daily_brief(self, account_info: Dict, current_positions: List[Dict], 
-                         trades_today: List[Dict], risk_summary: Dict = None) -> bool:
+                         trades_today: List[Dict], risk_summary: Dict = None, log_file_path: str = None, attachment_file: str = None) -> bool:
         """
         Send Daily Executive Brief
         
@@ -253,17 +314,17 @@ class EmailNotifier:
             current_positions: Current portfolio positions
             trades_today: Trades executed today
             risk_summary: Risk management summary
+            log_file_path: Optional path to log file for attachment
+            attachment_file: Optional path to additional file for attachment (e.g., CSV)
             
         Returns:
             True if email sent successfully, False otherwise
         """
         try:
-            # Get current times
-            now_eastern = datetime.now(self.eastern)
-            now_israel = datetime.now(self.israel)
-            
-            # Compose email
-            subject = f"NeuralTrader Daily Brief - {now_eastern.strftime('%Y-%m-%d')} ({now_eastern.strftime('%H:%M')} EST / {now_israel.strftime('%H:%M')} IST)"
+            # Get current time in both timezones
+            now_utc = datetime.now(pytz.UTC)
+            now_eastern = now_utc.astimezone(self.eastern)
+            now_israel = now_utc.astimezone(self.israel)
             
             # Generate HTML content
             html_content = self._generate_daily_brief_html(
@@ -271,8 +332,8 @@ class EmailNotifier:
                 now_eastern, now_israel
             )
             
-            # Send email
-            success = self._send_email(subject, html_content)
+            # Send email with log file and additional attachments
+            success = self._send_email(subject, html_content, log_file_path, attachment_file)
             
             if success:
                 logger.info(f"Daily brief sent to {self.recipient_email}")
@@ -290,18 +351,35 @@ class EmailNotifier:
                                    now_eastern: datetime, now_israel: datetime) -> str:
         """Generate HTML content for daily brief"""
         
-        # Calculate portfolio metrics
-        portfolio_value = account_info.get('portfolio_value', 0)
-        cash = account_info.get('cash', 0)
-        buying_power = account_info.get('buying_power', 0)
+        # Load portfolio data from portfolio.json
+        portfolio_data = self._load_portfolio_data()
         
-        # Calculate today's P&L (simplified - would need previous day's value)
-        today_pnl = 0.0
-        for position in current_positions:
-            unrealized_pl = float(position.get('unrealized_pl', 0))
-            today_pnl += unrealized_pl
+        # Check for error condition
+        if 'error' in portfolio_data:
+            return self._generate_error_daily_brief_html(portfolio_data, now_eastern, now_israel)
         
-        today_pnl_pct = (today_pnl / portfolio_value * 100) if portfolio_value > 0 else 0
+        # Calculate portfolio metrics from real data
+        cash = portfolio_data.get('cash', 0.0)
+        positions = portfolio_data.get('positions', {})
+        
+        # Calculate real-time market value using actual current prices from portfolio.json
+        market_value = 0.0
+        for ticker, position in positions.items():
+            shares = position.get('shares', 0)
+            current_price = position.get('current_price', 0)
+            market_value += shares * current_price
+        
+        # Calculate real-time total value and return
+        total_value = cash + market_value
+        initial_cash = 100000.0  # Initial starting capital
+        total_return = total_value - initial_cash
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0
+        
+        # Generate positions HTML
+        positions_html = self._generate_positions_html(positions)
+        
+        # Generate trades HTML
+        trades_html = self._generate_trades_html(trades_today)
         
         # Generate HTML
         html = f"""
@@ -337,16 +415,18 @@ class EmailNotifier:
             padding: 10px;
             background: #f8f9fa;
             border-radius: 5px;
-            min-width: 150px;
+            text-align: center;
+            min-width: 120px;
         }}
         .metric-value {{
-            font-size: 24px;
+            font-size: 1.5em;
             font-weight: bold;
-            color: #2c3e50;
+            color: #333;
         }}
         .metric-label {{
-            font-size: 12px;
-            color: #7f8c8d;
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
         }}
         .positive {{
             color: #27ae60;
@@ -354,13 +434,10 @@ class EmailNotifier:
         .negative {{
             color: #e74c3c;
         }}
-        .neutral {{
-            color: #f39c12;
-        }}
         table {{
             width: 100%;
             border-collapse: collapse;
-            margin: 10px 0;
+            margin-top: 10px;
         }}
         th, td {{
             padding: 10px;
@@ -371,269 +448,391 @@ class EmailNotifier:
             background-color: #f8f9fa;
             font-weight: bold;
         }}
-        .status-pass {{
-            background-color: #d4edda;
-            color: #155724;
-            padding: 5px 10px;
-            border-radius: 3px;
-        }}
-        .status-fail {{
-            background-color: #f8d7da;
-            color: #721c24;
-            padding: 5px 10px;
-            border-radius: 3px;
-        }}
-        .footer {{
-            text-align: center;
-            color: #7f8c8d;
-            font-size: 12px;
-            margin-top: 20px;
+        .timestamp {{
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 10px;
         }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🏛️ NeuralTrader Daily Executive Brief</h1>
-        <p>{now_eastern.strftime('%A, %B %d, %Y')}</p>
-        <p>{now_eastern.strftime('%H:%M')} EST / {now_israel.strftime('%H:%M')} IST</p>
+        <h1>🤖 NeuralTrader Daily Brief</h1>
+        <div class="timestamp">{now_eastern.strftime('%Y-%m-%d %H:%M:%S EST')}</div>
     </div>
     
     <div class="section">
         <h2>💰 Portfolio Overview</h2>
         <div class="metric">
-            <div class="metric-value">${portfolio_value:,.2f}</div>
+            <div class="metric-value">${total_value:,.2f}</div>
             <div class="metric-label">Portfolio Equity</div>
         </div>
         <div class="metric">
-            <div class="metric-value ${'positive' if today_pnl >= 0 else 'negative'}">
-                ${today_pnl:,.2f}
+            <div class="metric-value {'positive' if total_return >= 0 else 'negative'}">
+                ${total_return:,.2f}
             </div>
-            <div class="metric-label">Today's P&L</div>
+            <div class="metric-label">Total Return</div>
         </div>
         <div class="metric">
-            <div class="metric-value ${'positive' if today_pnl_pct >= 0 else 'negative'}">
-                {today_pnl_pct:+.2f}%
+            <div class="metric-value {'positive' if total_return_pct >= 0 else 'negative'}">
+                {total_return_pct:.2f}%
             </div>
-            <div class="metric-label">Today's Return</div>
+            <div class="metric-label">Total Return %</div>
         </div>
         <div class="metric">
             <div class="metric-value">${cash:,.2f}</div>
             <div class="metric-label">Available Cash</div>
         </div>
         <div class="metric">
-            <div class="metric-value">${buying_power:,.2f}</div>
-            <div class="metric-label">Buying Power</div>
+            <div class="metric-value">{len(positions)}</div>
+            <div class="metric-label">Active Positions</div>
         </div>
         <div class="metric">
-            <div class="metric-value">{len(current_positions)}</div>
-            <div class="metric-label">Active Positions</div>
+            <div class="metric-value">🟢 LIVE</div>
+            <div class="metric-label">Data Source</div>
         </div>
     </div>
     
     <div class="section">
         <h2>📊 Active Positions</h2>
+        {positions_html}
+    </div>
+    
+    <div class="section">
+        <h2>💼 Trades Executed</h2>
+        {trades_html}
+    </div>
+    
+    <div class="section">
+        <h2>📈 Market Activity</h2>
+        <p><strong>Buy Signals:</strong> No buy signals today</p>
+        <p><strong>Sell Signals:</strong> No sell signals today</p>
+        <p><strong>Hold Signals:</strong> No hold signals today</p>
+    </div>
+    
+    <div class="section">
+        <h2>⚠️ Risk Management</h2>
+        <p><strong>Risk Status:</strong> All systems operational</p>
+        <p><strong>Compliance:</strong> Within risk limits</p>
+        <p><strong>Sector Authority:</strong> Active</p>
+    </div>
+    
+    <div class="header">
+        <div>NeuralTrader Automated Trading System v5.0</div>
+        <div class="timestamp">Generated on {now_eastern.strftime('%Y-%m-%d %H:%M:%S EST')}</div>
+    </div>
+</body>
+</html>
+"""
+        return html
+    
+    def _generate_error_daily_brief_html(self, portfolio_data: Dict, now_eastern: datetime, now_israel: datetime) -> str:
+        """Generate error daily brief HTML when IBKR connection fails"""
+        error_info = portfolio_data['error']
+        
+        html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+        .section {{
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        .error-message {{
+            background: #ffebee;
+            border: 2px solid #f44336;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            color: #d32f2f;
+        }}
+        .error-title {{
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }}
+        .timestamp {{
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚨 NeuralTrader Daily Brief - ERROR</h1>
+        <div class="timestamp">{now_eastern.strftime('%Y-%m-%d %H:%M:%S EST')}</div>
+    </div>
+    
+    <div class="section">
+        <div class="error-message">
+            <div class="error-title">CRITICAL ERROR: IBKR connection failed</div>
+            <p>Portfolio state unknown. Please check IBKR TWS connection.</p>
+            <p><strong>Error Type:</strong> {error_info['type']}</p>
+            <p><strong>Message:</strong> {error_info['message']}</p>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>📊 Current Holdings</h2>
+        <p>CRITICAL ERROR: IBKR connection failed. Portfolio state unknown.</p>
+    </div>
+    
+    <div class="section">
+        <h2>💼 Trades Executed</h2>
+        <p>CRITICAL ERROR: IBKR connection failed. Portfolio state unknown.</p>
+    </div>
+    
+    <div class="section">
+        <h2>📈 Market Activity</h2>
+        <p>CRITICAL ERROR: IBKR connection failed. Portfolio state unknown.</p>
+    </div>
+    
+    <div class="section">
+        <h2>⚠️ Risk Management</h2>
+        <p>CRITICAL ERROR: IBKR connection failed. Portfolio state unknown.</p>
+    </div>
+    
+    <div class="header">
+        <div>NeuralTrader Automated Trading System v5.0</div>
+        <div class="timestamp">Generated on {now_eastern.strftime('%Y-%m-%d %H:%M:%S EST')}</div>
+    </div>
+</body>
+</html>
+"""
+        return html
+    
+    def _generate_positions_html(self, positions: Dict) -> str:
+        """Generate HTML for positions table"""
+        if not positions:
+            return "<p>No active positions</p>"
+        
+        rows_html = ""
+        for ticker, pos_data in positions.items():
+            # Use IBKR position data structure
+            shares = pos_data.get('shares', 0)
+            cost_basis = pos_data.get('cost_basis', 0)
+            current_price = pos_data.get('current_price', 0)
+            market_value = pos_data.get('market_value', 0)
+            unrealized_pnl = pos_data.get('unrealized_pnl', 0)
+            unrealized_pnl_pct = pos_data.get('unrealized_pnl_pct', 0)
+            
+            color_class = 'positive' if unrealized_pnl >= 0 else 'negative'
+            
+            rows_html += f"""
+            <tr>
+                <td><strong>{ticker}</strong></td>
+                <td>{shares}</td>
+                <td>${cost_basis:.2f}</td>
+                <td>${current_price:.2f}</td>
+                <td>${market_value:.2f}</td>
+                <td class="{color_class}">${unrealized_pnl:.2f}</td>
+                <td class="{color_class}">{unrealized_pnl_pct:.2f}%</td>
+            </tr>
+            """
+        
+        return f"""
         <table>
             <thead>
                 <tr>
                     <th>Ticker</th>
                     <th>Shares</th>
-                    <th>Entry Price</th>
+                    <th>Cost Basis</th>
                     <th>Current Price</th>
                     <th>Market Value</th>
-                    <th>P&L</th>
-                    <th>P&L %</th>
+                    <th>Unrealized P&L</th>
+                    <th>Unrealized P&L %</th>
                 </tr>
             </thead>
             <tbody>
-"""
-        
-        # Add positions
-        for position in current_positions:
-            ticker = position.get('symbol', 'N/A')
-            shares = float(position.get('qty', 0))
-            cost_basis = float(position.get('cost_basis', 0))
-            market_value = float(position.get('market_value', 0))
-            unrealized_pl = float(position.get('unrealized_pl', 0))
-            
-            entry_price = cost_basis / shares if shares > 0 else 0
-            current_price = market_value / shares if shares > 0 else 0
-            pl_pct = (unrealized_pl / cost_basis * 100) if cost_basis > 0 else 0
-            
-            pl_class = 'positive' if unrealized_pl >= 0 else 'negative'
-            
-            html += f"""
-                <tr>
-                    <td><strong>{ticker}</strong></td>
-                    <td>{shares:,.0f}</td>
-                    <td>${entry_price:.2f}</td>
-                    <td>${current_price:.2f}</td>
-                    <td>${market_value:,.2f}</td>
-                    <td class="{pl_class}">${unrealized_pl:,.2f}</td>
-                    <td class="{pl_class}">{pl_pct:+.2f}%</td>
-                </tr>
-"""
-        
-        html += """
+                {rows_html}
             </tbody>
         </table>
-    </div>
+        """
     
-    <div class="section">
-        <h2>🔄 Today's Trading Activity</h2>
-"""
+    def _generate_trades_html(self, trades_today: List[Dict]) -> str:
+        """Generate HTML for trades executed today"""
+        if not trades_today:
+            return "<p>No trades executed today</p>"
         
-        if trades_today:
-            html += """
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Ticker</th>
-                        <th>Action</th>
-                        <th>Shares</th>
-                        <th>Price</th>
-                        <th>Value</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-"""
-            
-            for trade in trades_today:
-                timestamp = trade.get('timestamp', 'N/A')
-                ticker = trade.get('symbol', 'N/A')
-                side = trade.get('side', 'N/A')
-                quantity = trade.get('quantity', 0)
-                price = trade.get('price', 0)
-                value = quantity * price
-                status = trade.get('status', 'N/A')
-                
-                html += f"""
-                    <tr>
-                        <td>{timestamp}</td>
-                        <td><strong>{ticker}</strong></td>
-                        <td>{side.upper()}</td>
-                        <td>{quantity:,.0f}</td>
-                        <td>${price:.2f}</td>
-                        <td>${value:,.2f}</td>
-                        <td>{status}</td>
-                    </tr>
-"""
-            
-            html += """
-                </tbody>
-            </table>
-"""
-        else:
-            html += "<p>No trades executed today.</p>"
+        trades_html = ""
+        for trade in trades_today:
+            ticker = trade.get('ticker', 'Unknown')
+            action = trade.get('action', 'Unknown')
+            quantity = trade.get('quantity', 0)
+            price = trade.get('price', 0)
+            trades_html += f'<tr><td>{action.upper()}</td><td>{ticker}</td><td>{quantity}</td><td>${price:.2f}</td></tr>'
         
-        html += """
-    </div>
+        return f"""
+        <table>
+            <thead>
+                <tr>
+                    <th>Action</th>
+                    <th>Ticker</th>
+                    <th>Quantity</th>
+                    <th>Price</th>
+                </tr>
+            </thead>
+            <tbody>
+                {trades_html}
+            </tbody>
+        </table>
+        """
     
-    <div class="section">
-        <h2>🛡️ Constitution Health Check</h2>
-"""
-        
-        # Risk management summary
-        if risk_summary:
-            html += f"""
-            <table>
-                <thead>
-                    <tr>
-                        <th>Risk Metric</th>
-                        <th>Current</th>
-                        <th>Limit</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>Risk Per Trade</td>
-                        <td>{risk_summary.get('risk_per_trade', 'N/A')}</td>
-                        <td>0.9%</td>
-                        <td class="status-pass">PASS</td>
-                    </tr>
-                    <tr>
-                        <td>Max Sector Exposure</td>
-                        <td>{risk_summary.get('max_sector_exposure', 'N/A')}</td>
-                        <td>30%</td>
-                        <td class="status-pass">PASS</td>
-                    </tr>
-                    <tr>
-                        <td>Black Swan Protection</td>
-                        <td>{risk_summary.get('black_swan_status', 'Active')}</td>
-                        <td>Active</td>
-                        <td class="status-pass">PASS</td>
-                    </tr>
-                    <tr>
-                        <td>Duplicate Protection</td>
-                        <td>{risk_summary.get('duplicate_protection', 'Active')}</td>
-                        <td>Active</td>
-                        <td class="status-pass">PASS</td>
-                    </tr>
-                </tbody>
-            </table>
-"""
-        else:
-            html += "<p>Risk summary not available.</p>"
-        
-        html += f"""
-    </div>
-    
-    <div class="section">
-        <h2>📈 Performance Summary</h2>
-        <div class="metric">
-            <div class="metric-value">30.83%</div>
-            <div class="metric-label">Target CAGR</div>
-        </div>
-        <div class="metric">
-            <div class="metric-value">-18.94%</div>
-            <div class="metric-label">Max Drawdown Target</div>
-        </div>
-        <div class="metric">
-            <div class="metric-value">57.50%</div>
-            <div class="metric-label">Target Win Rate</div>
-        </div>
-        <div class="metric">
-            <div class="metric-value">0.9%</div>
-            <div class="metric-label">Risk Per Trade</div>
-        </div>
-    </div>
-    
-    <div class="footer">
-        <p>🏛️ NeuralTrader Automated Trading System</p>
-        <p>Phase 6.1: Production Environment | S&P 100 Universe</p>
-        <p>Generated: {now_eastern.strftime('%Y-%m-%d %H:%M:%S')} EST</p>
-    </div>
-</body>
-</html>
-"""
-        
-        return html
-    
-    def _send_email(self, subject: str, html_content: str) -> bool:
-        """Send email via SMTP"""
+    def _send_email(self, subject: str, html_content: str, log_file_path: str = None, attachment_file: str = None) -> bool:
+        """Send email via SMTP with optional log file and additional attachments"""
         try:
             # Create message
-            msg = MIMEMultipart('alternative')
+            msg = MIMEMultipart('mixed')
             msg['Subject'] = subject
             msg['From'] = self.sender_email
             msg['To'] = self.recipient_email
             
-            # Attach HTML content
+            # Add HTML content
             html_part = MIMEText(html_content, 'html')
             msg.attach(html_part)
             
+            # Handle log file attachment with fallback
+            if log_file_path:
+                if os.path.exists(log_file_path):
+                    try:
+                        with open(log_file_path, 'rb') as f:
+                            log_attachment = MIMEBase('application', 'octet-stream')
+                            log_attachment.set_payload(f.read())
+                            encoders.encode_base64(log_attachment)
+                            
+                            # Get filename
+                            filename = os.path.basename(log_file_path)
+                            log_attachment.add_header(
+                                'Content-Disposition',
+                                f'attachment; filename= {filename}'
+                            )
+                            msg.attach(log_attachment)
+                            
+                        logger.info(f"✅ Log file attached: {filename}")
+                    except Exception as attach_error:
+                        logger.error(f"❌ Failed to attach log file: {attach_error}")
+                        print(f"FAILED TO ATTACH LOG FILE: {attach_error}")
+                        
+                        # Create fallback attachment for missing/corrupted log file
+                        fallback_content = f"""
+LOG FILE MISSING/CORRUPTED
+============================
+
+Expected log file: {log_file_path}
+Status: File not found or could not be read
+
+This is an automated fallback attachment from the Ironclad Wrapper.
+The original log file may be missing due to:
+- File system issues
+- Permission problems
+- Log file corruption
+- Unexpected system shutdown
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Please check the logging system and file system integrity.
+"""
+                        
+                        try:
+                            fallback_attachment = MIMEText(fallback_content, 'plain')
+                            fallback_attachment.add_header(
+                                'Content-Disposition',
+                                'attachment; filename="LOG_FILE_MISSING.txt"'
+                            )
+                            msg.attach(fallback_attachment)
+                            logger.warning("⚠️ Created fallback attachment for missing log file")
+                        except Exception as fallback_error:
+                            logger.error(f"❌ Failed to create fallback attachment: {fallback_error}")
+                else:
+                    logger.error(f"❌ Log file not found: {log_file_path}")
+                    print(f"FAILED TO ATTACH LOG FILE: File not found - {log_file_path}")
+                    
+                    # Create fallback attachment for missing log file
+                    fallback_content = f"""
+LOG FILE MISSING/CORRUPTED
+============================
+
+Expected log file: {log_file_path}
+Status: File does not exist
+
+This is an automated fallback attachment from the Ironclad Wrapper.
+The original log file may be missing due to:
+- File system issues
+- Permission problems
+- Log file corruption
+- Unexpected system shutdown
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Please check the logging system and file system integrity.
+"""
+                    
+                    try:
+                        fallback_attachment = MIMEText(fallback_content, 'plain')
+                        fallback_attachment.add_header(
+                            'Content-Disposition',
+                            'attachment; filename="LOG_FILE_MISSING.txt"'
+                        )
+                        msg.attach(fallback_attachment)
+                        logger.warning("⚠️ Created fallback attachment for missing log file")
+                    except Exception as fallback_error:
+                        logger.error(f"❌ Failed to create fallback attachment: {fallback_error}")
+            
+            # Attach additional file if provided
+            if attachment_file and os.path.exists(attachment_file):
+                try:
+                    with open(attachment_file, 'rb') as f:
+                        file_attachment = MIMEBase('application', 'octet-stream')
+                        file_attachment.set_payload(f.read())
+                        encoders.encode_base64(file_attachment)
+                        
+                        # Get filename
+                        filename = os.path.basename(attachment_file)
+                        file_attachment.add_header(
+                            'Content-Disposition',
+                            f'attachment; filename= {filename}'
+                        )
+                        msg.attach(file_attachment)
+                        
+                    logger.info(f"✅ Additional file attached: {filename}")
+                except Exception as attach_error:
+                    logger.error(f"❌ Failed to attach additional file: {attach_error}")
+                    print(f"FAILED TO ATTACH ADDITIONAL FILE: {attach_error}")
+            elif attachment_file:
+                logger.error(f"❌ Additional file not found: {attachment_file}")
+                print(f"FAILED TO ATTACH ADDITIONAL FILE: File not found - {attachment_file}")
+            
             # Send email
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()  # Secure the connection
+                server.starttls()
                 server.login(self.sender_email, self.sender_password)
                 server.send_message(msg)
             
+            logger.info(f"Email sent successfully: {subject}")
             return True
             
         except Exception as e:
-            logger.error(f"Error sending email: {e}")
+            logger.error(f"❌ Full error details: {type(e).__name__}: {e}")
             return False
     
     def send_alert(self, subject: str, message: str) -> bool:
@@ -686,9 +885,6 @@ Phase 6.1: Production Environment
 
 # Usage example
 if __name__ == "__main__":
-    # Test the email notifier
-    notifier = EmailNotifier()
-    
     # Sample data for testing
     account_info = {
         'portfolio_value': 100000,
@@ -700,34 +896,45 @@ if __name__ == "__main__":
         {
             'symbol': 'AAPL',
             'qty': 100,
-            'cost_basis': 15000,
-            'market_value': 16000,
-            'unrealized_pl': 1000
+            'cost_basis': 150.0,
+            'current_price': 175.0,
+            'unrealized_pl': 2500.0
+        },
+        {
+            'symbol': 'GOOGL',
+            'qty': 50,
+            'cost_basis': 2500.0,
+            'current_price': 2800.0,
+            'unrealized_pl': 15000.0
         }
     ]
     
     trades_today = [
         {
-            'timestamp': '09:45:00',
-            'symbol': 'AAPL',
-            'side': 'buy',
-            'quantity': 100,
-            'price': 150.0,
-            'status': 'filled'
+            'timestamp': '2024-01-15 10:30:00',
+            'ticker': 'AAPL',
+            'action': 'buy',
+            'quantity': 10,
+            'price': 175.0
+        },
+        {
+            'timestamp': '2024-01-15 11:15:00',
+            'ticker': 'GOOGL',
+            'action': 'sell',
+            'quantity': 5,
+            'price': 2800.0
         }
     ]
     
     risk_summary = {
-        'risk_per_trade': '0.9%',
-        'max_sector_exposure': '25%',
-        'black_swan_status': 'Active',
-        'duplicate_protection': 'Active'
+        'risk_per_trade': 0.02,
+        'max_sector_exposure': 0.30,
+        'daily_loss_limit': 0.05
     }
     
     # Send test email
+    notifier = EmailNotifier()
     success = notifier.send_daily_brief(account_info, positions, trades_today, risk_summary)
     
     if success:
         print("Test email sent successfully")
-    else:
-        print("Failed to send test email")

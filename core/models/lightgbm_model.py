@@ -46,7 +46,9 @@ class LightGBMModel(BaseCPUModel):
         """Make probability predictions"""
         if isinstance(X, pd.DataFrame):
             if hasattr(self, 'feature_names'):
-                X = X[self.feature_names].values
+                # Keep as DataFrame with proper column names for LightGBM
+                X = X[self.feature_names]
             else:
-                X = X.values
+                # Keep as DataFrame with original column names
+                pass  # X is already a DataFrame
         return self.model.predict_proba(X)

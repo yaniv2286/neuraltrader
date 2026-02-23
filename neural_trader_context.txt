@@ -1,3 +1,199 @@
+=========================================
+NEURALTRADER SYSTEM CONTEXT DUMP
+=========================================
+
+### 1. DIRECTORY TREE ###
+NeuralTrader/
+    .env
+    .gitignore
+    .windsurfrules
+    calculate_cagr.py
+    debug_sentiment_data.json
+    main_orchestrator_ist.py
+    neural_trader_context.txt
+    pyproject.toml
+    requirements.txt
+    analysis_results/
+        sentiment_performance_20260220_195939.json
+        sentiment_performance_20260220_202627.json
+        sentiment_performance_20260220_204720.json
+        sentiment_performance_20260220_211712.json
+    config/
+        sector_map.json
+        tickers.txt
+    core/
+        __init__.py
+        ai_models.py
+        backtesting.py
+        base_cpu_model.py
+        config.py
+        data_loader.py
+        feature_engineer.py
+        ibkr_engine.py
+        indicators.py
+        integrity.py
+        lightgbm_model.py
+        random_forest_model.py
+        ranker.py
+        regime.py
+        sentiment_feature_engineer.py
+        strategy.py
+        xgboost_model.py
+    data/
+        market_filters.json
+        portfolio.json
+        cache/
+            tiingo/
+        fred_cache/
+            info_UNRATE.json
+        processed/
+            feature_metadata.json
+        raw/
+    docs/
+        ARCHITECTURE.md
+        ROADMAP.md
+    reports/
+        dashboard_20260212_153536.html
+        dashboard_20260212_153550.html
+        dashboard_20260212_154652.html
+        dashboard_20260212_154712.html
+        dashboard_20260212_155641.html
+        dashboard_20260212_155859.html
+        dashboard_20260212_160039.html
+        dashboard_20260212_160218.html
+        dashboard_20260212_160236.html
+        dashboard_20260212_180007.html
+        dashboard_20260212_183323.html
+        dashboard_20260213_111820.html
+        dashboard_20260213_180007.html
+        dashboard_20260214_180007.html
+        dashboard_20260215_180017.html
+        dashboard_20260216_180006.html
+        dashboard_20260217_180009.html
+        dashboard_20260218_180009.html
+        dashboard_20260219_180008.html
+        dashboard_20260220_143754.html
+        dashboard_20260220_143821.html
+        dashboard_20260220_180008.html
+        dashboard_20260221_180025.html
+        dashboard_20260222_180025.html
+        dashboard_20260223_180025.html
+        dashboard_20260223_203333.html
+        dashboard_20260223_203705.html
+        dashboard_20260223_203824.html
+        dashboard_20260223_203857.html
+        dashboard_20260223_204707.html
+        dashboard_20260223_205049.html
+        dashboard_20260223_205138.html
+        dashboard_20260223_205204.html
+        dashboard_20260223_205234.html
+        dashboard_20260223_205323.html
+        feature_importance_modern_20260210_221624.png
+        shield_audit_20260210_202546.png
+        shield_audit_20260210_202943.png
+        shield_audit_modern_20260210_202908.png
+        shield_audit_modern_20260210_221835.png
+        top_3_configs_20260210_072219.json
+        top_3_configs_20260210_072709.json
+        backtests/
+            titan_top_3_20260210_192830.json
+            top_3_configs_20260210_073250.json
+            top_3_configs_20260210_073857.json
+            top_3_configs_20260210_074347.json
+            top_3_configs_20260210_074916.json
+            top_3_configs_20260210_075426.json
+            top_3_configs_20260210_080426.json
+    scripts/
+        backtest_sentiment_vs_baseline.py
+        build_universe.py
+        create_sector_map.py
+        create_tasks.ps1
+        data_manager.py
+        email_notifier_upgrade_summary.md
+        email_sync_summary.md
+        generate_system_context.py
+        html_dashboard_summary.md
+        log_attachment_bug_fix_summary.md
+        manual_dry_run.py
+        persistent_portfolio_summary.md
+        pipeline_rebuild_report.md
+        pre_flight_check.py
+        rebuild_pipeline.ps1
+        report_generator.py
+        report_mode_fix_summary.md
+        reporting_bugs_fix_summary.md
+        reporting_email_fix_summary.md
+        reset_tasks.ps1
+        retrain_all_models_with_sentiment.py
+        retrain_ensemble.py
+        retrain_ensemble_with_sentiment.py
+        run_system_live.py
+        sanity_check_pipeline.py
+        sector_rotation.py
+        send_html_report.py
+        send_report.py
+        sentiment_performance_analysis.py
+        setup_automation.bat
+        standardization_report.md
+        standardize_pipeline.ps1
+        start_paper_trading.bat
+        task_setup_report.md
+        test_orchestrator_integration.py
+        test_sector_rotation.py
+        test_system.py
+        universal_alpha_scorecard.py
+        verify_performance.py
+        verify_tasks.ps1
+        archive/
+            20260210_Cleanup/
+                executive_briefing.py
+                generate_brain_dump.py
+                visualize_shield.py
+        setup/
+            run_neural_venv.bat
+            run_production.sh
+    src/
+        __init__.py
+        execution/
+            __init__.py
+            high_perf_simulator.py
+            historian.py
+            live_ranker.py
+            parallel_simulator.py
+            risk_manager.py
+            simulation_utils.py
+            vxx_gate.py
+        features/
+            __init__.py
+            feature_engineer.py
+        sentiment/
+            __init__.py
+            base_sentiment.py
+            sentiment_integration.py
+            economic/
+                __init__.py
+                economic_analyzer.py
+                economic_indicators.py
+                fred_integration.py
+            news/
+                __init__.py
+                news_processor.py
+                news_sentiment_analyzer.py
+                news_sources.py
+            social/
+                __init__.py
+                social_processor.py
+                social_sentiment_analyzer.py
+                social_sources.py
+        utils/
+            __init__.py
+            notifier.py
+
+=========================================
+
+### 2. CORE SOURCE CODE ###
+
+--- FILE: main_orchestrator_ist.py ---
 """
 NeuralTrader Main Orchestrator - Master Runner for Task Scheduler
 ===============================================================
@@ -2354,3 +2550,2197 @@ This is an automated daily report from the Ironclad Wrapper.
 
 if __name__ == "__main__":
     main()
+
+--- FILE: core/notifier.py ---
+[FILE NOT FOUND]
+
+--- FILE: core/live_ranker.py ---
+[FILE NOT FOUND]
+
+--- FILE: scripts/report_generator.py ---
+#!/usr/bin/env python3
+"""
+NeuralTrader HTML Dashboard Report Generator
+Creates high-fidelity HTML dashboard with professional styling
+"""
+
+import os
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class HTMLDashboardGenerator:
+    """High-fidelity HTML dashboard generator for NeuralTrader"""
+    
+    def __init__(self, portfolio_file: str = "data/portfolio.json"):
+        self.portfolio_file = portfolio_file
+        self.project_root = Path(__file__).parent.parent
+        
+    def generate_dashboard(self, 
+                         buy_signals: List[str] = None,
+                         sell_signals: List[str] = None, 
+                         hold_signals: List[str] = None,
+                         trades_executed: List[Dict] = None) -> str:
+        """Generate comprehensive HTML dashboard"""
+        
+        # Load portfolio data
+        portfolio_data = self._load_portfolio_data()
+        
+        # Calculate metrics
+        metrics = self._calculate_portfolio_metrics(portfolio_data)
+        
+        # Generate HTML
+        html_content = self._create_html_dashboard(
+            portfolio_data, 
+            metrics, 
+            buy_signals or [],
+            sell_signals or [],
+            hold_signals or [],
+            trades_executed or []
+        )
+        
+        # Save HTML file
+        html_file = self.project_root / "reports" / f"dashboard_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        html_file.parent.mkdir(exist_ok=True)
+        
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        logger.info(f"HTML Dashboard generated: {html_file}")
+        return str(html_file)
+    
+    def _load_portfolio_data(self) -> Dict:
+        """Load portfolio data from JSON file"""
+        try:
+            portfolio_path = self.project_root / self.portfolio_file
+            if not portfolio_path.exists():
+                logger.error(f"Portfolio file not found: {portfolio_path}")
+                return self._get_error_portfolio("FILE_NOT_FOUND")
+            
+            with open(portfolio_path, 'r') as f:
+                data = json.load(f)
+                
+            # Validate portfolio structure
+            if not isinstance(data, dict) or 'cash' not in data:
+                logger.error(f"Invalid portfolio structure in: {portfolio_path}")
+                return self._get_error_portfolio("INVALID_STRUCTURE")
+                
+            return data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in portfolio file: {e}")
+            return self._get_error_portfolio("JSON_DECODE_ERROR")
+        except Exception as e:
+            logger.error(f"Error loading portfolio data: {e}")
+            return self._get_error_portfolio("READ_ERROR")
+    
+    def _get_error_portfolio(self, error_type: str) -> Dict:
+        """Return error portfolio structure for reporting"""
+        return {
+            'cash': 0.0,
+            'positions': {},
+            'performance': {
+                'total_value': 0.0,
+                'total_return': 0.0,
+                'total_return_pct': 0.0
+            },
+            'error': {
+                'type': error_type,
+                'message': f"CRITICAL ERROR: portfolio.json could not be read. State unknown."
+            }
+        }
+    
+    def _calculate_portfolio_metrics(self, portfolio_data: Dict) -> Dict:
+        """Calculate portfolio metrics in real-time"""
+        # Check for error condition
+        if 'error' in portfolio_data:
+            return {
+                'cash': 0.0,
+                'market_value': 0.0,
+                'total_value': 0.0,
+                'total_return': 0.0,
+                'total_return_pct': 0.0,
+                'position_count': 0,
+                'max_positions': 10,
+                'error': portfolio_data['error']
+            }
+        
+        cash = portfolio_data.get('cash', 0.0)
+        positions = portfolio_data.get('positions', {})
+        
+        # Calculate real-time market value using actual current prices from portfolio.json
+        market_value = 0.0
+        for ticker, position in positions.items():
+            shares = position.get('shares', 0)
+            current_price = position.get('current_price', 0)
+            market_value += shares * current_price
+        
+        # Calculate real-time total value and return
+        total_value = cash + market_value
+        initial_cash = 100000.0  # Initial starting capital
+        total_return = total_value - initial_cash
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0
+        
+        position_count = len(positions)
+        max_positions = 10  # NeuralTrader max positions
+        
+        return {
+            'cash': cash,
+            'market_value': market_value,
+            'total_value': total_value,
+            'total_return': total_return,
+            'total_return_pct': total_return_pct,
+            'position_count': position_count,
+            'max_positions': max_positions
+        }
+    
+    def _create_html_dashboard(self, 
+                              portfolio_data: Dict,
+                              metrics: Dict,
+                              buy_signals: List[str],
+                              sell_signals: List[str],
+                              hold_signals: List[str],
+                              trades_executed: List[Dict]) -> str:
+        """Create HTML dashboard content"""
+        
+        # Generate positions table
+        positions_html = self._create_positions_table(portfolio_data)
+        
+        # Generate market activity section
+        market_activity_html = self._create_market_activity_section(
+            buy_signals, sell_signals, hold_signals, trades_executed
+        )
+        
+        html_template = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuralTrader Dashboard - {datetime.now().strftime('%Y-%m-%d')}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }}
+        
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        
+        .header {{
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }}
+        
+        .header h1 {{
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }}
+        
+        .header .subtitle {{
+            font-size: 1.1em;
+            opacity: 0.8;
+        }}
+        
+        .executive-summary {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }}
+        
+        .metric-card {{
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }}
+        
+        .metric-card:hover {{
+            transform: translateY(-5px);
+        }}
+        
+        .metric-label {{
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }}
+        
+        .metric-value {{
+            font-size: 2em;
+            font-weight: bold;
+            color: #2c3e50;
+        }}
+        
+        .positive {{
+            color: #27ae60 !important;
+        }}
+        
+        .negative {{
+            color: #e74c3c !important;
+        }}
+        
+        .content {{
+            padding: 30px;
+        }}
+        
+        .section-title {{
+            font-size: 1.8em;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #3498db;
+        }}
+        
+        .positions-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }}
+        
+        .positions-table th {{
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.9em;
+            letter-spacing: 1px;
+        }}
+        
+        .positions-table td {{
+            padding: 15px;
+            border-bottom: 1px solid #ecf0f1;
+        }}
+        
+        .positions-table tr:hover {{
+            background: #f8f9fa;
+        }}
+        
+        .market-activity {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }}
+        
+        .activity-card {{
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }}
+        
+        .activity-card h3 {{
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }}
+        
+        .signal-list {{
+            list-style: none;
+        }}
+        
+        .signal-list li {{
+            padding: 8px 0;
+            border-bottom: 1px solid #ecf0f1;
+        }}
+        
+        .signal-list li:last-child {{
+            border-bottom: none;
+        }}
+        
+        .buy {{
+            color: #27ae60;
+            font-weight: bold;
+        }}
+        
+        .sell {{
+            color: #e74c3c;
+            font-weight: bold;
+        }}
+        
+        .hold {{
+            color: #f39c12;
+            font-weight: bold;
+        }}
+        
+        .footer {{
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            font-size: 0.9em;
+        }}
+        
+        @media (max-width: 768px) {{
+            .container {{
+                margin: 10px;
+                border-radius: 10px;
+            }}
+            
+            .header {{
+                padding: 20px;
+            }}
+            
+            .header h1 {{
+                font-size: 2em;
+            }}
+            
+            .executive-summary {{
+                padding: 20px;
+                grid-template-columns: 1fr;
+            }}
+            
+            .content {{
+                padding: 20px;
+            }}
+            
+            .positions-table {{
+                font-size: 0.9em;
+            }}
+            
+            .positions-table th,
+            .positions-table td {{
+                padding: 10px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 NeuralTrader Dashboard</h1>
+            <div class="subtitle">Algorithmic Trading Performance Report</div>
+            <div class="subtitle">{datetime.now().strftime('%B %d, %Y at %I:%M %p')}</div>
+        </div>
+        
+        <div class="executive-summary">
+            {'<div class="metric-card error-card" style="background: #ffebee; border: 2px solid #f44336;">' if 'error' in metrics else ''}
+            <div class="metric-card">
+                <div class="metric-label">Portfolio Value</div>
+                <div class="metric-value">${metrics['total_value']:,.2f}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Total Return</div>
+                <div class="metric-value {'positive' if metrics['total_return'] >= 0 else 'negative'}">
+                    ${metrics['total_return']:,.2f}
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Total Return %</div>
+                <div class="metric-value {'positive' if metrics['total_return_pct'] >= 0 else 'negative'}">
+                    {metrics['total_return_pct']:.2f}%
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Available Cash</div>
+                <div class="metric-value">${metrics['cash']:,.2f}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Position Count</div>
+                <div class="metric-value">{metrics['position_count']}</div>
+            </div>
+            {'</div>' if 'error' in metrics else ''}
+        </div>
+        
+        {'<div class="error-message" style="background: #ffebee; border: 2px solid #f44336; padding: 20px; margin: 20px; border-radius: 10px; text-align: center;">' if 'error' in metrics else ''}
+        {'<h2 style="color: #d32f2f;">CRITICAL ERROR: portfolio.json could not be read</h2>' if 'error' in metrics else ''}
+        {'<p style="color: #d32f2f;">' if 'error' in metrics else ''}
+        {'State unknown. Please check the portfolio file system.' if 'error' in metrics else ''}
+        {'<p><strong>Error Type:</strong> ' + metrics['error']['type'] + '</p>' if 'error' in metrics else ''}
+        {'<p><strong>Message:</strong> ' + metrics['error']['message'] + '</p>' if 'error' in metrics else ''}
+        {'</div>' if 'error' in metrics else ''}
+        
+        <div class="content">
+            <h2 class="section-title">📊 Current Holdings</h2>
+            {positions_html}
+            
+            <h2 class="section-title">📈 Market Activity</h2>
+            {market_activity_html}
+        </div>
+        
+        <div class="footer">
+            <div>NeuralTrader Automated Trading System v5.0</div>
+            <div>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Sector Authority Active</div>
+        </div>
+    </div>
+</body>
+</html>
+        """
+        
+        return html_template
+    
+    def _create_positions_table(self, portfolio_data: Dict) -> str:
+        """Create HTML table for positions"""
+        positions = portfolio_data.get('positions', {})
+        
+        if not positions:
+            return "<p>No active positions</p>"
+        
+        rows_html = ""
+        for ticker, pos_data in positions.items():
+            # Use the correct keys from portfolio.json
+            shares = pos_data.get('shares', 0)
+            cost_basis = pos_data.get('cost_basis', 0)
+            current_price = pos_data.get('current_price', 0)
+            
+            # Calculate derived values
+            market_value = shares * current_price
+            total_cost_basis = shares * cost_basis
+            gain_loss = market_value - total_cost_basis
+            gain_loss_pct = (gain_loss / total_cost_basis * 100) if total_cost_basis > 0 else 0
+            
+            color_class = 'positive' if gain_loss_pct >= 0 else 'negative'
+            
+            rows_html += f"""
+            <tr>
+                <td><strong>{ticker}</strong></td>
+                <td>{shares}</td>
+                <td>${cost_basis:.2f}</td>
+                <td>${current_price:.2f}</td>
+                <td>${market_value:.2f}</td>
+                <td>${gain_loss:.2f}</td>
+                <td class="{color_class}">{gain_loss_pct:.2f}%</td>
+            </tr>
+            """
+        
+        return f"""
+        <table class="positions-table">
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Shares</th>
+                    <th>Cost Basis</th>
+                    <th>Current Price</th>
+                    <th>Market Value</th>
+                    <th>Gain/Loss</th>
+                    <th>Gain/Loss %</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+        """
+    
+    def _create_market_activity_section(self, buy_signals: List[str],
+                                      sell_signals: List[str],
+                                      hold_signals: List[str],
+                                      trades_executed: List[Dict]) -> str:
+        """Create market activity section"""
+        
+        buy_html = ""
+        for signal in buy_signals:
+            buy_html += f'<li class="buy">📈 BUY: {signal}</li>'
+        
+        sell_html = ""
+        for signal in sell_signals:
+            sell_html += f'<li class="sell">📉 SELL: {signal}</li>'
+        
+        hold_html = ""
+        for signal in hold_signals:
+            hold_html += f'<li class="hold">⏸️ HOLD: {signal}</li>'
+        
+        trades_html = ""
+        for trade in trades_executed:
+            ticker = trade.get('ticker', 'Unknown')
+            action = trade.get('action', 'Unknown')
+            quantity = trade.get('quantity', 0)
+            price = trade.get('price', 0)
+            trades_html += f'<li>{action.upper()} {quantity} shares of {ticker} @ ${price:.2f}</li>'
+        
+        return f"""
+        <div class="market-activity">
+            <div class="activity-card">
+                <h3>🟢 Buy Signals</h3>
+                <ul class="signal-list">
+                    {buy_html if buy_html else '<li>No buy signals today</li>'}
+                </ul>
+            </div>
+            
+            <div class="activity-card">
+                <h3>🔴 Sell Signals</h3>
+                <ul class="signal-list">
+                    {sell_html if sell_html else '<li>No sell signals today</li>'}
+                </ul>
+            </div>
+            
+            <div class="activity-card">
+                <h3>🟡 Hold Signals</h3>
+                <ul class="signal-list">
+                    {hold_html if hold_html else '<li>No hold signals today</li>'}
+                </ul>
+            </div>
+            
+            <div class="activity-card">
+                <h3>💼 Trades Executed</h3>
+                <ul class="signal-list">
+                    {trades_html if trades_html else '<li>No trades executed today</li>'}
+                </ul>
+            </div>
+        </div>
+        """
+    
+    def get_today_log_file(self) -> Optional[str]:
+        """Get today's log file path"""
+        today = datetime.now().strftime('%Y-%m-%d')
+        log_file = self.project_root / "logs" / f"NeuralTrader_{today}.log"
+        
+        if log_file.exists():
+            return str(log_file)
+        return None
+
+def main():
+    """Command line interface for HTML dashboard generation"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='NeuralTrader HTML Dashboard Generator')
+    parser.add_argument('--portfolio-file', type=str, default='data/portfolio.json',
+                       help='Portfolio JSON file path')
+    parser.add_argument('--output-dir', type=str, default='reports',
+                       help='Output directory for HTML dashboard')
+    
+    args = parser.parse_args()
+    
+    # Generate dashboard
+    generator = HTMLDashboardGenerator(args.portfolio_file)
+    dashboard_file = generator.generate_dashboard()
+    
+    print(f"\n🎉 HTML Dashboard generated successfully!")
+    print(f"📁 Dashboard: {dashboard_file}")
+
+if __name__ == "__main__":
+    main()
+
+--- FILE: docs/ARCHITECTURE.md ---
+# 🏛️ NEURALTRADER: INSTITUTIONAL ARCHITECTURE (v5.5)
+**Status:** PRODUCTION READY - Complete Model Retraining with Real Sentiment Data (Phase 10.1)
+**Last Updated:** February 23, 2026
+
+## 🎯 PHASE 10.1 ACHIEVEMENT: COMPLETE MODEL RETRAINING SUCCESS
+
+### **✅ MAJOR SUCCESS: ALL MODELS RETRAINED WITH REAL SENTIMENT DATA**
+- **✅ Model Retraining Complete**: XGBoost, LightGBM, Random Forest, Ensemble
+- **✅ Real Economic Sentiment**: Federal Reserve data fully integrated
+- **✅ Real News Sentiment**: Financial news from major sources integrated  
+- **✅ Massive Dataset**: 14.6 million training samples, 2,182 tickers
+- **✅ Enhanced Features**: 76 features (64 technical + 12 sentiment)
+- **✅ Production Models**: All models saved and ready for deployment
+
+### **📊 MODEL RETRAINING RESULTS**
+```
+✅ Training Data: 14,626,136 samples with real sentiment features
+✅ Coverage: 2,182/2,183 tickers successfully processed
+✅ Features: 76 enhanced features (64 technical + 12 real sentiment)
+✅ Model Performance: 53.5% accuracy, 0.55 AUC (consistent across all models)
+✅ Models Saved: Timestamped production models ready for deployment
+```
+
+### **🚀 SENTIMENT INTEGRATION ARCHITECTURE**
+- **Economic Analyzer**: Real Federal Reserve data processing (31/35 indicators successful)
+- **News Analyzer**: Real financial news sentiment analysis (fallback to mock when API limited)
+- **Sentiment Integration**: Unified sentiment scoring and regime detection
+- **Feature Engineering**: 76 features with real sentiment data integration
+- **Model Training**: All 4 models successfully trained with real sentiment features
+- **Production Ready**: Complete sentiment-enhanced trading models deployed
+
+## 🧠 1. CORE EXECUTION ENGINE
+* **Model:** Tri-Model AI Ensemble (XGBoost, LightGBM, Random Forest) with Real Sentiment Features
+* **Threshold:** High-Conviction Alpha (Entry > 0.60) enhanced with sentiment signals
+* **Universe:** Modern Era Universe (2,183 Tickers, 2000-Present) with sentiment intelligence
+* **Sentiment Enhancement**: Real economic + news + social sentiment integrated into decision-making
+
+## 🛡️ 2. CORE RISK MODULES (v5.1)
+* **Sector Authority:** Dynamic sector momentum analysis with 15% tax on bottom 3 sectors.
+* **Global Volatility Gate:** VXX Bollinger Band shield (entries blocked if VXX > Upper BB).
+* **Primary Regime Filter:** Weekly Breakdown Shield (Exit if Close < previous 5-day minimum low).
+* **Emergency Stop Loss:** Fixed ATR 5.0 (Volatility-Adjusted Floor).
+* **Take Profit:** Trend Extension Mode (No static TP; winners run until Shield/ATR trigger).
+* **Fail-Fast Guard:** Data Freshness Sentinel mandatory check before every execution.
+
+### **� SECTOR AUTHORITY INTEGRATION**
+```python
+# Import and Initialization
+from scripts.sector_rotation import SectorAuthority
+self.sector_auth = SectorAuthority()
+
+# Global Volatility Gate (Red Light)
+if self.sector_auth.check_global_stop():
+    self.logger.error("[STOP] GLOBAL VOLATILITY CEILING BREACHED (VXX). Freezing all new entries.")
+    allow_buys = False
+
+# Sector Analysis & Tax Application
+sector_ranks = self.sector_auth.get_sector_momentum()
+# Apply 15% tax to bottom 3 weakest sectors
+```
+
+## �🚨 3. INSTITUTIONAL RISK MACHINE (Phase 9.5)
+* **Portfolio Circuit Breaker (Uncle Point):** Trading HALT at 12% drawdown with 8-day cooldown.
+* **Real Volatility Inverse Sizing:** Mathematical position allocation using real market data (20-day returns, annualized volatility).
+* **Hysteresis Rule (Anti-Whipsaw):** 15% AI score premium required for position swaps at max capacity.
+* **Peak Portfolio Tracking:** Continuous monitoring of portfolio peak value for drawdown calculations.
+* **Risk-Based Position Sizing:** 1% risk per trade with real volatility-weighted allocations (1/σ weighting).
+* **Concentration Analysis:** Real-time monitoring of position concentration risk.
+* **Data Source:** Real volatility calculated from `data/raw/{ticker}.parquet` files (20-day returns, √252 annualization).
+* **Allocation Logic:** Low volatility stocks (e.g., GOOGL 18.46%) get MORE capital, high volatility (e.g., MSFT 43.38%) get LESS.
+
+## 📊 4. PERFORMANCE METRICS (v5.2)
+* **CAGR:** 34.3% (Sector Tax + Volatility Gate Optimized)
+* **Max Drawdown:** -20.8% (Within 20% Risk Policy)
+* **Universe:** 217 Tickers | 1.28M Rows (Modern Era Data)
+* **Strategy:** Sector Authority Active (15% Tax on Bottom 3 Sectors)
+* **Sector Tax:** 15% penalty applied to tickers in bottom 3 weakest sectors
+* **Volatility Shield:** VXX Bollinger Band logic prevents entries during extreme volatility
+* **Risk Management:** Circuit Breaker at 12% DD, Hysteresis at 15% premium, Real Inverse Vol sizing
+* **Volatility Sizing:** Real market volatility (18.46% - 43.38% range) with mathematical 1/σ weighting
+* **Data Integration:** Real volatility from parquet files, no fallback defaults
+
+### **Current Performance Metrics (Phase 10.1 Complete)**
+* **Real Economic Data**: Federal Reserve indicators (31/35 successfully integrated)
+* **Real News Data**: Financial news from major sources with API integration
+* **Model Performance**: XGBoost 53.5%, LightGBM 53.5%, Random Forest 53.2% (with real sentiment)
+* **Features**: 76 total features (64 technical + 12 sentiment)
+* **Training Samples**: 14.6M samples with real sentiment data
+* **Expected Improvement**: 2.5-5% accuracy improvement, 2-4% CAGR improvement
+* **Sentiment Intelligence**: Real economic context + news awareness
+* **Production Status**: Ready for deployment with complete real sentiment intelligence
+
+## 🏗️ 5. SYSTEM ARCHITECTURE (CODEMAP v4.5)
+
+### **📁 CORE DIRECTORY STRUCTURE**
+```
+NeuralTrader/
+├── core/                    # Core trading engine
+│   ├── ai_models.py        # AI model ensemble
+│   ├── indicators.py       # Technical indicators
+│   ├── feature_engineer.py # Feature generation
+│   └── sentiment_feature_engineer.py # Sentiment-enhanced features
+├── src/sentiment/          # Sentiment analysis modules
+│   ├── economic/           # FRED economic data
+│   ├── news/              # Financial news sentiment
+│   └── social/            # Social media sentiment
+├── scripts/               # Utility scripts
+│   ├── sector_rotation.py # Sector Authority
+│   └── retrain_all_models_with_sentiment.py # Model training
+├── main_orchestrator_ist.py # Main execution engine
+└── data/raw/              # Market data (parquet files)
+```
+
+### **🔧 KEY COMPONENTS**
+- **AI Models**: XGBoost, LightGBM, Random Forest with sentiment features
+- **Feature Engineering**: 64 technical + 12 sentiment features
+- **Risk Management**: Sector Authority + Volatility Gates + Circuit Breakers
+- **Data Pipeline**: Real-time market data + sentiment feeds
+- **Execution Engine**: Paper trading with institutional risk controls
+
+## 📈 6. PHASE 10: SENTIMENT INTEGRATION (v5.3) 🎉 COMPLETED
+
+### **Dynamic Sector-Based Exits ✅ IMPLEMENTED**
+- **Adaptive Exit Logic**: 4-tier exit system based on sector performance percentiles
+- **Sector Authority Integration**: Real-time sector momentum analysis
+- **Exit Priority**: Weekly Shield → Emergency Stop → Dynamic Sector Exit
+- **Coverage**: All 220 tickers mapped to 11 sectors
+- **Implementation**: Enhanced `evaluate_exit_conditions()` in `simulation_utils.py`
+
+### **Economic Data Integration ✅ IMPLEMENTED**
+- **FRED API Integration**: 35+ key economic indicators from Federal Reserve
+- **Macroeconomic Analysis**: GDP, unemployment, inflation, interest rates
+- **Sentiment Scoring**: Economic regime detection and market signals
+- **Market Intelligence**: Economic-based sector recommendations
+- **Implementation**: Complete `src/sentiment/economic/` module
+
+### **News Sentiment Analysis ✅ IMPLEMENTED**
+- **Real-Time Processing**: Financial news sentiment analysis
+- **Keyword Intelligence**: 50+ bullish/bearish/neutral financial terms
+- **Sector Analysis**: Automatic sector identification from news content
+- **Market Signals**: News-based equity bias and volatility expectations
+- **Implementation**: Complete `src/sentiment/news/` module
+
+### **Model Retraining with Sentiment ✅ IMPLEMENTED**
+- **Complete Retraining**: All 4 models retrained with real sentiment data
+- **Massive Dataset**: 14.6M training samples with sentiment features
+- **Enhanced Performance**: 53.5% accuracy with real sentiment intelligence
+- **Production Models**: Timestamped models ready for deployment
+- **Implementation**: `scripts/retrain_all_models_with_sentiment.py`
+
+## 🚀 7. PRODUCTION DEPLOYMENT
+
+### **🎯 DEPLOYMENT CHECKLIST**
+- [x] All models trained with real sentiment data
+- [x] Performance metrics validated (53.5% accuracy, 0.55 AUC)
+- [x] Risk management systems active (Sector Authority, Volatility Gates)
+- [x] Sentiment integration complete (Economic + News)
+- [x] Documentation consolidated and updated
+- [x] Production models saved with timestamps
+
+### **📊 EXPECTED PERFORMANCE**
+- **Accuracy Improvement**: 2.5-5% over baseline models
+- **CAGR Enhancement**: 2-4% improvement with sentiment intelligence
+- **Risk Management**: Enhanced with market sentiment awareness
+- **Sector Optimization**: Dynamic sector-based position sizing
+- **Volatility Control**: Real-time volatility gating and circuit breakers
+
+---
+
+**🎯 NEURALTRADER v5.5 - PRODUCTION READY WITH COMPLETE SENTIMENT INTELLIGENCE**  
+**📅 Last Updated: February 23, 2026**  
+**🚀 Status: Ready for Institutional Deployment**
+
+#### Social Media Signals ✅ IMPLEMENTED
+- **Multi-Platform Support**: Twitter, Reddit, StockTwits sentiment analysis
+- **Retail Intelligence**: Diamond hands, paper hands, HODL sentiment detection
+- **Crowd Wisdom**: Engagement-weighted sentiment scoring
+- **Stock-Specific**: Ticker-specific sentiment for major assets
+- **Implementation**: Complete `src/sentiment/social/` module
+
+#### Sentiment Integration Architecture
+- **Unified Interface**: `SentimentIntegration` class coordinates all sentiment sources
+- **Orchestrator Integration**: Enhanced `main_orchestrator_ist.py` with sentiment insights
+- **Report Enhancement**: Daily reports include comprehensive sentiment analysis
+- **Configuration**: Environment-based API key configuration
+- **Graceful Degradation**: System works without API keys
+
+#### Key Files Modified
+- `src/execution/simulation_utils.py`: Enhanced with dynamic sector exits
+- `main_orchestrator_ist.py`: Integrated sentiment analysis
+- `src/sentiment/`: Complete sentiment analysis module
+- Documentation: Updated with Phase 10 details
+
+#### Performance Impact
+- **Exit Intelligence**: Sector-aware position management
+- **Market Context**: Economic, news, and social media insights
+- **Risk Management**: Enhanced risk-adjusted return optimization
+- **Decision Quality**: Multi-factor sentiment integration
+
+#### Current System Metrics (Phase 10 Complete)
+- **CAGR**: 34.3% (Sector Tax + Volatility Gate + Sentiment Intelligence)
+- **Max Drawdown**: -20.8% (Within 20% Risk Policy)
+- **Universe**: 217 Tickers | 1.28M Rows (Modern Era Data)
+- **Strategy**: Sector Authority + Sentiment Integration Active
+- **Market Intelligence**: Economic + News + Social Media Analysis
+- **Exit Logic**: Weekly Shield + Emergency Stop + Dynamic Sector Exits
+
+## 📅 5. INSTITUTIONAL SCHEDULE (IST)
+* **16:05 (4:05 PM):** P1_DataSync - Daily candle capture.
+* **17:15 (5:15 PM):** P3_DailyExecution - Sector Analysis -> Volatility Check -> AI Scoring -> Risk Check -> Execution.
+* **18:00 (6:00 PM):** P4_DailyReport - Scorecard delivery.
+* **Sat 10:00 AM:** P2_WeeklyRetrain - Weekend model validation.
+
+## 📜 6. CO-FOUNDER PROTOCOLS
+* **No Silent Failures:** System must crash if data is stale or ATR fails to calculate.
+* **Sanitized Logs:** Standardized text tags [PASS], [FAIL], [SHIELD] for Unicode stability.
+* **Sector Discipline:** All trades must pass sector momentum filter before execution.
+* **Volatility Discipline:** Global volatility gate overrides all signals during market stress.
+* **Risk Discipline:** Circuit Breaker and Hysteresis rules are LAWS of the system - no overrides.
+* **Position Discipline:** Inverse volatility sizing is mandatory for all new positions.
+
+## 🔐 7. RISK MANAGEMENT LAWS (Active)
+* **Circuit Breaker Law:** Trading HALTS immediately at 12% portfolio drawdown. No exceptions.
+* **Hysteresis Law:** Position swaps require 15% AI score improvement over current holdings.
+* **Real Volatility Sizing Law:** New positions allocated by inverse volatility using real market data (20-day returns, √252 annualization).
+* **Data Source Law:** Volatility calculated from `data/raw/{ticker}.parquet` files, no fallback to defaults.
+* **Mathematical Allocation Law:** Low volatility stocks (e.g., GOOGL 18.46%) get MORE capital, high volatility (e.g., MSFT 43.38%) get LESS.
+* **Peak Tracking Law:** Portfolio peak value continuously monitored and persisted.
+* **Risk Per Trade Law:** Maximum 1% portfolio risk per trade enforced automatically.
+* **Concentration Law:** Position concentration monitored and logged in real-time.
+
+## 📁 8. SYSTEM ARCHITECTURE
+* **Core Engine:** `src/core/` - AI models, strategy logic, backtesting
+* **Risk Machine:** `src/execution/risk_manager.py` - Quant Risk Engine
+* **Portfolio Manager:** `main_orchestrator_ist.py` - MockVirtualEngine with persistence
+* **Data Pipeline:** `scripts/data_manager.py` - Unified data management
+* **Persistence:** `data/portfolio.json` - Portfolio state with risk tracking
+
+--- FILE: data/portfolio.json ---
+{
+  "cash": 3256.2144954223995,
+  "positions": {
+    "AAPL": {
+      "shares": 156,
+      "cost_basis": 175.5,
+      "current_price": 264.58
+    },
+    "AMZN": {
+      "shares": 1,
+      "cost_basis": 225.13491366577145,
+      "current_price": 210.11
+    },
+    "GOOGL": {
+      "shares": 82,
+      "cost_basis": 329.93662006508436,
+      "current_price": 314.98
+    },
+    "TSLA": {
+      "shares": 1,
+      "cost_basis": 399.3739811096191,
+      "current_price": 411.82
+    },
+    "NVDA": {
+      "shares": 46,
+      "cost_basis": 450.0,
+      "current_price": 189.82
+    },
+    "MSFT": {
+      "shares": 41,
+      "cost_basis": 425.2853658536584,
+      "current_price": 397.23
+    },
+    "ADBE": {
+      "shares": 2,
+      "cost_basis": 258.61,
+      "current_price": 258.61
+    }
+  },
+  "history": [
+    {
+      "timestamp": "2026-02-05T09:42:58.786581",
+      "ticker": "AAPL",
+      "side": "buy",
+      "quantity": 10,
+      "signal_price": 147.07,
+      "execution_price": 276.7664802246093,
+      "cost": 2767.664802246093,
+      "cash_before": 102767.66480224609,
+      "cash_after": 100000.0,
+      "notes": ""
+    },
+    {
+      "timestamp": "2026-02-05T16:45:44.213872",
+      "ticker": "AAPL",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 273.3800048828125,
+      "execution_price": 273.70843255615233,
+      "cost": 273.70843255615233,
+      "cash_before": 97506.04363031007,
+      "cash_after": 97232.33519775391,
+      "notes": "AI Signal: 0.83"
+    },
+    {
+      "timestamp": "2026-02-05T16:45:45.389550",
+      "ticker": "AMZN",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 224.8000030517578,
+      "execution_price": 225.13491366577145,
+      "cost": 225.13491366577145,
+      "cash_before": 97183.76167886352,
+      "cash_after": 96958.62676519775,
+      "notes": "AI Signal: 0.86"
+    },
+    {
+      "timestamp": "2026-02-05T16:45:46.511281",
+      "ticker": "GOOGL",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 322.8599853515625,
+      "execution_price": 323.182845336914,
+      "cost": 323.182845336914,
+      "cash_before": 97056.6746968689,
+      "cash_after": 96733.49185153199,
+      "notes": "AI Signal: 0.93"
+    },
+    {
+      "timestamp": "2026-02-05T16:45:47.660951",
+      "ticker": "META",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 665.5150146484375,
+      "execution_price": 666.1805296630858,
+      "cost": 666.1805296630858,
+      "cash_before": 97076.48953585817,
+      "cash_after": 96410.30900619508,
+      "notes": "AI Signal: 0.90"
+    },
+    {
+      "timestamp": "2026-02-05T16:45:48.364274",
+      "ticker": "TSLA",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 398.9053955078125,
+      "execution_price": 399.3739811096191,
+      "cost": 399.3739811096191,
+      "cash_before": 96143.5024576416,
+      "cash_after": 95744.12847653199,
+      "notes": "AI Signal: 0.77"
+    },
+    {
+      "timestamp": "2026-02-12T15:39:34.993837",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 5,
+      "price": 175.5,
+      "cost": 877.5,
+      "reason": "Test purchase",
+      "cash_before": 95344.75449542237,
+      "cash_after": 94467.25449542237
+    },
+    {
+      "timestamp": "2026-02-12T15:40:21.172692",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 3,
+      "price": 450.0,
+      "cost": 1350.0,
+      "reason": "Test NVDA purchase",
+      "cash_before": 94467.25449542237,
+      "cash_after": 93117.25449542237
+    },
+    {
+      "timestamp": "2026-02-12T15:40:46.314395",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 2,
+      "price": 425.0,
+      "cost": 850.0,
+      "reason": "Test MSFT purchase",
+      "cash_before": 93117.25449542237,
+      "cash_after": 92267.25449542237
+    },
+    {
+      "timestamp": "2026-02-12T15:40:46.314395",
+      "ticker": "META",
+      "action": "sell",
+      "quantity": 1,
+      "price": 675.0,
+      "proceeds": 675.0,
+      "reason": "Test META sale",
+      "cash_before": 92267.25449542237,
+      "cash_after": 92942.25449542237
+    },
+    {
+      "timestamp": "2026-02-12T15:56:35.941380",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 5,
+      "price": 175.5,
+      "cost": 877.5,
+      "reason": "Strong momentum",
+      "cash_before": 92942.25449542237,
+      "cash_after": 92064.75449542237
+    },
+    {
+      "timestamp": "2026-02-12T15:56:35.946301",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 3,
+      "price": 425.3,
+      "cost": 1275.9,
+      "reason": "Breakout pattern",
+      "cash_before": 92064.75449542237,
+      "cash_after": 90788.85449542238
+    },
+    {
+      "timestamp": "2026-02-12T17:15:11.810722",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 5,
+      "price": 175.5,
+      "cost": 877.5,
+      "reason": "Strong momentum",
+      "cash_before": 90788.85449542238,
+      "cash_after": 89911.35449542238
+    },
+    {
+      "timestamp": "2026-02-12T17:15:11.832750",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 3,
+      "price": 425.3,
+      "cost": 1275.9,
+      "reason": "Breakout pattern",
+      "cash_before": 89911.35449542238,
+      "cash_after": 88635.45449542238
+    },
+    {
+      "timestamp": "2026-02-13T11:24:39.170877",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 25,
+      "price": 175.5,
+      "cost": 4387.5,
+      "reason": "Strong momentum",
+      "cash_before": 88635.45449542238,
+      "cash_after": 84247.95449542238
+    },
+    {
+      "timestamp": "2026-02-13T11:24:39.190971",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 10,
+      "price": 425.3,
+      "cost": 4253.0,
+      "reason": "Breakout pattern",
+      "cash_before": 84247.95449542238,
+      "cash_after": 79994.95449542238
+    },
+    {
+      "timestamp": "2026-02-13T11:24:39.193968",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 13,
+      "price": 330.02,
+      "cost": 4290.26,
+      "reason": "Technical breakout",
+      "cash_before": 79994.95449542238,
+      "cash_after": 75704.69449542239
+    },
+    {
+      "timestamp": "2026-02-13T11:24:39.196968",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 9,
+      "price": 450.0,
+      "cost": 4050.0,
+      "reason": "AI signal strong",
+      "cash_before": 75704.69449542239,
+      "cash_after": 71654.69449542239
+    },
+    {
+      "timestamp": "2026-02-13T11:29:46.179494",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 24,
+      "price": 175.5,
+      "cost": 4212.0,
+      "reason": "Strong momentum",
+      "cash_before": 71654.69449542239,
+      "cash_after": 67442.69449542239
+    },
+    {
+      "timestamp": "2026-02-13T11:29:46.183127",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 4,
+      "price": 425.3,
+      "cost": 1701.2,
+      "reason": "Breakout pattern",
+      "cash_before": 67442.69449542239,
+      "cash_after": 65741.49449542239
+    },
+    {
+      "timestamp": "2026-02-13T11:29:46.183127",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 14,
+      "price": 330.02,
+      "cost": 4620.28,
+      "reason": "Technical breakout",
+      "cash_before": 65741.49449542239,
+      "cash_after": 61121.21449542239
+    },
+    {
+      "timestamp": "2026-02-13T11:29:46.183127",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 7,
+      "price": 450.0,
+      "cost": 3150.0,
+      "reason": "AI signal strong",
+      "cash_before": 61121.21449542239,
+      "cash_after": 57971.21449542239
+    },
+    {
+      "timestamp": "2026-02-13T17:15:16.704433",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 19,
+      "price": 175.5,
+      "cost": 3334.5,
+      "reason": "Strong momentum",
+      "cash_before": 57971.21449542239,
+      "cash_after": 54636.71449542239
+    },
+    {
+      "timestamp": "2026-02-13T17:15:16.729489",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 3,
+      "price": 425.3,
+      "cost": 1275.9,
+      "reason": "Breakout pattern",
+      "cash_before": 54636.71449542239,
+      "cash_after": 53360.81449542239
+    },
+    {
+      "timestamp": "2026-02-13T17:15:16.734489",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 11,
+      "price": 330.02,
+      "cost": 3630.22,
+      "reason": "Technical breakout",
+      "cash_before": 53360.81449542239,
+      "cash_after": 49730.59449542239
+    },
+    {
+      "timestamp": "2026-02-13T17:15:16.739513",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 6,
+      "price": 450.0,
+      "cost": 2700.0,
+      "reason": "AI signal strong",
+      "cash_before": 49730.59449542239,
+      "cash_after": 47030.59449542239
+    },
+    {
+      "timestamp": "2026-02-14T17:15:15.572197",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 15,
+      "price": 175.5,
+      "cost": 2632.5,
+      "reason": "Strong momentum",
+      "cash_before": 47030.59449542239,
+      "cash_after": 44398.09449542239
+    },
+    {
+      "timestamp": "2026-02-14T17:15:15.575106",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 3,
+      "price": 425.3,
+      "cost": 1275.9,
+      "reason": "Breakout pattern",
+      "cash_before": 44398.09449542239,
+      "cash_after": 43122.19449542239
+    },
+    {
+      "timestamp": "2026-02-14T17:15:15.577131",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 9,
+      "price": 330.02,
+      "cost": 2970.18,
+      "reason": "Technical breakout",
+      "cash_before": 43122.19449542239,
+      "cash_after": 40152.01449542239
+    },
+    {
+      "timestamp": "2026-02-14T17:15:15.581108",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 4,
+      "price": 450.0,
+      "cost": 1800.0,
+      "reason": "AI signal strong",
+      "cash_before": 40152.01449542239,
+      "cash_after": 38352.01449542239
+    },
+    {
+      "timestamp": "2026-02-15T17:15:17.219364",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 12,
+      "price": 175.5,
+      "cost": 2106.0,
+      "reason": "Strong momentum",
+      "cash_before": 38352.01449542239,
+      "cash_after": 36246.01449542239
+    },
+    {
+      "timestamp": "2026-02-15T17:15:17.227494",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 2,
+      "price": 425.3,
+      "cost": 850.6,
+      "reason": "Breakout pattern",
+      "cash_before": 36246.01449542239,
+      "cash_after": 35395.41449542239
+    },
+    {
+      "timestamp": "2026-02-15T17:15:17.232621",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 7,
+      "price": 330.02,
+      "cost": 2310.14,
+      "reason": "Technical breakout",
+      "cash_before": 35395.41449542239,
+      "cash_after": 33085.27449542239
+    },
+    {
+      "timestamp": "2026-02-15T17:15:17.236731",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 3,
+      "price": 450.0,
+      "cost": 1350.0,
+      "reason": "AI signal strong",
+      "cash_before": 33085.27449542239,
+      "cash_after": 31735.27449542239
+    },
+    {
+      "timestamp": "2026-02-16T17:15:11.786204",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 10,
+      "price": 175.5,
+      "cost": 1755.0,
+      "reason": "Strong momentum",
+      "cash_before": 31735.27449542239,
+      "cash_after": 29980.27449542239
+    },
+    {
+      "timestamp": "2026-02-16T17:15:11.806204",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 2,
+      "price": 425.3,
+      "cost": 850.6,
+      "reason": "Breakout pattern",
+      "cash_before": 29980.27449542239,
+      "cash_after": 29129.67449542239
+    },
+    {
+      "timestamp": "2026-02-16T17:15:11.809203",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 6,
+      "price": 330.02,
+      "cost": 1980.12,
+      "reason": "Technical breakout",
+      "cash_before": 29129.67449542239,
+      "cash_after": 27149.55449542239
+    },
+    {
+      "timestamp": "2026-02-16T17:15:11.812203",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 3,
+      "price": 450.0,
+      "cost": 1350.0,
+      "reason": "AI signal strong",
+      "cash_before": 27149.55449542239,
+      "cash_after": 25799.55449542239
+    },
+    {
+      "timestamp": "2026-02-17T17:15:19.253878",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 8,
+      "price": 175.5,
+      "cost": 1404.0,
+      "reason": "Strong momentum",
+      "cash_before": 25799.55449542239,
+      "cash_after": 24395.55449542239
+    },
+    {
+      "timestamp": "2026-02-17T17:15:19.253878",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 24395.55449542239,
+      "cash_after": 23970.254495422392
+    },
+    {
+      "timestamp": "2026-02-17T17:15:19.263959",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 5,
+      "price": 330.02,
+      "cost": 1650.1,
+      "reason": "Technical breakout",
+      "cash_before": 23970.254495422392,
+      "cash_after": 22320.154495422394
+    },
+    {
+      "timestamp": "2026-02-17T17:15:19.263959",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 2,
+      "price": 450.0,
+      "cost": 900.0,
+      "reason": "AI signal strong",
+      "cash_before": 22320.154495422394,
+      "cash_after": 21420.154495422394
+    },
+    {
+      "timestamp": "2026-02-17T21:33:35.754971",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T21:39:50.548179",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T21:47:56.199012",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T21:57:48.588371",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T21:58:30.535189",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T21:59:14.483475",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T22:16:48.546722",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-17T22:47:14.540593",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 37,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-18T17:15:21.337871",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 7,
+      "price": 175.5,
+      "cost": 1228.5,
+      "reason": "Strong momentum",
+      "cash_before": 21420.154495422394,
+      "cash_after": 20191.654495422394
+    },
+    {
+      "timestamp": "2026-02-18T17:15:21.342716",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 20191.654495422394,
+      "cash_after": 19766.354495422394
+    },
+    {
+      "timestamp": "2026-02-18T17:15:21.346124",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 4,
+      "price": 330.02,
+      "cost": 1320.08,
+      "reason": "Technical breakout",
+      "cash_before": 19766.354495422394,
+      "cash_after": 18446.274495422396
+    },
+    {
+      "timestamp": "2026-02-18T17:15:21.349124",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 2,
+      "price": 450.0,
+      "cost": 900.0,
+      "reason": "AI signal strong",
+      "cash_before": 18446.274495422396,
+      "cash_after": 17546.274495422396
+    },
+    {
+      "timestamp": "2026-02-19T11:50:00.375242",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 39,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x5.0)"
+    },
+    {
+      "timestamp": "2026-02-19T11:50:00.375242",
+      "ticker": "ACN",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 230.43,
+      "reason": "AI Score: 0.607"
+    },
+    {
+      "timestamp": "2026-02-19T11:50:00.375242",
+      "ticker": "ADBE",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 257.16,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T11:50:00.375242",
+      "ticker": "CRM",
+      "action": "BUY",
+      "quantity": 3,
+      "price": 185.0,
+      "reason": "AI Score: 0.605"
+    },
+    {
+      "timestamp": "2026-02-19T11:50:00.375242",
+      "ticker": "ILMN",
+      "action": "BUY",
+      "quantity": 4,
+      "price": 116.38,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T11:50:00.375242",
+      "ticker": "TMO",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 527.17,
+      "reason": "AI Score: 0.611"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "AMZN",
+      "action": "SELL",
+      "quantity": 1,
+      "price": 204.08,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 39,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "ACN",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 230.43,
+      "reason": "AI Score: 0.607"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "ADBE",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 257.16,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "CRM",
+      "action": "BUY",
+      "quantity": 3,
+      "price": 185.0,
+      "reason": "AI Score: 0.605"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "ILMN",
+      "action": "BUY",
+      "quantity": 4,
+      "price": 116.38,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:03:12.685099",
+      "ticker": "TMO",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 527.17,
+      "reason": "AI Score: 0.611"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.017308",
+      "ticker": "AMZN",
+      "action": "SELL",
+      "quantity": 1,
+      "price": 204.08,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.017308",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 39,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.017308",
+      "ticker": "ACN",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 230.43,
+      "reason": "AI Score: 0.607"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.017308",
+      "ticker": "ADBE",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 257.16,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.017308",
+      "ticker": "CRM",
+      "action": "BUY",
+      "quantity": 3,
+      "price": 185.0,
+      "reason": "AI Score: 0.605"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.018311",
+      "ticker": "ILMN",
+      "action": "BUY",
+      "quantity": 4,
+      "price": 116.38,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:04:09.018311",
+      "ticker": "TMO",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 527.17,
+      "reason": "AI Score: 0.611"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "AMZN",
+      "action": "SELL",
+      "quantity": 1,
+      "price": 204.08,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 39,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "ACN",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 230.43,
+      "reason": "AI Score: 0.607"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "ADBE",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 257.16,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "CRM",
+      "action": "BUY",
+      "quantity": 3,
+      "price": 185.0,
+      "reason": "AI Score: 0.605"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "ILMN",
+      "action": "BUY",
+      "quantity": 4,
+      "price": 116.38,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:05:16.312352",
+      "ticker": "TMO",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 527.17,
+      "reason": "AI Score: 0.611"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "AMZN",
+      "action": "SELL",
+      "quantity": 1,
+      "price": 204.08,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 39,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "ACN",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 230.43,
+      "reason": "AI Score: 0.607"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "ADBE",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 257.16,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "CRM",
+      "action": "BUY",
+      "quantity": 3,
+      "price": 185.0,
+      "reason": "AI Score: 0.605"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "ILMN",
+      "action": "BUY",
+      "quantity": 4,
+      "price": 116.38,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-19T12:09:56.408612",
+      "ticker": "TMO",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 527.17,
+      "reason": "AI Score: 0.611"
+    },
+    {
+      "timestamp": "2026-02-19T17:15:12.892984",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 5,
+      "price": 175.5,
+      "cost": 877.5,
+      "reason": "Strong momentum",
+      "cash_before": 17546.274495422396,
+      "cash_after": 16668.774495422396
+    },
+    {
+      "timestamp": "2026-02-19T17:15:12.921579",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 16668.774495422396,
+      "cash_after": 16243.474495422397
+    },
+    {
+      "timestamp": "2026-02-19T17:15:12.925578",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 3,
+      "price": 330.02,
+      "cost": 990.06,
+      "reason": "Technical breakout",
+      "cash_before": 16243.474495422397,
+      "cash_after": 15253.414495422398
+    },
+    {
+      "timestamp": "2026-02-19T17:15:12.930322",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 15253.414495422398,
+      "cash_after": 14803.414495422398
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "AMZN",
+      "action": "SELL",
+      "quantity": 1,
+      "price": 204.08,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "NVDA",
+      "action": "SELL",
+      "quantity": 40,
+      "price": 190.05,
+      "reason": "Emergency Stop (ATR x2.5)"
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "ACN",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 230.43,
+      "reason": "AI Score: 0.607"
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "ADBE",
+      "action": "BUY",
+      "quantity": 2,
+      "price": 257.16,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "CRM",
+      "action": "BUY",
+      "quantity": 3,
+      "price": 185.0,
+      "reason": "AI Score: 0.605"
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "ILMN",
+      "action": "BUY",
+      "quantity": 4,
+      "price": 116.38,
+      "reason": "AI Score: 0.603"
+    },
+    {
+      "timestamp": "2026-02-20T14:36:37.893583",
+      "ticker": "TMO",
+      "action": "BUY",
+      "quantity": 1,
+      "price": 527.17,
+      "reason": "AI Score: 0.611"
+    },
+    {
+      "timestamp": "2026-02-20T15:13:50.789539",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 4,
+      "price": 175.5,
+      "cost": 702.0,
+      "reason": "Strong momentum",
+      "cash_before": 14803.414495422398,
+      "cash_after": 14101.414495422398
+    },
+    {
+      "timestamp": "2026-02-20T15:13:50.794133",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 14101.414495422398,
+      "cash_after": 13676.114495422398
+    },
+    {
+      "timestamp": "2026-02-20T15:13:50.798132",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 2,
+      "price": 330.02,
+      "cost": 660.04,
+      "reason": "Technical breakout",
+      "cash_before": 13676.114495422398,
+      "cash_after": 13016.0744954224
+    },
+    {
+      "timestamp": "2026-02-20T15:13:50.803269",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 13016.0744954224,
+      "cash_after": 12566.0744954224
+    },
+    {
+      "timestamp": "2026-02-20T15:47:20.939185",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 4,
+      "price": 175.5,
+      "cost": 702.0,
+      "reason": "Strong momentum",
+      "cash_before": 12566.0744954224,
+      "cash_after": 11864.0744954224
+    },
+    {
+      "timestamp": "2026-02-20T15:47:20.966190",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 11864.0744954224,
+      "cash_after": 11438.7744954224
+    },
+    {
+      "timestamp": "2026-02-20T15:47:20.981834",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 2,
+      "price": 330.02,
+      "cost": 660.04,
+      "reason": "Technical breakout",
+      "cash_before": 11438.7744954224,
+      "cash_after": 10778.734495422399
+    },
+    {
+      "timestamp": "2026-02-20T15:47:21.154200",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 10778.734495422399,
+      "cash_after": 10328.734495422399
+    },
+    {
+      "timestamp": "2026-02-20T17:15:08.739384",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 3,
+      "price": 175.5,
+      "cost": 526.5,
+      "reason": "Strong momentum",
+      "cash_before": 10328.734495422399,
+      "cash_after": 9802.234495422399
+    },
+    {
+      "timestamp": "2026-02-20T17:15:08.745472",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 9802.234495422399,
+      "cash_after": 9376.9344954224
+    },
+    {
+      "timestamp": "2026-02-20T17:15:08.752296",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 2,
+      "price": 330.02,
+      "cost": 660.04,
+      "reason": "Technical breakout",
+      "cash_before": 9376.9344954224,
+      "cash_after": 8716.894495422399
+    },
+    {
+      "timestamp": "2026-02-20T17:15:08.757311",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 8716.894495422399,
+      "cash_after": 8266.894495422399
+    },
+    {
+      "timestamp": "2026-02-21T17:15:17.714232",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 2,
+      "price": 175.5,
+      "cost": 351.0,
+      "reason": "Strong momentum",
+      "cash_before": 8266.894495422399,
+      "cash_after": 7915.894495422399
+    },
+    {
+      "timestamp": "2026-02-21T17:15:17.739730",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 7915.894495422399,
+      "cash_after": 7490.594495422399
+    },
+    {
+      "timestamp": "2026-02-21T17:15:17.745742",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 1,
+      "price": 330.02,
+      "cost": 330.02,
+      "reason": "Technical breakout",
+      "cash_before": 7490.594495422399,
+      "cash_after": 7160.574495422399
+    },
+    {
+      "timestamp": "2026-02-21T17:15:17.753781",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 7160.574495422399,
+      "cash_after": 6710.574495422399
+    },
+    {
+      "timestamp": "2026-02-22T17:15:17.042641",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 2,
+      "price": 175.5,
+      "cost": 351.0,
+      "reason": "Strong momentum",
+      "cash_before": 6710.574495422399,
+      "cash_after": 6359.574495422399
+    },
+    {
+      "timestamp": "2026-02-22T17:15:17.048408",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 6359.574495422399,
+      "cash_after": 5934.274495422399
+    },
+    {
+      "timestamp": "2026-02-22T17:15:17.053255",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 1,
+      "price": 330.02,
+      "cost": 330.02,
+      "reason": "Technical breakout",
+      "cash_before": 5934.274495422399,
+      "cash_after": 5604.2544954223995
+    },
+    {
+      "timestamp": "2026-02-22T17:15:17.058390",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 5604.2544954223995,
+      "cash_after": 5154.2544954223995
+    },
+    {
+      "timestamp": "2026-02-23T17:15:20.205487",
+      "ticker": "AAPL",
+      "action": "buy",
+      "quantity": 1,
+      "price": 175.5,
+      "cost": 175.5,
+      "reason": "Strong momentum",
+      "cash_before": 5154.2544954223995,
+      "cash_after": 4978.7544954223995
+    },
+    {
+      "timestamp": "2026-02-23T17:15:20.226393",
+      "ticker": "MSFT",
+      "action": "buy",
+      "quantity": 1,
+      "price": 425.3,
+      "cost": 425.3,
+      "reason": "Breakout pattern",
+      "cash_before": 4978.7544954223995,
+      "cash_after": 4553.454495422399
+    },
+    {
+      "timestamp": "2026-02-23T17:15:20.233393",
+      "ticker": "GOOGL",
+      "action": "buy",
+      "quantity": 1,
+      "price": 330.02,
+      "cost": 330.02,
+      "reason": "Technical breakout",
+      "cash_before": 4553.454495422399,
+      "cash_after": 4223.4344954224
+    },
+    {
+      "timestamp": "2026-02-23T17:15:20.238392",
+      "ticker": "NVDA",
+      "action": "buy",
+      "quantity": 1,
+      "price": 450.0,
+      "cost": 450.0,
+      "reason": "AI signal strong",
+      "cash_before": 4223.4344954224,
+      "cash_after": 3773.4344954224
+    },
+    {
+      "timestamp": "2026-02-23T20:48:00.970193",
+      "ticker": "ADBE",
+      "action": "buy",
+      "quantity": 2,
+      "price": 258.61,
+      "cost": 517.22,
+      "reason": "AI Signal: 0.602 confidence",
+      "cash_before": 3773.4344954224,
+      "cash_after": 3256.2144954223995
+    }
+  ],
+  "peak_portfolio_value": 100000.0,
+  "circuit_breaker_cooldown_until": null,
+  "trades": [
+    {
+      "timestamp": "2026-02-05T09:42:58.786581",
+      "ticker": "AAPL",
+      "side": "buy",
+      "quantity": 10,
+      "signal_price": 147.07,
+      "execution_price": 276.7664802246093,
+      "cost": 2767.664802246093,
+      "notes": "",
+      "cash_before": 100000.0,
+      "cash_after": 97232.33519775391
+    },
+    {
+      "timestamp": "2026-02-05T16:45:44.213872",
+      "ticker": "AAPL",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 273.3800048828125,
+      "execution_price": 273.70843255615233,
+      "cost": 273.70843255615233,
+      "notes": "AI Signal: 0.83",
+      "cash_before": 97232.33519775391,
+      "cash_after": 96958.62676519775
+    },
+    {
+      "timestamp": "2026-02-05T16:45:45.389550",
+      "ticker": "AMZN",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 224.8000030517578,
+      "execution_price": 225.13491366577145,
+      "cost": 225.13491366577145,
+      "notes": "AI Signal: 0.86",
+      "cash_before": 96958.62676519775,
+      "cash_after": 96733.49185153199
+    },
+    {
+      "timestamp": "2026-02-05T16:45:46.511281",
+      "ticker": "GOOGL",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 322.8599853515625,
+      "execution_price": 323.182845336914,
+      "cost": 323.182845336914,
+      "notes": "AI Signal: 0.93",
+      "cash_before": 96733.49185153199,
+      "cash_after": 96410.30900619508
+    },
+    {
+      "timestamp": "2026-02-05T16:45:47.660951",
+      "ticker": "META",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 665.5150146484375,
+      "execution_price": 666.1805296630858,
+      "cost": 666.1805296630858,
+      "notes": "AI Signal: 0.90",
+      "cash_before": 96410.30900619508,
+      "cash_after": 95744.12847653199
+    },
+    {
+      "timestamp": "2026-02-05T16:45:48.364274",
+      "ticker": "TSLA",
+      "side": "buy",
+      "quantity": 1,
+      "signal_price": 398.9053955078125,
+      "execution_price": 399.3739811096191,
+      "cost": 399.3739811096191,
+      "notes": "AI Signal: 0.77",
+      "cash_before": 95744.12847653199,
+      "cash_after": 95344.75449542237
+    }
+  ],
+  "performance": {
+    "total_value": 100004.50435809327,
+    "total_return": 4.50435809326882,
+    "total_return_pct": 0.00450435809326882,
+    "unrealized_pnl": 0,
+    "realized_pnl": 0.0
+  },
+  "created_at": "2026-02-05T09:42:58.002535",
+  "updated_at": "2026-02-20T14:36:37.893583",
+  "entry_prices": {
+    "AAPL": 276.48847589111324,
+    "AMZN": 225.13491366577145,
+    "GOOGL": 323.182845336914,
+    "META": 666.1805296630858,
+    "TSLA": 399.3739811096191
+  },
+  "initial_cash": 100000.0
+}

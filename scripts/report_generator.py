@@ -58,44 +58,86 @@ class HTMLDashboardGenerator:
     def _load_portfolio_data(self) -> Dict:
         """Load portfolio data from JSON file"""
         try:
-            with open(self.portfolio_file, 'r') as f:
-                return json.load(f)
+            portfolio_path = self.project_root / self.portfolio_file
+            if not portfolio_path.exists():
+                logger.error(f"Portfolio file not found: {portfolio_path}")
+                return self._get_error_portfolio("FILE_NOT_FOUND")
+            
+            with open(portfolio_path, 'r') as f:
+                data = json.load(f)
+                
+            # Validate portfolio structure
+            if not isinstance(data, dict) or 'cash' not in data:
+                logger.error(f"Invalid portfolio structure in: {portfolio_path}")
+                return self._get_error_portfolio("INVALID_STRUCTURE")
+                
+            return data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in portfolio file: {e}")
+            return self._get_error_portfolio("JSON_DECODE_ERROR")
         except Exception as e:
             logger.error(f"Error loading portfolio data: {e}")
-            return self._get_default_portfolio()
+            return self._get_error_portfolio("READ_ERROR")
     
-    def _get_default_portfolio(self) -> Dict:
-        """Return default portfolio structure"""
+    def _get_error_portfolio(self, error_type: str) -> Dict:
+        """Return error portfolio structure for reporting"""
         return {
-            'cash': 100000.0,
+            'cash': 0.0,
             'positions': {},
             'performance': {
-                'total_value': 100000.0,
+                'total_value': 0.0,
                 'total_return': 0.0,
                 'total_return_pct': 0.0
+            },
+            'error': {
+                'type': error_type,
+                'message': f"CRITICAL ERROR: portfolio.json could not be read. State unknown."
             }
         }
     
     def _calculate_portfolio_metrics(self, portfolio_data: Dict) -> Dict:
-        """Calculate portfolio metrics"""
-        cash = portfolio_data.get('cash', 100000.0)
-        positions = portfolio_data.get('positions', {})
-        performance = portfolio_data.get('performance', {})
+        """Calculate portfolio metrics in real-time"""
+        # Check for error condition
+        if 'error' in portfolio_data:
+            return {
+                'cash': 0.0,
+                'market_value': 0.0,
+                'total_value': 0.0,
+                'total_return': 0.0,
+                'total_return_pct': 0.0,
+                'position_count': 0,
+                'max_positions': 10,
+                'error': portfolio_data['error']
+            }
         
-        total_value = performance.get('total_value', cash)
-        total_return = performance.get('total_return', 0.0)
-        total_return_pct = performance.get('total_return_pct', 0.0)
+        cash = portfolio_data.get('cash', 0.0)
+        positions = portfolio_data.get('positions', {})
+        
+        # Calculate real-time market value using actual current prices from portfolio.json
+        market_value = 0.0
+        for ticker, position in positions.items():
+            shares = position.get('shares', 0)
+            current_price = position.get('current_price', 0)
+            market_value += shares * current_price
+        
+        # Calculate real-time total value and return
+        total_value = cash + market_value
+        initial_cash = 100000.0  # Initial starting capital
+        total_return = total_value - initial_cash
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0
         
         position_count = len(positions)
         max_positions = 10  # NeuralTrader max positions
         
         return {
-            'portfolio_value': total_value,
+            'cash': cash,
+            'market_value': market_value,
+            'total_value': total_value,
             'total_return': total_return,
             'total_return_pct': total_return_pct,
-            'available_cash': cash,
-            'position_count': f"{position_count}/{max_positions}",
-            'positions': positions
+            'position_count': position_count,
+            'max_positions': max_positions
         }
     
     def _create_html_dashboard(self, 
@@ -108,7 +150,7 @@ class HTMLDashboardGenerator:
         """Create HTML dashboard content"""
         
         # Generate positions table
-        positions_html = self._create_positions_table(metrics['positions'])
+        positions_html = self._create_positions_table(portfolio_data)
         
         # Generate market activity section
         market_activity_html = self._create_market_activity_section(
@@ -347,9 +389,10 @@ class HTMLDashboardGenerator:
         </div>
         
         <div class="executive-summary">
+            {'<div class="metric-card error-card" style="background: #ffebee; border: 2px solid #f44336;">' if 'error' in metrics else ''}
             <div class="metric-card">
                 <div class="metric-label">Portfolio Value</div>
-                <div class="metric-value">${metrics['portfolio_value']:,.2f}</div>
+                <div class="metric-value">${metrics['total_value']:,.2f}</div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Total Return</div>
@@ -365,13 +408,22 @@ class HTMLDashboardGenerator:
             </div>
             <div class="metric-card">
                 <div class="metric-label">Available Cash</div>
-                <div class="metric-value">${metrics['available_cash']:,.2f}</div>
+                <div class="metric-value">${metrics['cash']:,.2f}</div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Position Count</div>
                 <div class="metric-value">{metrics['position_count']}</div>
             </div>
+            {'</div>' if 'error' in metrics else ''}
         </div>
+        
+        {'<div class="error-message" style="background: #ffebee; border: 2px solid #f44336; padding: 20px; margin: 20px; border-radius: 10px; text-align: center;">' if 'error' in metrics else ''}
+        {'<h2 style="color: #d32f2f;">CRITICAL ERROR: portfolio.json could not be read</h2>' if 'error' in metrics else ''}
+        {'<p style="color: #d32f2f;">' if 'error' in metrics else ''}
+        {'State unknown. Please check the portfolio file system.' if 'error' in metrics else ''}
+        {'<p><strong>Error Type:</strong> ' + metrics['error']['type'] + '</p>' if 'error' in metrics else ''}
+        {'<p><strong>Message:</strong> ' + metrics['error']['message'] + '</p>' if 'error' in metrics else ''}
+        {'</div>' if 'error' in metrics else ''}
         
         <div class="content">
             <h2 class="section-title">📊 Current Holdings</h2>
@@ -392,8 +444,10 @@ class HTMLDashboardGenerator:
         
         return html_template
     
-    def _create_positions_table(self, positions: Dict) -> str:
+    def _create_positions_table(self, portfolio_data: Dict) -> str:
         """Create HTML table for positions"""
+        positions = portfolio_data.get('positions', {})
+        
         if not positions:
             return "<p>No active positions</p>"
         

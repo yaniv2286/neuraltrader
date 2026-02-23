@@ -25,6 +25,13 @@ from scripts import data_manager
 
 # Configure logger
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    # Add a default handler if none exists
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 class SectorAuthority:
     """

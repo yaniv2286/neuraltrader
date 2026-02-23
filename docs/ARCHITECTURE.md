@@ -1,6 +1,37 @@
-# 🏛️ NEURALTRADER: INSTITUTIONAL ARCHITECTURE (v5.5)
-**Status:** PRODUCTION READY - Complete Model Retraining with Real Sentiment Data (Phase 10.1)
+# 🏛️ NEURALTRADER: INSTITUTIONAL ARCHITECTURE (v6.0)
+**Status:** LIVE PAPER TRADING READY - Complete IBKR Integration with ib_async
 **Last Updated:** February 23, 2026
+
+## 🎯 PHASE 11: LIVE PAPER TRADING GRADUATION (v6.0)
+
+### **✅ MAJOR ARCHITECTURAL UPGRADES COMPLETED**
+- **✅ IBKR Live Integration**: Complete Interactive Brokers integration with ib_async
+- **✅ Live Paper Trading**: Real execution on TWS Paper Trading (Port 7497)
+- **✅ Broker Ground Truth**: Portfolio data now sourced directly from IBKR, not portfolio.json
+- **✅ Modern Infrastructure**: Upgraded from deprecated ib_insync to maintained ib_async
+- **✅ Pre-Flight Validation**: Tier 0 checklist ensures no silent failures in production
+- **✅ Risk Law Enforcement**: Real volatility inverse sizing strictly implemented
+
+### **🚀 EXECUTION ENGINE REVOLUTION**
+- **Live Broker Connection**: Direct IBKR TWS integration for real paper trading
+- **Real Portfolio Data**: Cash balance and positions queried directly from broker
+- **Order Execution**: Real Market/Limit orders routed through Interactive Brokers
+- **Ground Truth Source**: Broker data replaces local portfolio.json files
+- **Modern API**: Using ib_async (maintained) instead of ib_insync (deprecated)
+
+### **🛡️ RISK MANAGEMENT ENFORCEMENT**
+- **Real Volatility Inverse Sizing**: 1% risk per trade with 1/σ weighting strictly enforced
+- **20-Day Annualized Volatility**: Mathematical allocation using real market data
+- **No Flat Percentage Sizing**: Fixed percentage sizing strictly prohibited
+- **Data Source Law**: Volatility calculated from parquet files, no fallback defaults
+- **Mathematical Allocation**: Low volatility stocks get MORE capital, high volatility get LESS
+
+### **🔍 TIER 0 PRE-FLIGHT CHECKLIST**
+- **Broker Connectivity**: IBKR connection validation with test order execution
+- **Communications Test**: Email system validation with attachment handling
+- **Model Integrity**: Production models validation with test predictions
+- **API Pulse**: FRED and News API connectivity verification
+- **Fail-Fast Design**: Any failure blocks main orchestrator from running
 
 ## 🎯 PHASE 10.1 ACHIEVEMENT: COMPLETE MODEL RETRAINING SUCCESS
 
@@ -29,19 +60,25 @@
 - **Model Training**: All 4 models successfully trained with real sentiment features
 - **Production Ready**: Complete sentiment-enhanced trading models deployed
 
-## 🧠 1. CORE EXECUTION ENGINE
+## 🧠 1. CORE EXECUTION ENGINE (LIVE PAPER TRADING)
 * **Model:** Tri-Model AI Ensemble (XGBoost, LightGBM, Random Forest) with Real Sentiment Features
 * **Threshold:** High-Conviction Alpha (Entry > 0.60) enhanced with sentiment signals
 * **Universe:** Modern Era Universe (2,183 Tickers, 2000-Present) with sentiment intelligence
 * **Sentiment Enhancement**: Real economic + news + social sentiment integrated into decision-making
+* **Execution Platform**: Interactive Brokers TWS Paper Trading (Port 7497) via ib_async
+* **Ground Truth**: Live broker data (cash balance, positions) - portfolio.json deprecated
+* **Order Routing**: Real Market/Limit orders executed through IBKR infrastructure
+* **Signal Generation**: 100% AI Ensemble - ALL mock data permanently eradicated
 
-## 🛡️ 2. CORE RISK MODULES (v5.1)
+## 🛡️ 2. CORE RISK MODULES (v6.0 - LIVE TRADING ENFORCED)
 * **Sector Authority:** Dynamic sector momentum analysis with 15% tax on bottom 3 sectors.
 * **Global Volatility Gate:** VXX Bollinger Band shield (entries blocked if VXX > Upper BB).
 * **Primary Regime Filter:** Weekly Breakdown Shield (Exit if Close < previous 5-day minimum low).
 * **Emergency Stop Loss:** Fixed ATR 5.0 (Volatility-Adjusted Floor).
 * **Take Profit:** Trend Extension Mode (No static TP; winners run until Shield/ATR trigger).
 * **Fail-Fast Guard:** Data Freshness Sentinel mandatory check before every execution.
+* **Real Volatility Inverse Sizing:** STRICTLY ENFORCED - 1% risk per trade with 1/σ weighting using 20-day annualized volatility.
+* **Position Sizing Law:** Flat percentage sizing STRICTLY PROHIBITED - mathematical allocation only.
 
 ### **� SECTOR AUTHORITY INTEGRATION**
 ```python
@@ -167,9 +204,9 @@ NeuralTrader/
 
 ---
 
-**🎯 NEURALTRADER v5.5 - PRODUCTION READY WITH COMPLETE SENTIMENT INTELLIGENCE**  
+**🎯 NEURALTRADER v6.0 - LIVE PAPER TRADING READY WITH COMPLETE IBKR INTEGRATION**  
 **📅 Last Updated: February 23, 2026**  
-**🚀 Status: Ready for Institutional Deployment**
+**🚀 Status: Live Paper Trading on Interactive Brokers - All Risk Laws Enforced**
 
 #### Social Media Signals ✅ IMPLEMENTED
 - **Multi-Platform Support**: Twitter, Reddit, StockTwits sentiment analysis
@@ -211,7 +248,27 @@ NeuralTrader/
 * **18:00 (6:00 PM):** P4_DailyReport - Scorecard delivery.
 * **Sat 10:00 AM:** P2_WeeklyRetrain - Weekend model validation.
 
-## 📜 6. CO-FOUNDER PROTOCOLS
+## � 6. SAFETY PROTOCOLS (Tier 0 Pre-Flight Check)
+
+### **🛡️ TIER 0 PRE-FLIGHT CHECKLIST**
+* **Location:** `scripts/pre_flight_check.py` - Mandatory validation before any trading
+* **Purpose:** Ensures NO SILENT FAILURES in production by validating all critical systems
+* **Blocking Design:** Any failure blocks main orchestrator from running with sys.exit(1)
+
+### **📋 PRE-FLIGHT VALIDATIONS**
+* **Broker Connectivity Test:** IBKR connection validation with real order execution (AAPL $1.00 limit order)
+* **Communications Test:** Email system validation with attachment handling and delivery confirmation
+* **Model Integrity Test:** Production models validation with test predictions (76 features → probability output)
+* **API Pulse Test:** FRED API and News API connectivity verification (200 OK response required)
+* **Fail-Fast Enforcement:** Critical errors trigger immediate email alerts and system shutdown
+
+### **🚨 EMERGENCY PROTOCOLS**
+* **Pre-Flight Failed:** Immediate email notification with full traceback sent to architect
+* **Main Orchestrator Blocked:** System prevents trading execution until all checks pass
+* **Production Gatekeeper:** Only validated systems allowed to proceed with live trading
+* **Continuous Monitoring:** Pre-flight check runs before every trading session
+
+## � 7. CO-FOUNDER PROTOCOLS
 * **No Silent Failures:** System must crash if data is stale or ATR fails to calculate.
 * **Sanitized Logs:** Standardized text tags [PASS], [FAIL], [SHIELD] for Unicode stability.
 * **Sector Discipline:** All trades must pass sector momentum filter before execution.
@@ -219,7 +276,7 @@ NeuralTrader/
 * **Risk Discipline:** Circuit Breaker and Hysteresis rules are LAWS of the system - no overrides.
 * **Position Discipline:** Inverse volatility sizing is mandatory for all new positions.
 
-## 🔐 7. RISK MANAGEMENT LAWS (Active)
+## 🔐 8. RISK MANAGEMENT LAWS (Active)
 * **Circuit Breaker Law:** Trading HALTS immediately at 12% portfolio drawdown. No exceptions.
 * **Hysteresis Law:** Position swaps require 15% AI score improvement over current holdings.
 * **Real Volatility Sizing Law:** New positions allocated by inverse volatility using real market data (20-day returns, √252 annualization).
@@ -229,9 +286,12 @@ NeuralTrader/
 * **Risk Per Trade Law:** Maximum 1% portfolio risk per trade enforced automatically.
 * **Concentration Law:** Position concentration monitored and logged in real-time.
 
-## 📁 8. SYSTEM ARCHITECTURE
+## 📁 9. SYSTEM ARCHITECTURE (v6.0 - LIVE TRADING)
 * **Core Engine:** `src/core/` - AI models, strategy logic, backtesting
-* **Risk Machine:** `src/execution/risk_manager.py` - Quant Risk Engine
-* **Portfolio Manager:** `main_orchestrator_ist.py` - MockVirtualEngine with persistence
+* **Execution Engine:** `core/ibkr_engine.py` - Live IBKR integration with ib_async
+* **Risk Machine:** `src/execution/risk_manager.py` - Quant Risk Engine with Real Volatility Inverse Sizing
+* **Portfolio Manager:** `main_orchestrator_ist.py` - Live portfolio management with IBKR ground truth
 * **Data Pipeline:** `scripts/data_manager.py` - Unified data management
-* **Persistence:** `data/portfolio.json` - Portfolio state with risk tracking
+* **Pre-Flight Validation:** `scripts/pre_flight_check.py` - Tier 0 safety checklist
+* **Ground Truth:** Interactive Brokers TWS Paper Trading (Port 7497) - portfolio.json deprecated
+* **Communications:** `src/utils/notifier.py` - Email notifications with live broker data

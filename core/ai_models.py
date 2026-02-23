@@ -148,11 +148,11 @@ class XGBoostInference:
             
             # 🦅 BRAIN TRANSPLANT - Tree-based models don't need scaling
             if self.scaler is not None:
-                features_scaled = self.scaler.transform(latest_features)
+                features_scaled = pd.DataFrame(self.scaler.transform(latest_features), columns=latest_features.columns, index=latest_features.index)
             else:
                 features_scaled = latest_features
             
-            # Get predictions
+            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Get predictions
             probabilities = self.model.predict_proba(features_scaled)[0]
             prediction = self.model.predict(features_scaled)[0]
             
@@ -213,7 +213,7 @@ class XGBoostInference:
             features = self.generate_features(data)
             
             # Make prediction
-            signal, confidence, details = self.predict(features)
+            signal, confidence, details = self.predict(features, threshold=0.60)
             
             return signal, confidence, details
             
@@ -394,11 +394,11 @@ class EnsemblePredictor:
             
             # 🦅 BRAIN TRANSPLANT - Tree-based models don't need scaling
             if self.scaler is not None:
-                features_scaled = self.scaler.transform(features)
+                features_scaled = pd.DataFrame(self.scaler.transform(features), columns=features.columns, index=features.index)
             else:
                 features_scaled = features
             
-            # Get predictions from each model for all rows
+            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Get predictions from each model for all rows
             all_probs = []
             
             for model_name, model in self.models.items():
@@ -435,7 +435,7 @@ class EnsemblePredictor:
             self.logger.error(f"[ERROR] Batch prediction failed: {e}")
             return np.array([])
     
-    def predict(self, features: pd.DataFrame, threshold: Optional[float] = 0.5) -> Tuple[str, float, Dict]:
+    def predict(self, features: pd.DataFrame, threshold: Optional[float] = 0.60) -> Tuple[str, float, Dict]:
         """
         Generate ensemble trading signal from features with dynamic threshold
         
@@ -463,11 +463,11 @@ class EnsemblePredictor:
             
             # 🦅 BRAIN TRANSPLANT - Tree-based models don't need scaling
             if self.scaler is not None:
-                features_scaled = self.scaler.transform(latest_features)
+                features_scaled = pd.DataFrame(self.scaler.transform(latest_features), columns=latest_features.columns, index=latest_features.index)
             else:
                 features_scaled = latest_features
             
-            # Get predictions from each model
+            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Get predictions from each model
             model_votes = {}
             model_probs = {}
             
@@ -561,7 +561,7 @@ class EnsemblePredictor:
             features = self.generate_features(data)
             
             # Make prediction
-            signal, confidence, details = self.predict(features)
+            signal, confidence, details = self.predict(features, threshold=0.60)
             
             return signal, confidence, details
             

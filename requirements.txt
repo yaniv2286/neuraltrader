@@ -49,3 +49,6 @@ mypy>=1.0.0
 # Optional: Real-time Data (uncomment for live trading)
 # websocket-client>=1.6.0
 # python-telegram-bot>=20.0.0
+
+# Interactive Brokers Integration
+ib_async>=1.13.0

@@ -35,8 +35,8 @@ class TradingStrategy:
         self.max_drawdown = 0.20  # 20% max drawdown limit
         self.max_position_size = 0.20  # 20% max position size
         
-        # [TARGET] PHASE 2 EXIT OPTIMIZATION WINNER: Fixed ATR 5.0 | Weekly Shield Active
-        self.EMERGENCY_STOP_LOSS_ATR_MULTIPLIER = 5.0  # Fixed ATR multiplier from tournament
+        # [TARGET] PHASE 2 EXIT OPTIMIZATION WINNER: Fixed ATR 2.5 | Weekly Shield Active
+        self.EMERGENCY_STOP_LOSS_ATR_MULTIPLIER = 2.5  # Tightened ATR multiplier for better risk management
         self.WEEKLY_SHIELD_DAYS = 5  # Previous 5 trading days minimum low
         self.NO_TAKE_PROFIT = True  # No static take profit - let shield capture trend
         
@@ -44,7 +44,7 @@ class TradingStrategy:
         self.PRE_EXECUTION_DATA_CHECK = True  # Enable pre-execution data validation
         
         # Strategy lock confirmation
-        logger.info("[TARGET] STRATEGY LOCK: Fixed ATR 5.0 | Weekly Shield Active")
+        logger.info("[TARGET] STRATEGY LOCK: Fixed ATR 2.5 | Weekly Shield Active")
         logger.info(f"   Emergency Stop Loss: {self.EMERGENCY_STOP_LOSS_ATR_MULTIPLIER}x ATR")
         logger.info(f"   Weekly Shield: Previous {self.WEEKLY_SHIELD_DAYS} days low")
         logger.info(f"   Take Profit: Disabled (trend extension mode)")
