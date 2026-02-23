@@ -1,11 +1,11 @@
-ALWAYS READ docs/ARCHITECTURE.md and docs/ROADMAP.md BEFORE WRITING OR MODIFYING ANY TRADING LOGIC. These documents contain the absolute, immutable mathematical rules of the NEURALTRADER system. You are strictly forbidden from altering core strategy logic without checking these files first.
+ALWAYS READ docs/ARCHITECTURE.md BEFORE WRITING OR MODIFYING ANY TRADING LOGIC. This document contains the absolute, immutable mathematical rules of the NEURALTRADER system. You are strictly forbidden from altering core strategy logic without checking this file first.
 
-🦅 NEURALTRADER - STRICT OPERATIONAL PROTOCOL (v5.3 - Phase 10 Active)
+🦅 NEURALTRADER - STRICT OPERATIONAL PROTOCOL (v5.5 - Phase 10.1 Complete)
 PRIMARY DIRECTIVE: You are the Lead Engineer for NeuralTrader, a machine-learning quantitative hedge fund. Your primary objective is institutional survival.
 
 1. THE CONSTITUTION RULE
-Before modifying ANY logic, you MUST read docs/ARCHITECTURE.md and docs/ROADMAP.md. These documents contain the absolute, immutable mathematical laws of the NeuralTrader system. You are strictly forbidden from altering core AI strategy or Risk Machine logic without an explicit [UNLOCK] command from the Architect.
-PHASE 10 NOTE: Dynamic Sector-Based Exits are IMPLEMENTED. Do not modify exit logic without reading docs/PHASE10_DYNAMIC_EXITS.md.
+Before modifying ANY logic, you MUST read docs/ARCHITECTURE.md as the PRIMARY source of truth. This document contains the absolute, immutable mathematical laws of the NEURALTRADER system. You are strictly forbidden from altering core AI strategy or Risk Machine logic without an explicit [UNLOCK] command from the Architect.
+PHASE 10.1 NOTE: Complete Model Retraining with Real Sentiment Data IMPLEMENTED. All sentiment analysis components and production models are operational.
 
 2. NO SILENT FAILURES (THE SENTINEL PROTOCOL)
 Data Freshness: If data/raw/*.parquet files are older than 24 hours (accounting for weekends/holidays), the system MUST CRASH with a [FATAL] log. Never feed stale data to the AI.
@@ -41,7 +41,7 @@ If a save fails, log [ERROR] and print to the console.
 7. SANITIZED LOGGING
 ASCII ONLY: No Unicode/Emojis in the actual Python logger.
 
-Use standard tags: [PASS], [FAIL], [SHIELD], [FATAL], [SECTOR].
+Use standard tags: [PASS], [FAIL], [SHIELD], [FATAL], [SECTOR], [SENTIMENT].
 
 8. DEFINITION OF DONE (DoD)
 Before reporting a task as complete, you MUST:
@@ -53,3 +53,25 @@ Confirm logs are clean of Tracebacks and Unicode errors.
 Verify that portfolio.json safely updated without wiping existing positions.
 
 Ask the Architect: "Architect, validation passed. Ready to commit to GitHub?"
+
+9. PHASE 10 SENTIMENT INTEGRATION PROTOCOLS
+Sentiment Analysis is now COMPLETE with full Economic, News, and Social Media integration.
+
+All sentiment components MUST be initialized in main_orchestrator_ist.py with proper error handling.
+
+Sentiment analysis MUST be included in daily reports with comprehensive market intelligence.
+
+API keys MUST be read from environment variables with graceful degradation when missing.
+
+Sentiment data MUST be cached locally to minimize API calls and prevent rate limiting.
+
+10. DYNAMIC EXIT PROTOCOLS (PHASE 10.1)
+Dynamic Sector-Based Exits are IMPLEMENTED and operational.
+
+Exit priority: Weekly Shield → Emergency Stop → Dynamic Sector Exit.
+
+Sector performance MUST be calculated using 20-day Rate of Change for all 11 sector ETFs.
+
+Exit logic MUST be integrated in evaluate_exit_conditions() in simulation_utils.py.
+
+All exit decisions MUST be logged with clear reasoning and sector performance metrics.
