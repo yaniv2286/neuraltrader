@@ -1,32 +1,25 @@
 """
-CPU Models Library
-Models that run efficiently on CPU without GPU requirements
-Optimized for performance on standard hardware
+NeuralTrader Core Engine
+========================
+Single namespace for all engine components.
+
+Subpackages:
+  core.sentiment/   - Sentiment intelligence (economic, news, social)
+  core.execution/   - Risk manager (quant position sizing)
+  core.utils/       - Email notifier, logging utilities
+
+Modules:
+  core.ai_models                 - EnsemblePredictor (XGBoost + LightGBM + RF)
+  core.feature_engineer          - 64-feature vector generation
+  core.sentiment_feature_engineer- 76-feature vector (sentiment mode)
+  core.indicators                - Technical indicators (RSI, ATR, MACD ...)
+  core.strategy                  - TradingStrategy (signal logic)
+  core.ibkr_engine               - IBKR TWS integration
+  core.integrity                 - verify_system_integrity()
 """
 
-import logging
-
-# Lazy imports to avoid sklearn dependency issues
-def _lazy_import():
-    """Lazy import CPU models only when needed"""
-    try:
-        from .random_forest_model import RandomForestModel
-        from .xgboost_model import XGBoostModel
-        from .lightgbm_model import LightGBMModel
-        from .base_cpu_model import BaseCPUModel
-        return {
-            'RandomForestModel': RandomForestModel,
-            'XGBoostModel': XGBoostModel,
-            'LightGBMModel': LightGBMModel,
-            'BaseCPUModel': BaseCPUModel
-        }
-    except ImportError as e:
-        logging.getLogger(__name__).warning(f"[WARN] CPU models not available: {e}")
-        return {}
-
 __all__ = [
-    'RandomForestModel',
-    'XGBoostModel', 
-    'LightGBMModel',
-    'BaseCPUModel'
+    'EnsemblePredictor',
+    'FeatureEngineer',
+    'TradingStrategy',
 ]

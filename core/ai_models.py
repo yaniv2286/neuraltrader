@@ -234,102 +234,133 @@ class XGBoostInference:
 class EnsemblePredictor:
     """Ensemble predictor with weighted voting from multiple models"""
     
-    def __init__(self, models_dir: Optional[Path] = None):
+    def __init__(self, models_dir: Optional[Path] = None, use_sentiment: bool = False):
         """
         Initialize the ensemble predictor
-        
+
         Args:
-            models_dir: Path to models directory (default: PROJECT_ROOT/models)
+            models_dir:    Path to models directory (default: PROJECT_ROOT/models)
+            use_sentiment: If True, load 116-feature sentiment models (paper/live).
+                           If False (default), load 64-feature base models (backtest).
         """
         self.logger = logging.getLogger('EnsemblePredictor')
-        
+        self.use_sentiment = use_sentiment
+
         # Set models directory
         if models_dir is None:
             project_root = Path(__file__).parent.parent
             models_dir = project_root / "models"
-        
+
         self.models_dir = Path(models_dir)
-        
+
         # Model components
         self.models = {}
         self.scaler = None
         self.feature_names = None
         self.metadata = None
         self.weights = {}
-        
+
         # Load models
         self._load_ensemble()
     
     def _load_ensemble(self):
-        """Load all ensemble models and metadata"""
+        """Load all ensemble models and metadata - prefers 76-feature sentiment models"""
         try:
-            # 🦅 BRAIN TRANSPLANT - Load from production models with new nomenclature
-            production_dir = self.models_dir / "production"
-            
-            # Load metadata from production
-            metadata_path = production_dir / "ensemble_metadata.pkl"
-            if metadata_path.exists():
-                with open(metadata_path, 'rb') as f:
-                    self.metadata = pickle.load(f)
-                self.feature_names = self.metadata.get('feature_names', None)
-                self.logger.info(f"[OK] Production ensemble metadata loaded")
-            else:
-                # Fallback to old metadata
-                metadata_path = self.models_dir / "ensemble_metadata.json"
-                if metadata_path.exists():
-                    with open(metadata_path, 'r') as f:
-                        self.metadata = json.load(f)
-                    self.logger.info(f"[OK] Legacy ensemble metadata loaded")
-            
-            # 🦅 BRAIN TRANSPLANT - Load new production models with STANDARD names
-            model_files = {
-                'xgboost': 'xgboost_model.pkl',
-                'lightgbm': 'lightgbm_model.pkl', 
-                'randomforest': 'rf_model.pkl'
-            }
-            
-            # Default weights for production models
+            # Default weights
             default_weights = {
                 'xgboost': 0.35,
                 'lightgbm': 0.35,
                 'randomforest': 0.30
             }
-            
-            for model_name, filename in model_files.items():
-                model_path = production_dir / filename
-                if model_path.exists():
+
+            # --- PRIORITY 1: sentiment models (paper/live only, use_sentiment=True) ---
+            sentiment_model_files = {
+                'xgboost':     self.models_dir / 'xgboost_sentiment_model.pkl',
+                'lightgbm':    self.models_dir / 'lightgbm_sentiment_model.pkl',
+                'randomforest': self.models_dir / 'random_forest_sentiment_model.pkl',
+            }
+            sentiment_feature_names_path = self.models_dir / 'sentiment_feature_names.json'
+            sentiment_scaler_path = self.models_dir / 'sentiment_feature_scaler.pkl'
+
+            all_sentiment_exist = all(p.exists() for p in sentiment_model_files.values())
+
+            if self.use_sentiment and all_sentiment_exist and sentiment_feature_names_path.exists():
+                # Load 76-feature sentiment models
+                for model_name, model_path in sentiment_model_files.items():
                     with open(model_path, 'rb') as f:
                         self.models[model_name] = pickle.load(f)
                     self.weights[model_name] = default_weights[model_name]
-                    self.logger.info(f"[OK] {model_name} model loaded from production (weight: {default_weights[model_name]:.2f})")
+                    self.logger.info(f"[OK] {model_name} sentiment model loaded (76 features, weight: {default_weights[model_name]:.2f})")
+
+                with open(sentiment_feature_names_path, 'r') as f:
+                    self.feature_names = json.load(f)
+                self.logger.info(f"[OK] Sentiment feature names loaded: {len(self.feature_names)} features")
+
+                if sentiment_scaler_path.exists():
+                    with open(sentiment_scaler_path, 'rb') as f:
+                        self.scaler = pickle.load(f)
+                    self.logger.info(f"[OK] Sentiment scaler loaded")
+
+                # Load performance metadata if available
+                perf_path = self.models_dir / 'sentiment_model_performance.json'
+                if perf_path.exists():
+                    with open(perf_path, 'r') as f:
+                        self.metadata = json.load(f)
+
+                self.logger.info(f"[OK] Loaded {len(self.models)} sentiment-enhanced models (76 features)")
+                return
+
+            # --- PRIORITY 2: base models (64 features) ---
+            self.logger.warning("[WARN] Sentiment models not found, falling back to base models (64 features)")
+
+            # Load metadata
+            metadata_path = self.models_dir / "ensemble_metadata.pkl"
+            if metadata_path.exists():
+                with open(metadata_path, 'rb') as f:
+                    self.metadata = pickle.load(f)
+                self.feature_names = self.metadata.get('feature_names', None)
+                self.logger.info(f"[OK] Ensemble metadata loaded")
+            else:
+                metadata_path = self.models_dir / "ensemble_metadata.json"
+                if metadata_path.exists():
+                    with open(metadata_path, 'r') as f:
+                        self.metadata = json.load(f)
+
+            base_model_files = {
+                'xgboost':     self.models_dir / 'xgboost_model.pkl',
+                'lightgbm':    self.models_dir / 'lightgbm_model.pkl',
+                'randomforest': self.models_dir / 'rf_model.pkl',
+            }
+
+            for model_name, model_path in base_model_files.items():
+                if model_path.exists():
+                    with open(model_path, 'rb') as f:
+                        raw = pickle.load(f)
+                    # Support both raw sklearn models and legacy wrapper objects
+                    if not hasattr(raw, 'predict_proba') and hasattr(raw, 'model'):
+                        raw = raw.model
+                    self.models[model_name] = raw
+                    self.weights[model_name] = default_weights[model_name]
+                    self.logger.info(f"[OK] {model_name} base model loaded (weight: {default_weights[model_name]:.2f})")
                 else:
                     self.logger.warning(f"[WARN] {model_name} model not found: {model_path}")
-            
-            # Load feature names and scaler from production directory
-            feature_names_path = production_dir / 'feature_names.pkl'
-            scaler_path = production_dir / 'feature_scaler.pkl'
-            
+
+            feature_names_path = self.models_dir / 'feature_names.pkl'
             if feature_names_path.exists():
                 with open(feature_names_path, 'rb') as f:
                     self.feature_names = pickle.load(f)
-                self.logger.info(f"[OK] Feature names loaded from {feature_names_path}")
-            else:
-                self.logger.warning("[WARN] Feature names not found, will be generated during training")
-            
+                self.logger.info(f"[OK] Feature names loaded: {len(self.feature_names)} features")
+
+            scaler_path = self.models_dir / 'feature_scaler.pkl'
             if scaler_path.exists():
                 with open(scaler_path, 'rb') as f:
                     self.scaler = pickle.load(f)
-                self.logger.info(f"[OK] Scaler loaded from {scaler_path}")
-            else:
-                self.logger.warning("[WARN] Scaler not found, will be created during training")
-            
-            # No scaler needed for tree-based models
-            
+
             if self.models:
-                self.logger.info(f"[OK] Loaded {len(self.models)} production models")
+                self.logger.info(f"[OK] Loaded {len(self.models)} base models")
             else:
                 self.logger.error("[ERROR] No production models found")
-                
+
         except Exception as e:
             self.logger.error(f"[ERROR] Failed to load ensemble: {e}")
             raise

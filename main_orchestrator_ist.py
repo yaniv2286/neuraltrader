@@ -37,13 +37,14 @@ if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8
 import logging
 import argparse
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
 # Import EmailNotifier for guaranteed notifications
-from src.utils.notifier import EmailNotifier
+from core.utils.notifier import EmailNotifier
 
 # Import Quant Risk Machine
-from src.execution.risk_manager import RiskManager
+from core.execution.risk_manager import RiskManager
 
 # Project root directory
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -83,7 +84,7 @@ def check_environment():
 def setup_daily_supervision():
     """Setup daily supervision logging for Task Scheduler monitoring"""
     try:
-        from src.utils.daily_logger import DailySupervisionLogger
+        from core.utils.daily_logger import DailySupervisionLogger
         return DailySupervisionLogger()
     except ImportError:
         print("[WARNING] Daily supervision logger not available")
@@ -158,7 +159,7 @@ import pandas as pd
 # from src.trading.risk_manager import RiskManager, RiskDecision
 # from src.trading.virtual_engine import VirtualEngine
 # from src.reporting.ist_scheduler import ISTScheduler
-# from src.utils.notifier import EmailNotifier
+# from core.utils.notifier import EmailNotifier
 from core.integrity import verify_system_integrity
 from core.ai_models import EnsemblePredictor
 from core.strategy import TradingStrategy
@@ -169,38 +170,65 @@ PAPER_TRADING = False
 
 # ==================== FAIL-SAFE MOCK ENGINE ====================
 
+# Portfolio file routing — one file per mode
+_PORTFOLIO_FILES = {
+    'paper':      'data/portfolio_paper.json',       # persistent, IBKR-synced
+    'trade':      'data/portfolio_paper.json',       # same as paper
+    'report':     'data/portfolio_paper.json',       # read-only in report mode
+    'simulation': 'data/portfolio_simulation.json',  # overwritten each run
+    'backtest':   'data/portfolio_backtest.json',    # overwritten each run
+    'default':    'data/portfolio_paper.json',       # fallback
+}
+
+
 class MockVirtualEngine:
     """
     Fully Persistent Mock Virtual Engine for Paper Trading Mode
-    Provides real portfolio persistence and trade execution
+    Provides real portfolio persistence and trade execution.
+
+    Portfolio file routing:
+      paper / trade / report  ->  data/portfolio_paper.json   (persistent + IBKR synced)
+      simulation              ->  data/portfolio_simulation.json  (fresh each run)
+      backtest                ->  data/portfolio_backtest.json    (fresh each run)
     """
-    
-    def __init__(self, ibkr_engine=None):
-        """Initialize mock engine with portfolio state from file or defaults"""
+
+    def __init__(self, ibkr_engine=None, mode: str = 'paper'):
+        """Initialize engine with the correct portfolio file for the given mode."""
         self.logger = logging.getLogger(__name__)
         self.project_root = os.path.dirname(__file__)
-        self.portfolio_file = os.path.join(self.project_root, 'data', 'portfolio.json')
+        self.mode = mode
+
+        # Route to the correct portfolio file
+        rel_path = _PORTFOLIO_FILES.get(mode, _PORTFOLIO_FILES['default'])
+        self.portfolio_file = os.path.join(self.project_root, rel_path)
+        self.logger.info(f"[PORTFOLIO] mode={mode} -> {self.portfolio_file}")
+
         self.MAX_POSITIONS = 10
-        
+
         # Store IBKR engine for live paper trading
         self.ibkr_engine = ibkr_engine
-        
+
         # Initialize portfolio structure with risk management keys
         self.portfolio = {
+            'mode': mode,
             'cash': 100000.0,
             'positions': {},
             'history': [],
-            'peak_portfolio_value': 100000.0,  # Track peak portfolio value for drawdown calculations
-            'circuit_breaker_cooldown_until': None  # Track circuit breaker cooldown period
+            'peak_portfolio_value': 100000.0,
+            'circuit_breaker_cooldown_until': None,
+            'last_ibkr_sync': None,
         }
-        
-        # Load existing portfolio data
-        self._load_portfolio_data()
-        
+
+        # Load existing portfolio data (paper: persistent; sim/backtest: start fresh)
+        if mode in ('paper', 'trade', 'report'):
+            self._load_portfolio_data()
+        else:
+            self.logger.info(f"[PORTFOLIO] {mode} mode — starting with fresh portfolio (no history loaded)")
+
         # Sync with current market prices
         self._sync_market_prices()
-        
-        self.logger.info(f"[MOCK] Persistent VirtualEngine initialized with {len(self.portfolio['positions'])} positions")
+
+        self.logger.info(f"[MOCK] VirtualEngine ready | mode={mode} | positions={len(self.portfolio['positions'])} | cash=${self.portfolio['cash']:,.0f}")
     
     def _load_portfolio_data(self):
         """Load portfolio data from portfolio.json if it exists"""
@@ -257,18 +285,89 @@ class MockVirtualEngine:
             self.logger.info("[MOCK] Using default portfolio structure")
     
     def save_portfolio(self):
-        """Save portfolio data to disk"""
+        """Save portfolio data to the mode-specific file."""
         try:
-            # Ensure directory exists
             os.makedirs(os.path.dirname(self.portfolio_file), exist_ok=True)
-            
+            self.portfolio['mode'] = self.mode
+            self.portfolio['last_saved'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             with open(self.portfolio_file, 'w') as f:
-                json.dump(self.portfolio, f, indent=2)
-            
-            self.logger.info(f"[MOCK] Portfolio saved to {self.portfolio_file}")
-            
+                json.dump(self.portfolio, f, indent=2, default=str)
+            self.logger.info(f"[PORTFOLIO] Saved | mode={self.mode} | {self.portfolio_file}")
         except Exception as e:
-            self.logger.error(f"[MOCK] Failed to save portfolio: {e}")
+            self.logger.error(f"[PORTFOLIO] Failed to save {self.mode} portfolio: {e}")
+
+    def sync_from_ibkr(self) -> bool:
+        """
+        Sync portfolio_paper.json from IBKR live account data.
+        Only runs in paper/trade mode. Overwrites cash + positions with IBKR ground truth.
+        Returns True if sync succeeded.
+        """
+        if self.mode not in ('paper', 'trade'):
+            self.logger.info(f"[IBKR SYNC] Skipped — mode={self.mode} is not paper/trade")
+            return False
+
+        if self.ibkr_engine is None:
+            self.logger.warning("[IBKR SYNC] No IBKR engine available — skipping sync")
+            return False
+
+        try:
+            if not self.ibkr_engine.connect():
+                self.logger.error("[IBKR SYNC] Connection failed")
+                return False
+
+            account = self.ibkr_engine.get_account_summary()
+            if 'error' in account:
+                self.logger.error(f"[IBKR SYNC] Account summary error: {account['error']}")
+                return False
+
+            positions = self.ibkr_engine.get_positions()
+
+            # Overwrite cash from IBKR ground truth
+            self.portfolio['cash'] = float(account.get('cash_balance', self.portfolio['cash']))
+
+            # Overwrite positions from IBKR ground truth
+            synced_positions = {}
+            for pos in positions:
+                symbol = pos.get('symbol', '')
+                if not symbol:
+                    continue
+                synced_positions[symbol] = {
+                    'shares':        int(pos.get('quantity', 0)),
+                    'cost_basis':    float(pos.get('average_cost', 0)),
+                    'current_price': float(pos.get('market_price', 0)),
+                }
+            self.portfolio['positions'] = synced_positions
+
+            # Update peak value
+            total_market = sum(
+                p['shares'] * p['current_price'] for p in synced_positions.values()
+            )
+            total_value = self.portfolio['cash'] + total_market
+            self.portfolio['peak_portfolio_value'] = max(
+                self.portfolio.get('peak_portfolio_value', 100000.0), total_value
+            )
+
+            sync_ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            self.portfolio['last_ibkr_sync'] = sync_ts
+            self.portfolio['ibkr_account_id'] = account.get('account_id', None)
+
+            self.save_portfolio()
+            self.logger.info(
+                f"[IBKR SYNC] [OK] Cash=${self.portfolio['cash']:,.2f} "
+                f"Positions={len(synced_positions)} synced at {sync_ts}"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"[IBKR SYNC] [FAIL] {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
+        finally:
+            try:
+                self.ibkr_engine.disconnect()
+            except Exception:
+                pass
     
     def _sync_market_prices(self):
         """Sync current market prices using data_manager"""
@@ -1025,7 +1124,7 @@ class TradingOrchestrator:
         # Initialize Phase 10 Sentiment Integration
         self.sentiment_integration = None
         try:
-            from src.sentiment.sentiment_integration import SentimentIntegration
+            from core.sentiment.sentiment_integration import SentimentIntegration
             
             # Configure sentiment analysis
             sentiment_config = {
@@ -1153,7 +1252,7 @@ Phase 6: Shadow Trading Simulator
     def _send_urgent_notification(self, subject: str, message: str):
         """Send urgent notification email with log file attached"""
         try:
-            from src.utils.notifier import EmailNotifier
+            from core.utils.notifier import EmailNotifier
             
             notifier = EmailNotifier()
             
@@ -1375,7 +1474,7 @@ Phase 6: Shadow Trading Simulator
     def _send_session_notification(self, status: str, message: str):
         """Send simple session notification email"""
         try:
-            from src.utils.notifier import EmailNotifier
+            from core.utils.notifier import EmailNotifier
             
             subject = f"[NeuralTrader] Session Complete - {status}"
             
@@ -1450,13 +1549,14 @@ This is an automated message from NeuralTrader Paper Trading System.
             # self.logger.info("[OK] Virtual Engine initialized")
             self.logger.info("[SKIP] Virtual Engine not available")
             
-            # Fail-Safe: Always use MockVirtualEngine for paper trading and report modes
+            # Fail-Safe: Always use MockVirtualEngine, routed to mode-specific portfolio file
             if self.virtual_engine is None or self.mode == "report":
-                self.virtual_engine = MockVirtualEngine(ibkr_engine=self.ibkr_engine)
-                if self.mode == "report":
-                    self.logger.info("[INFO] Using MockVirtualEngine for REPORT MODE.")
-                else:
-                    self.logger.info("[INFO] Using MockVirtualEngine for Paper Mode simulation.")
+                engine_mode = self.mode if self.mode in _PORTFOLIO_FILES else 'paper'
+                self.virtual_engine = MockVirtualEngine(
+                    ibkr_engine=self.ibkr_engine,
+                    mode=engine_mode,
+                )
+                self.logger.info(f"[PORTFOLIO] VirtualEngine using portfolio file for mode={engine_mode}")
             
             # Initialize IST Scheduler
             # self.ist_scheduler = ISTScheduler()
@@ -1465,7 +1565,7 @@ This is an automated message from NeuralTrader Paper Trading System.
             # Initialize Email Notifier - ALWAYS initialize for report mode
             try:
                 # Import EmailNotifier from new src location
-                from src.utils.notifier import EmailNotifier
+                from core.utils.notifier import EmailNotifier
                 
                 self.email_notifier = EmailNotifier()
                 self.logger.info("[OK] Email Notifier initialized")
@@ -1480,64 +1580,120 @@ This is an automated message from NeuralTrader Paper Trading System.
             return False
     
     def run_fetch_mode(self) -> bool:
-        """Run fetch mode - Uses DataManager to update data"""
-        run_id = None
+        """
+        Run fetch mode — incremental update of all data/raw/*.parquet files via Tiingo API.
+        For each ticker: reads last date in parquet, fetches from last_date+1 to today,
+        appends new rows and saves back. Skips tickers already up-to-date.
+        Rule 3.1: after update, any parquet still >24h old triggers [FATAL].
+        """
+        import requests
+        import pandas as pd
+        from pathlib import Path
+        from datetime import datetime, timedelta
+        import time
+
         session_start = datetime.now()
-        
+        self.logger.info("[FETCH] Starting incremental parquet update via Tiingo API")
+
         try:
-            # Log supervision start
-            run_id = self._log_supervision_start('fetch')
-            
-            self.logger.info("[TIME] Running FETCH MODE - DataManager Update")
-            
-            # Check kill switch
-            if self.check_kill_switch():
-                self.logger.error("[STOP] Kill switch activated - aborting fetch")
+            # Load API key
+            tiingo_token = os.getenv('TIINGO_API_KEY')
+            if not tiingo_token:
+                self.logger.error("[FATAL] TIINGO_API_KEY not set in environment — cannot fetch data")
                 return False
-            
-            # Check market status
-            market_status = self._check_market_status()
-            if not market_status.get('is_market_open', False):
-                self.logger.info(f"[TIME] Not data fetch time: {market_status.get('timestamp_ist')}")
-                self.logger.info("[CONFIG] Forcing data fetch for testing...")
-            
-            # Use DataManager to update data
-            self.logger.info("[DATA] Triggering DataManager to update data...")
-            from scripts.data_manager import DataManager
-            dm = DataManager()
-            result = dm.update_all_tickers(exclude_crypto=True, rate_limit=0.5)
-            
-            if result.get('success', 0) > 0:
-                self.logger.error("[ERROR] No data fetched from S&P 100 scan")
-                self._log_supervision_error('fetch', run_id, 'No data fetched')
+
+            raw_dir = Path(PROJECT_ROOT) / 'data' / 'raw'
+            parquet_files = sorted(raw_dir.glob('*.parquet'))
+            if not parquet_files:
+                self.logger.error("[FATAL] No parquet files found in data/raw/ — cannot update")
                 return False
-            
-            self.logger.info(f"[OK] S&P 100 scan completed: {len(result.get('updated_tickers', []))} tickers")
-            
-            # Update portfolio values
-            self.virtual_engine.update_portfolio_values()
-            
-            # Send notification
-            self._send_data_fetch_notification(len(data))
-            
-            session_end = datetime.now()
-            duration = (session_end - session_start).total_seconds()
-            
-            # Log supervision completion
-            details = {
-                "tickers_fetched": len(data),
-                "portfolio_value": self.virtual_engine.portfolio['performance']['total_value'],
-                "market_status": market_status
-            }
-            self._log_supervision_complete('fetch', run_id, True, duration, details)
-            
-            self.logger.info(f"[OK] FETCH MODE completed in {duration:.2f} seconds")
+
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            updated = 0
+            skipped = 0
+            failed = 0
+            total = len(parquet_files)
+
+            self.logger.info(f"[FETCH] Universe: {total} tickers | Target date: {today_str}")
+
+            for i, pfile in enumerate(parquet_files):
+                ticker = pfile.stem
+                try:
+                    df = pd.read_parquet(pfile)
+
+                    # Determine last date in file
+                    if 'date' in df.columns:
+                        last_date = pd.to_datetime(df['date']).max()
+                    else:
+                        last_date = pd.to_datetime(df.index).max()
+
+                    start_fetch = (last_date + timedelta(days=1)).strftime('%Y-%m-%d')
+
+                    if start_fetch > today_str:
+                        skipped += 1
+                        continue
+
+                    url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
+                    params = {
+                        'token': tiingo_token,
+                        'startDate': start_fetch,
+                        'endDate': today_str,
+                        'format': 'csv',
+                        'resampleFreq': 'daily'
+                    }
+
+                    resp = requests.get(url, params=params, timeout=20)
+                    if resp.status_code != 200:
+                        self.logger.warning(f"[WARN] {ticker}: HTTP {resp.status_code} — skip")
+                        failed += 1
+                        time.sleep(0.3)
+                        continue
+
+                    from io import StringIO
+                    new_rows = pd.read_csv(StringIO(resp.text))
+                    if new_rows.empty:
+                        skipped += 1
+                        continue
+
+                    # Normalise date column
+                    new_rows['date'] = pd.to_datetime(new_rows['date']).dt.strftime('%Y-%m-%d')
+                    if 'date' in df.columns:
+                        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+                        combined = pd.concat([df, new_rows], ignore_index=True)
+                        combined = combined.drop_duplicates(subset='date', keep='last')
+                        combined = combined.sort_values('date').reset_index(drop=True)
+                    else:
+                        df = df.reset_index()
+                        df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+                        combined = pd.concat([df, new_rows], ignore_index=True)
+                        combined = combined.drop_duplicates(subset='date', keep='last')
+                        combined = combined.sort_values('date').reset_index(drop=True)
+
+                    combined.to_parquet(pfile, index=False)
+                    updated += 1
+
+                    if (i + 1) % 100 == 0:
+                        self.logger.info(f"[FETCH] Progress: {i+1}/{total} | updated={updated} skipped={skipped} failed={failed}")
+
+                    time.sleep(0.2)  # Tiingo rate limit: ~5 req/s
+
+                except Exception as e:
+                    import traceback
+                    self.logger.warning(f"[WARN] {ticker}: {e}\n{traceback.format_exc()}")
+                    failed += 1
+
+            duration = (datetime.now() - session_start).total_seconds()
+            self.logger.info(f"[FETCH] Complete: updated={updated} skipped={skipped} failed={failed} | {duration:.0f}s")
+
+            if updated == 0 and failed > total * 0.5:
+                self.logger.error(f"[FATAL] Fetch failed for >50% of tickers ({failed}/{total}) — check API key")
+                return False
+
             return True
-            
+
         except Exception as e:
-            self.logger.error(f"[ERROR] Error in FETCH MODE: {e}")
-            if run_id:
-                self._log_supervision_error('fetch', run_id, str(e))
+            import traceback
+            self.logger.error(f"[ERROR] run_fetch_mode failed: {e}\n{traceback.format_exc()}")
             return False
     
     def run_trade_mode(self) -> bool:
@@ -1554,7 +1710,13 @@ This is an automated message from NeuralTrader Paper Trading System.
             # Initialize modules
             if not self.initialize_modules():
                 return False
-            
+
+            # IBKR sync: overwrite portfolio_paper.json with live IBKR ground truth
+            self.logger.info("[IBKR SYNC] Syncing portfolio_paper.json from IBKR...")
+            sync_ok = self.virtual_engine.sync_from_ibkr()
+            if not sync_ok:
+                self.logger.warning("[IBKR SYNC] Sync skipped or failed - proceeding with last saved state")
+
             # Check Portfolio Circuit Breaker (Uncle Point)
             try:
                 portfolio = self.virtual_engine.portfolio
@@ -1663,7 +1825,13 @@ This is an automated message from NeuralTrader Paper Trading System.
             # Initialize modules
             if not self.initialize_modules():
                 return False
-            
+
+            # IBKR sync: refresh portfolio_paper.json before generating the report
+            self.logger.info("[IBKR SYNC] Syncing portfolio_paper.json from IBKR for report...")
+            sync_ok = self.virtual_engine.sync_from_ibkr()
+            if not sync_ok:
+                self.logger.warning("[IBKR SYNC] Sync skipped or failed - report will use last saved state")
+
             # Get portfolio info from virtual engine (always available in report mode)
             account_info = self.virtual_engine.get_account_info()
             current_positions = self.virtual_engine.get_current_positions()
@@ -2131,8 +2299,12 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
         
         # Parse command line arguments
         parser = argparse.ArgumentParser(description='NeuralTrader Automated Trading System')
-        parser.add_argument('--mode', choices=['fetch', 'trade', 'report', 'paper', 'auto', 'saturday_retrain'], 
+        parser.add_argument('--mode', choices=['fetch', 'trade', 'report', 'paper', 'auto', 'saturday_retrain', 'backtest', 'simulation'], 
                           help='Execution mode')
+        parser.add_argument('--start',   default='2000-01-01', help='Backtest start date (backtest/simulation modes)')
+        parser.add_argument('--end',     default=None,          help='Backtest end date (backtest/simulation modes)')
+        parser.add_argument('--cash',    default=100000.0, type=float, help='Initial cash (backtest/simulation modes)')
+        parser.add_argument('--tickers', nargs='*', default=None, help='Ticker subset (backtest/simulation modes)')
         parser.add_argument('--data-fetch', action='store_true', help='Fetch market data (legacy)')
         parser.add_argument('--trading', action='store_true', help='Run trading session (legacy)')
         parser.add_argument('--report', action='store_true', help='Send daily report (legacy)')
@@ -2181,9 +2353,74 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
         elif args.mode == 'auto':
             logger.info("[MODE] Running auto sequence")
             execution_result = orchestrator.run_auto_mode()
-            
+
+        elif args.mode == 'backtest':
+            from scripts.run_full_backtest import UnifiedBacktest
+            logger.info(f"[MODE] BACKTEST | {args.start} -> {args.end or 'today'} | cash=${args.cash:,.0f}")
+            bt = UnifiedBacktest(
+                start_date=args.start,
+                end_date=args.end,
+                initial_cash=args.cash,
+                ticker_filter=args.tickers,
+            )
+            bt.run()
+            metrics = bt.report()
+            execution_result = True
+            logger.info("[MODE] Backtest complete. Results -> reports/backtest_metrics.json")
+            # Write portfolio_backtest.json snapshot
+            try:
+                import json as _json
+                _bt_portfolio = {
+                    'mode': 'backtest',
+                    'period': f"{args.start} -> {args.end or 'today'}",
+                    'initial_cash': args.cash,
+                    'final_value': bt.portfolio_value,
+                    'cash': bt.cash,
+                    'positions': {
+                        t: {'shares': p['shares'], 'entry_price': p['entry_price']}
+                        for t, p in bt.positions.items()
+                    },
+                    'total_trades': len(bt.trades),
+                    'last_run': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'metrics': metrics or {},
+                }
+                _bt_path = Path(__file__).resolve().parent / 'data' / 'portfolio_backtest.json'
+                _bt_path.parent.mkdir(exist_ok=True)
+                _bt_path.write_text(_json.dumps(_bt_portfolio, indent=2, default=str))
+                logger.info(f"[PORTFOLIO] portfolio_backtest.json updated -> {_bt_path}")
+            except Exception as _e:
+                logger.warning(f"[PORTFOLIO] Could not write portfolio_backtest.json: {_e}")
+
+        elif args.mode == 'simulation':
+            from scripts.run_simulation import run_simulation
+            logger.info(f"[MODE] SIMULATION | {args.start or 'last 252d'} -> {args.end or 'today'} | cash=${args.cash:,.0f}")
+            sim_metrics = run_simulation(
+                start_date=args.start,
+                end_date=args.end,
+                initial_cash=args.cash,
+                ticker_filter=args.tickers,
+            )
+            execution_result = True
+            logger.info("[MODE] Simulation complete. Results -> reports/simulation_metrics.json")
+            # Write portfolio_simulation.json snapshot
+            try:
+                import json as _json
+                _sim_portfolio = {
+                    'mode': 'simulation',
+                    'period': f"{args.start or 'last 252d'} -> {args.end or 'today'}",
+                    'initial_cash': args.cash,
+                    'last_run': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'metrics': sim_metrics or {},
+                }
+                _sim_path = Path(__file__).resolve().parent / 'data' / 'portfolio_simulation.json'
+                _sim_path.parent.mkdir(exist_ok=True)
+                _sim_path.write_text(_json.dumps(_sim_portfolio, indent=2, default=str))
+                logger.info(f"[PORTFOLIO] portfolio_simulation.json updated -> {_sim_path}")
+            except Exception as _e:
+                logger.warning(f"[PORTFOLIO] Could not write portfolio_simulation.json: {_e}")
+
         else:
-            logger.error("[ERROR] No mode specified. Use --mode=fetch|trade|report|paper|auto|saturday_retrain")
+            logger.error("[ERROR] No mode specified. Use --mode=fetch|trade|report|paper|auto|saturday_retrain|backtest|simulation")
             parser.print_help()
             execution_result = False
         
@@ -2211,139 +2448,116 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
         logger.error(f"[CRASH] Full traceback:\n{exception_traceback}")
         
     finally:
-        # ===== GUARANTEED EMAIL NOTIFICATION =====
+        # ===== GUARANTEED EMAIL NOTIFICATION (one email per run, log always attached) =====
         logger.info("[IRONCLAD] Entering finally block - sending guaranteed notification")
-        
+
         try:
-            # Prepare email content
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
+            timestamp  = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            mode_label = (args.mode if 'args' in locals() and args.mode else 'UNKNOWN').upper()
+            paper_flag = PAPER_TRADING if 'PAPER_TRADING' in globals() else False
+
+            # ---- Subject line ------------------------------------------------
             if exception_caught:
-                # CRASH REPORT
-                subject = f"🚨 NEURALTRADER CRASH REPORT - {timestamp}"
-                
-                body = f"""
-NEURALTRADER CRASH REPORT
-========================
-
-Timestamp: {timestamp}
-Execution Result: FAILED
-
-CRASH DETAILS:
-{exception_traceback}
-
-SYSTEM STATUS:
-- Orchestrator: {'INITIALIZED' if 'orchestrator' in locals() else 'NOT INITIALIZED'}
-- Mode: {args.mode if 'args' in locals() else 'UNKNOWN'}
-- Paper Trading: {PAPER_TRADING if 'PAPER_TRADING' in globals() else 'UNKNOWN'}
-- Log File: {log_file_path if log_file_path else 'UNKNOWN'}
-
-IMMEDIATE ACTION REQUIRED:
-========================
-1. Check the attached log file for detailed error information
-2. Verify system integrity and data freshness
-3. Restart NeuralTrader after fixing the issue
-4. Monitor system health closely
-
-This is an automated crash report from the Ironclad Wrapper.
-"""
-                
-                logger.error("[EMAIL] Sending crash report notification...")
-                
+                subject = f"[CRASH] NeuralTrader {mode_label} FAILED - {timestamp}"
+                status_tag   = "CRASH"
+                header_color = "#c0392b"
+            elif not execution_result:
+                subject = f"[WARN] NeuralTrader {mode_label} completed with issues - {timestamp}"
+                status_tag   = "WARN"
+                header_color = "#e67e22"
             else:
-                # DAILY SUCCESS REPORT
-                subject = f"📊 NeuralTrader Daily Report - {timestamp}"
-                
-                body = f"""
-NEURALTRADER DAILY REPORT
-=======================
+                subject = f"[OK] NeuralTrader {mode_label} completed - {timestamp}"
+                status_tag   = "OK"
+                header_color = "#27ae60"
 
-Timestamp: {timestamp}
-Execution Result: {'SUCCESS' if execution_result else 'COMPLETED WITH ISSUES'}
-Mode: {args.mode if 'args' in locals() else 'UNKNOWN'}
+            logger.info(f"[EMAIL] Subject: {subject}")
 
-EXECUTION SUMMARY:
-- Daily sequence completed successfully
-- All safety protocols and risk management active
-- System operating within normal parameters
+            # ---- HTML body ---------------------------------------------------
+            crash_section = ""
+            if exception_caught and exception_traceback:
+                crash_section = f"""
+<div style="background:#fff3f3;border:2px solid #e74c3c;padding:15px;border-radius:6px;margin-top:15px;">
+  <h3 style="color:#c0392b;margin:0 0 10px 0;">[CRASH] Traceback</h3>
+  <pre style="font-size:12px;white-space:pre-wrap;word-break:break-all;">{exception_traceback}</pre>
+</div>"""
 
-SYSTEM STATUS:
-- Orchestrator: INITIALIZED and OPERATIONAL
-- Risk Management: ACTIVE
-- Data Pipeline: HEALTHY
-- AI Models: LOADED and VALIDATED
-- Log File: {log_file_path if log_file_path else 'UNKNOWN'}
-
-PERFORMANCE METRICS:
-- Result: {execution_result}
-- Paper Trading: {PAPER_TRADING if 'PAPER_TRADING' in globals() else 'N/A'}
-- Mode: {args.mode if 'args' in locals() else 'UNKNOWN'}
-
-This is an automated daily report from the Ironclad Wrapper.
-"""
-                
-                logger.info("[EMAIL] Sending daily success report...")
-            
-            # Send the email with log file attachment
-            email_sent = notifier.send_alert(subject, body)
-            
-            # Also send email with log file attachment using _send_email
-            if log_file_path:
-                try:
-                    # Create simple HTML content for attachment email
-                    html_content = f"""
+            html_body = f"""<!DOCTYPE html>
 <html>
-<body>
-<h2>NeuralTrader Report - {timestamp}</h2>
-<h3>Execution Result: {'SUCCESS' if execution_result else 'COMPLETED WITH ISSUES'}</h3>
-<p><strong>Mode:</strong> {args.mode if 'args' in locals() else 'UNKNOWN'}</p>
-<p><strong>Log File:</strong> {log_file_path if log_file_path else 'UNKNOWN'}</p>
-<p><strong>Paper Trading:</strong> {PAPER_TRADING if 'PAPER_TRADING' in globals() else 'N/A'}</p>
-<hr>
-<p>This is an automated report from the Ironclad Wrapper with log file attachment.</p>
+<head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;background:#f5f5f5;">
+
+  <div style="background:{header_color};color:white;padding:20px;border-radius:8px;text-align:center;">
+    <h1 style="margin:0;">NeuralTrader — {mode_label} Report</h1>
+    <p style="margin:6px 0 0 0;font-size:14px;">{timestamp} IST &nbsp;|&nbsp; Status: [{status_tag}]</p>
+  </div>
+
+  <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">Execution Summary</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr><td style="padding:6px;color:#555;width:160px;"><strong>Mode</strong></td>
+          <td style="padding:6px;">{mode_label}</td></tr>
+      <tr style="background:#f9f9f9;">
+          <td style="padding:6px;color:#555;"><strong>Result</strong></td>
+          <td style="padding:6px;">{'SUCCESS' if execution_result and not exception_caught else 'FAILED' if exception_caught else 'COMPLETED WITH ISSUES'}</td></tr>
+      <tr><td style="padding:6px;color:#555;"><strong>Paper Trading</strong></td>
+          <td style="padding:6px;">{'YES' if paper_flag else 'NO'}</td></tr>
+      <tr style="background:#f9f9f9;">
+          <td style="padding:6px;color:#555;"><strong>Log File</strong></td>
+          <td style="padding:6px;font-size:12px;">{log_file_path or 'N/A'}</td></tr>
+      <tr><td style="padding:6px;color:#555;"><strong>Timestamp</strong></td>
+          <td style="padding:6px;">{timestamp}</td></tr>
+    </table>
+    {crash_section}
+  </div>
+
+  <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">System Status</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr><td style="padding:5px;color:#555;width:160px;"><strong>Orchestrator</strong></td>
+          <td style="padding:5px;">{'INITIALIZED' if 'orchestrator' in locals() else 'NOT INITIALIZED'}</td></tr>
+      <tr style="background:#f9f9f9;">
+          <td style="padding:5px;color:#555;"><strong>Risk Management</strong></td>
+          <td style="padding:5px;">ACTIVE (Uncle Point 10% / 8-day cooldown)</td></tr>
+      <tr><td style="padding:5px;color:#555;"><strong>SPY Regime Filter</strong></td>
+          <td style="padding:5px;">ACTIVE (100-day SMA)</td></tr>
+      <tr style="background:#f9f9f9;">
+          <td style="padding:5px;color:#555;"><strong>Max Positions</strong></td>
+          <td style="padding:5px;">20 concurrent</td></tr>
+    </table>
+  </div>
+
+  <p style="text-align:center;color:#999;font-size:12px;margin-top:16px;">
+    NeuralTrader v5.5 — Ironclad Wrapper — Daily log attached
+  </p>
 </body>
-</html>
-"""
-                    
-                    # Send email with log file attachment
-                    attachment_email_sent = notifier._send_email(
-                        subject, 
-                        html_content, 
-                        log_file_path=log_file_path
-                    )
-                    
-                    if attachment_email_sent:
-                        if exception_caught:
-                            logger.info("[EMAIL] ✅ Crash report with log attachment sent successfully")
-                        else:
-                            logger.info("[EMAIL] ✅ Daily report with log attachment sent successfully")
-                    else:
-                        logger.error("[EMAIL] ❌ Failed to send email with log attachment")
-                        
-                except Exception as email_error:
-                    logger.error(f"[EMAIL] 🚨 CRITICAL: Failed to send email with log attachment: {email_error}")
-            
+</html>"""
+
+            # ---- Send single email with log attached -------------------------
+            logger.info("[EMAIL] Sending single notification with log attachment...")
+            email_sent = notifier._send_email(
+                subject=subject,
+                html_content=html_body,
+                log_file_path=log_file_path,
+            )
+
             if email_sent:
-                if exception_caught:
-                    logger.info("[EMAIL] ✅ Crash report sent successfully")
-                else:
-                    logger.info("[EMAIL] ✅ Daily report sent successfully")
+                logger.info(f"[EMAIL] [OK] Notification sent | mode={mode_label} | status={status_tag}")
             else:
-                logger.error("[EMAIL] ❌ FAILED to send email notification")
-                
+                logger.error(f"[EMAIL] [FAIL] Failed to send notification | mode={mode_label}")
+
         except Exception as email_error:
-            logger.error(f"[EMAIL] 🚨 CRITICAL: Failed to send email notification: {email_error}")
-            logger.error(f"[EMAIL] Email error details: {traceback.format_exc()}")
-        
+            logger.error(f"[EMAIL] [FAIL] CRITICAL - could not send notification: {email_error}")
+            logger.error(f"[EMAIL] {traceback.format_exc()}")
+
         # ===== FINAL LOGGING =====
         logger.info("=" * 80)
         if exception_caught:
-            logger.info("[IRONCLAD] NeuralTrader session completed with CRASH - notification sent")
+            logger.info("[IRONCLAD] Session completed with CRASH - notification sent")
         else:
-            logger.info("[IRONCLAD] NeuralTrader session completed successfully - notification sent")
+            logger.info("[IRONCLAD] Session completed successfully - notification sent")
         logger.info(f"[TIME] Final timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info("=" * 80)
-        
+
         # Exit with appropriate code
         if exception_caught:
             sys.exit(1)

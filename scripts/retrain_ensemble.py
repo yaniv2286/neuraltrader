@@ -56,12 +56,11 @@ class BrainGateValidation:
         self.data_threshold = 0.75  # 75% data coverage threshold (adjusted for 76 tickers)
         self.sp100_size = 99  # S&P 100 universe size
         self.models_dir = PROJECT_ROOT / "models"
-        self.production_dir = PROJECT_ROOT / "models" / "production"
         # self.notifier = EmailNotifier()  # Disabled for now
-        
+
         # Ensure directories exist
-        self.production_dir.mkdir(parents=True, exist_ok=True)
-        (self.production_dir / "backup").mkdir(exist_ok=True)
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+        (self.models_dir / "backup").mkdir(exist_ok=True)
         
     def check_data_threshold(self, tickers_count: int) -> bool:
         """Check if we have sufficient data coverage"""
@@ -192,58 +191,43 @@ class BrainGateValidation:
             return {'precision': 0.5, 'expected_return': 0.0, 'trades': 0}
     
     def load_current_production_models(self) -> dict:
-        """Load current production models for comparison"""
-        logger.info("[VALIDATION] Loading current production models...")
-        
+        """Load current models from flat models/ directory for comparison"""
+        logger.info("[VALIDATION] Loading current models...")
+
         try:
             models = {}
-            
-            # Load models from production directory
             model_files = {
-                'xgboost': 'xgboost_model_*.pkl',
-                'lightgbm': 'lightgbm_model_*.pkl',
-                'rf': 'rf_model_*.pkl'
+                'xgboost':  self.models_dir / 'xgboost_model.pkl',
+                'lightgbm': self.models_dir / 'lightgbm_model.pkl',
+                'rf':       self.models_dir / 'rf_model.pkl',
             }
-            
-            for model_name, pattern in model_files.items():
-                model_files = list(self.production_dir.glob(pattern))
-                if model_files:
-                    # Get the most recent model
-                    latest_model = max(model_files, key=lambda x: x.stat().st_mtime)
-                    with open(latest_model, 'rb') as f:
+            for model_name, model_path in model_files.items():
+                if model_path.exists():
+                    with open(model_path, 'rb') as f:
                         models[model_name] = pickle.load(f)
-                    logger.info(f"[VALIDATION] Loaded {model_name} from {latest_model.name}")
+                    logger.info(f"[VALIDATION] Loaded {model_name}")
                 else:
-                    logger.warning(f"[VALIDATION] No production model found for {model_name}")
+                    logger.warning(f"[VALIDATION] No model found for {model_name}")
                     return None
-            
-            # Load scaler and feature names
-            scaler_files = list(self.production_dir.glob("feature_scaler_*.pkl"))
-            if scaler_files:
-                latest_scaler = max(scaler_files, key=lambda x: x.stat().st_mtime)
-                with open(latest_scaler, 'rb') as f:
-                    scaler = pickle.load(f)
-            else:
-                logger.warning("[VALIDATION] No production scaler found")
+
+            scaler_path = self.models_dir / 'feature_scaler.pkl'
+            if not scaler_path.exists():
+                logger.warning("[VALIDATION] No scaler found")
                 return None
-            
-            feature_files = list(self.production_dir.glob("feature_names_*.pkl"))
-            if feature_files:
-                latest_features = max(feature_files, key=lambda x: x.stat().st_mtime)
-                with open(latest_features, 'rb') as f:
-                    feature_names = pickle.load(f)
-            else:
-                logger.warning("[VALIDATION] No production feature names found")
+            with open(scaler_path, 'rb') as f:
+                scaler = pickle.load(f)
+
+            features_path = self.models_dir / 'feature_names.pkl'
+            if not features_path.exists():
+                logger.warning("[VALIDATION] No feature names found")
                 return None
-            
-            return {
-                'models': models,
-                'scaler': scaler,
-                'feature_names': feature_names
-            }
-            
+            with open(features_path, 'rb') as f:
+                feature_names = pickle.load(f)
+
+            return {'models': models, 'scaler': scaler, 'feature_names': feature_names}
+
         except Exception as e:
-            logger.error(f"[VALIDATION] Failed to load production models: {e}")
+            logger.error(f"[VALIDATION] Failed to load models: {e}")
             return None
     
     def validate_performance_gate(self, new_metrics: dict, old_metrics: dict) -> bool:
@@ -288,92 +272,48 @@ class BrainGateValidation:
             return False
     
     def backup_production_models(self) -> Path:
-        """Backup current production models"""
+        """Backup current models to models/backup/<timestamp>/"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = self.production_dir / "backup" / timestamp
+        backup_dir = self.models_dir / "backup" / timestamp
         backup_dir.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"[BACKUP] Backing up production models to {backup_dir}")
-        
-        # Copy all production models to backup
-        production_files = list(self.production_dir.glob("*.pkl")) + list(self.production_dir.glob("*.json"))
-        
-        for file_path in production_files:
-            if file_path.parent == self.production_dir:  # Only direct production files
+
+        logger.info(f"[BACKUP] Backing up models to {backup_dir}")
+        model_files = list(self.models_dir.glob("*.pkl")) + list(self.models_dir.glob("*.json"))
+        for file_path in model_files:
+            if file_path.parent == self.models_dir:
                 shutil.copy2(file_path, backup_dir / file_path.name)
                 logger.info(f"[BACKUP] Backed up: {file_path.name}")
-        
+
         return backup_dir
     
     def save_new_production_models(self, models, scaler, feature_names, metadata: dict):
-        """Save new models to production directory"""
+        """Save new models to flat models/ directory (canonical files, no production/ subdir)"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        logger.info(f"[SAVE] Saving new models to production directory...")
-        
-        # Convert models list to dict if needed
+        logger.info(f"[SAVE] Saving new models to models/ ...")
+
         if isinstance(models, list):
             if len(models) >= 3:
-                models_dict = {
-                    'xgboost': models[0],
-                    'lightgbm': models[1], 
-                    'rf': models[2]
-                }
+                models_dict = {'xgboost': models[0], 'lightgbm': models[1], 'rf': models[2]}
             else:
                 logger.error("[SAVE] Insufficient models in ensemble")
                 raise ValueError("Insufficient models in ensemble for saving")
         else:
             models_dict = models
-        
-        # Save models with timestamp
-        model_files = {
-            'xgboost': f'xgboost_model_{timestamp}.pkl',
-            'lightgbm': f'lightgbm_model_{timestamp}.pkl',
-            'rf': f'rf_model_{timestamp}.pkl',
-            'scaler': f'feature_scaler_{timestamp}.pkl',
-            'features': f'feature_names_{timestamp}.pkl',
-            'metadata': f'ensemble_metadata_{timestamp}.json'
-        }
-        
-        # Save models
-        with open(self.production_dir / model_files['xgboost'], 'wb') as f:
+
+        with open(self.models_dir / 'xgboost_model.pkl', 'wb') as f:
             pickle.dump(models_dict['xgboost'], f)
-        
-        with open(self.production_dir / model_files['lightgbm'], 'wb') as f:
+        with open(self.models_dir / 'lightgbm_model.pkl', 'wb') as f:
             pickle.dump(models_dict['lightgbm'], f)
-        
-        with open(self.production_dir / model_files['rf'], 'wb') as f:
+        with open(self.models_dir / 'rf_model.pkl', 'wb') as f:
             pickle.dump(models_dict['rf'], f)
-        
-        with open(self.production_dir / model_files['scaler'], 'wb') as f:
+        with open(self.models_dir / 'feature_scaler.pkl', 'wb') as f:
             pickle.dump(scaler, f)
-        
-        with open(self.production_dir / model_files['features'], 'wb') as f:
+        with open(self.models_dir / 'feature_names.pkl', 'wb') as f:
             pickle.dump(feature_names, f)
-        
-        with open(self.production_dir / model_files['metadata'], 'w') as f:
+        with open(self.models_dir / 'ensemble_metadata.json', 'w') as f:
             json.dump(metadata, f, indent=2)
-        
-        # Also save to main models directory for compatibility
-        main_models_dir = PROJECT_ROOT / "models"
-        main_models_dir.mkdir(exist_ok=True)
-        
-        with open(main_models_dir / "xgboost_model.pkl", 'wb') as f:
-            pickle.dump(models_dict['xgboost'], f)
-        
-        with open(main_models_dir / "lightgbm_model.pkl", 'wb') as f:
-            pickle.dump(models_dict['lightgbm'], f)
-        
-        with open(main_models_dir / "rf_model.pkl", 'wb') as f:
-            pickle.dump(models_dict['rf'], f)
-        
-        with open(main_models_dir / "feature_scaler.pkl", 'wb') as f:
-            pickle.dump(scaler, f)
-        
-        with open(main_models_dir / "feature_names.pkl", 'wb') as f:
-            pickle.dump(feature_names, f)
-        
-        logger.info(f"[OK] Models saved to production with timestamp: {timestamp}")
+
+        logger.info(f"[OK] Models saved to models/ (timestamp: {timestamp})")
         return timestamp
     
     def _send_emergency_alert(self, subject: str, message: str):
@@ -804,9 +744,9 @@ def main():
         logger.info("[STEP 5] Saving models...")
         
         import os
-        models_dir = Path(PROJECT_ROOT) / "models" / "production"
+        models_dir = Path(PROJECT_ROOT) / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Save each model
         for i, model in enumerate(ensemble.models):
             model_name = type(model).__name__

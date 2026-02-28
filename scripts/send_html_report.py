@@ -14,7 +14,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.report_generator import HTMLDashboardGenerator
-from src.utils.notifier import EmailNotifier
+from core.utils.notifier import EmailNotifier
 
 def send_html_dashboard_report():
     """Generate HTML dashboard and send via email with log attachment"""

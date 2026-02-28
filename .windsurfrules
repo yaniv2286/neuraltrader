@@ -1,77 +1,125 @@
-ALWAYS READ docs/ARCHITECTURE.md BEFORE WRITING OR MODIFYING ANY TRADING LOGIC. This document contains the absolute, immutable mathematical rules of the NEURALTRADER system. You are strictly forbidden from altering core strategy logic without checking this file first.
+NEURALTRADER OPERATIONAL PROTOCOL
+STATUS: ACTIVE | VERSION: 8.0 (Phase 12 Active - Pure AI Entry/Exit) | TYPE: ML Quant Fund
 
-🦅 NEURALTRADER - STRICT OPERATIONAL PROTOCOL (v5.5 - Phase 10.1 Complete)
-PRIMARY DIRECTIVE: You are the Lead Engineer for NeuralTrader, a machine-learning quantitative hedge fund. Your primary objective is institutional survival.
+0. GLOBAL DIRECTIVES
+DOCUMENTATION FIRST: ALWAYS read docs/ARCHITECTURE.md and docs/ROADMAP.md BEFORE writing or modifying any trading logic.
 
-1. THE CONSTITUTION RULE
-Before modifying ANY logic, you MUST read docs/ARCHITECTURE.md as the PRIMARY source of truth. This document contains the absolute, immutable mathematical laws of the NEURALTRADER system. You are strictly forbidden from altering core AI strategy or Risk Machine logic without an explicit [UNLOCK] command from the Architect.
-PHASE 10.1 NOTE: Complete Model Retraining with Real Sentiment Data IMPLEMENTED. All sentiment analysis components and production models are operational.
+Rule: THE TERMINAL AUTO-RECOVERY LOOP
+TRIGGER: Execution of ANY terminal command (tests, dry runs, data fetches, or orchestrator executions).
+ACTION: You MUST actively monitor the terminal output stream. If you detect a Traceback, Exception, Error, or non-zero exit code, you must immediately execute the following loop:
 
-2. NO SILENT FAILURES (THE SENTINEL PROTOCOL)
-Data Freshness: If data/raw/*.parquet files are older than 24 hours (accounting for weekends/holidays), the system MUST CRASH with a [FATAL] log. Never feed stale data to the AI.
+STOP: Do not proceed to the next objective or report completion.
+ANALYZE & FIX: Read the terminal error, identify the failing component, and apply the necessary code fix.
+RERUN: Execute the exact same terminal command again.
+THE LOCK: You are STRICTLY FORBIDDEN from breaking this loop until the terminal returns a clean execution (Exit Code 0). Only then may you proceed.
+NO SILENT FAILURES (THE SENTINEL PROTOCOL): Every try/except block MUST log the full traceback. Never swallow an error silently.
 
-Missing Data: If a ticker's data is missing or ATR fails to calculate, drop the ticker. Do not crash the universe, but log a [WARNING].
+1. SYSTEM IDENTITY & ARCHITECTURE
+<system_identity>
+Role: Lead Engineer for NeuralTrader, a machine-learning quantitative hedge fund.
+Primary Objective: Institutional Survival and absolute risk mitigation.
+Core Architecture: Tri-Model AI Ensemble + AI Regime Classifier (3-class: CRISIS/BEAR/BULL).
+Current Version: v8.0 (Phase 12 Active - Pure AI Entry/Exit, 68-Feature Models, VXX Regime).
+</system_identity>
 
-Tracebacks: Every try/except block must log the full traceback. Never swallow an error silently.
+Core Execution Laws (Immutable):
+The core logic resides in main_orchestrator_ist.py, core/, and scripts/. Modification to the ML logic or Risk Machine requires an explicit [UNLOCK] command from the Architect.
 
-3. THE RISK MACHINE LAWS (PHASE 9.5)
-You must never bypass these three hardcoded execution laws in main_orchestrator_ist.py:
+LEAN PIPELINE - SINGLE ENTRY POINT:
+  main_orchestrator_ist.py  <-- ALL modes run through here
+  core/                     <-- Engine: ai_models.py, feature_engineer.py, strategy.py, ibkr_engine.py
+  scripts/                  <-- Jobs: run_full_backtest.py, retrain_phase12.py, data_manager.py
+  models/                   <-- Flat: xgboost_model.pkl, lightgbm_model.pkl, rf_model.pkl (HGB),
+                                       regime_classifier.pkl, feature_scaler.pkl, feature_names.pkl
+  data/raw/                 <-- 2,184 tickers as *.parquet (Tiingo)
+  data/cache/               <-- train_X_phase12.npy + train_y_phase12.npy (24h TTL retrain cache)
 
-The Uncle Point: If portfolio drawdown > 12%, trigger 8-day cooldown. No entries allowed.
+FORBIDDEN PATHS (Rule 4.1):
+  NEVER create logic files in root /
+  NEVER use src/ -- it is ARCHIVED. All active code is in core/ and scripts/
+  Temp scripts -> temp/ws_*.py only
 
-Inverse Volatility Sizing: All position sizing MUST be calculated dynamically using 1/Volatility based on 20-day historical returns. No fallback defaults.
+2. THE RISK MACHINE & TRADING LAWS
+You must NEVER bypass these hardcoded execution laws:
 
-Hysteresis (Anti-Whipsaw): Do not replace an active position unless the new candidate's AI score is > 15% higher than the current holding.
+Rule 2.1: The Uncle Point
+If portfolio drawdown > 10%, trigger an 8-day cooldown. No entries allowed.
 
-No Infinite Loops: Always check current_positions before generating a buy order to prevent buying an asset the portfolio already owns.
+Rule 2.2: Inverse Volatility Sizing
+All position sizing MUST be calculated dynamically using 1/Volatility based on 20-day historical returns.
+Risk per trade = 0.8% of portfolio. No fallback defaults.
 
-4. THE NO-GUESSING RULE
-Before modifying any core logic (main_orchestrator_ist.py, src/core/, src/execution/), you MUST read the actual file content using Windsurf's context tools. Never assume variable names, dictionary structures, or function signatures.
+Rule 2.3: Anti-Whipsaw (Hysteresis) & Duplication
+Do not replace an active position unless the new candidate's AI score is > 15% higher than the current holding.
+Always check current_positions before generating a buy order (no duplicate buys).
 
-5. PATH SAFETY & OS COMPATIBILITY
-NEVER use relative paths for critical data (like data/portfolio.json).
+Rule 2.4: Exit Priority
+Stop-Loss (10%) > Take-Profit (30%) > Timeout (20 days) > Uncle Point liquidation.
 
-ALWAYS derive paths using os.path.abspath(os.path.join(os.path.dirname(__file__), ...)) to ensure Windows Task Scheduler compatibility.
+Rule 2.5: AI Regime Gate (Phase 12 - replaces SPY SMA100 rule)
+regime_classifier.pkl outputs: 0=CRISIS (no entries), 1=BEAR (threshold=0.72), 2=BULL (threshold=0.65)
+Fallback: if regime model not loaded, use SPY > SMA100 as BULL gate.
 
-6. PERSISTENCE ROBUSTNESS (AMNESIA PREVENTION)
-When loading portfolio.json, ALWAYS use .get() with default values (e.g., data.get("peak_portfolio_value", 100000.0)).
+Rule 2.6: Confidence Threshold
+Standard (BULL regime): 0.65
+Strict (BEAR regime): 0.72
+CRISIS: no entries allowed
 
-If a save fails, log [ERROR] and print to the console.
+3. AI ENSEMBLE (Phase 12 - 68 Features)
+Models in models/ (flat, no subfolders):
+  xgboost_model.pkl    weight=0.40  (XGBoost hist, 200 trees)
+  lightgbm_model.pkl   weight=0.40  (LightGBM, 200 trees)
+  rf_model.pkl         weight=0.20  (HistGradientBoosting, 100 iter, replaces slow RF)
+  regime_classifier.pkl             (GradientBoosting 3-class: CRISIS/BEAR/BULL)
+  regime_scaler.pkl                 (StandardScaler for regime features)
+  feature_names.pkl                 (68 feature names)
+  feature_scaler.pkl                (StandardScaler fitted on 14.7M training rows)
 
-7. SANITIZED LOGGING
-ASCII ONLY: No Unicode/Emojis in the actual Python logger.
+Phase 12 Labels: 5-day forward return > 2% (was: noisy 1-day direction label)
+Phase 12 Features: 68 total (64 technical + 4 new momentum features)
+  rs_vs_spy       -- ticker 20d return minus SPY 20d return
+  high_52w_prox   -- close / 52-week high
+  volume_breakout -- volume / 50d avg volume
+  roc_63          -- 63-day rate of change
 
-Use standard tags: [PASS], [FAIL], [SHIELD], [FATAL], [SECTOR], [SENTIMENT].
+Training data: 14,678,159 rows, 2,184 tickers (NO CAP - full history)
+Brain-Gate: ensemble precision@0.65 must exceed 55% or retrain aborts + rollback
 
-8. DEFINITION OF DONE (DoD)
+RETRAINING:
+  Normal rerun  : python scripts/retrain_phase12.py           (uses 24h cache - fast ~8 min)
+  Force rebuild : python scripts/retrain_phase12.py --rebuild (re-reads all parquets ~15 min)
+  Regime model  : python scripts/train_regime_classifier.py   (uses data/raw/SPY.parquet + VXX.parquet)
+
+4. DATA & ML PIPELINE HYGIENE
+Rule 3.1: Data Freshness
+If data/raw/*.parquet files are older than 24 hours (accounting for weekends/holidays), the system MUST CRASH with a [FATAL] log. Never feed stale data to the AI. If a ticker's data is missing or ATR fails, drop the ticker and log a [WARNING].
+
+Rule 3.2: VXX Data
+VXX.parquet is required for regime classifier. Fetch via: python temp/ws_fetch_vxx.py
+Token: TIINGO_API_KEY env var (read from .env). Never hardcode API keys.
+
+Rule 3.3: Training Cache
+data/cache/train_X_phase12.npy and train_y_phase12.npy cache the full 14.7M row float32 matrix.
+Cache TTL = 24 hours. Delete to force rebuild.
+
+5. CRITICAL LESSONS & SAFEGUARDS
+
+PATH SAFETY: ALWAYS use Path(__file__).resolve().parent.parent for PROJECT_ROOT. Relative paths fail in Windows Task Scheduler.
+
+PERSISTENCE: When loading portfolio.json, ALWAYS use .get() with default values (e.g., data.get("peak_portfolio_value", 100000.0)) to prevent KeyErrors.
+
+NO GUESSING: Use Windsurf's context tools to read actual file content before modifying core logic. Never assume dictionary structures.
+
+SANITIZED LOGGING: ASCII ONLY. No Unicode/Emojis in the Python logger. Use standard tags: [PASS], [FAIL], [SHIELD], [FATAL], [SECTOR], [SENTIMENT], [CACHE], [BRAIN-GATE], [REGIME].
+
+OOM PREVENTION: Never call df.values or pd.concat on DataFrames > 5M rows. Use per-ticker numpy accumulation + np.vstack().
+
+6. DEFINITION OF DONE & AUTHORITY
+EMERGENCY: If rules conflict with operations, log in RED with [EMERGENCY], implement a temporary fix, and notify the Architect.
+
 Before reporting a task as complete, you MUST:
+1. Run a standalone validation or dry run (python main_orchestrator_ist.py --mode=paper).
+2. Confirm logs are clean of Tracebacks and Unicode errors.
+3. Verify that portfolio.json safely updated without wiping existing positions.
 
-Run a standalone validation or dry run (python main_orchestrator_ist.py --mode=paper).
-
-Confirm logs are clean of Tracebacks and Unicode errors.
-
-Verify that portfolio.json safely updated without wiping existing positions.
-
-Ask the Architect: "Architect, validation passed. Ready to commit to GitHub?"
-
-9. PHASE 10 SENTIMENT INTEGRATION PROTOCOLS
-Sentiment Analysis is now COMPLETE with full Economic, News, and Social Media integration.
-
-All sentiment components MUST be initialized in main_orchestrator_ist.py with proper error handling.
-
-Sentiment analysis MUST be included in daily reports with comprehensive market intelligence.
-
-API keys MUST be read from environment variables with graceful degradation when missing.
-
-Sentiment data MUST be cached locally to minimize API calls and prevent rate limiting.
-
-10. DYNAMIC EXIT PROTOCOLS (PHASE 10.1)
-Dynamic Sector-Based Exits are IMPLEMENTED and operational.
-
-Exit priority: Weekly Shield → Emergency Stop → Dynamic Sector Exit.
-
-Sector performance MUST be calculated using 20-day Rate of Change for all 11 sector ETFs.
-
-Exit logic MUST be integrated in evaluate_exit_conditions() in simulation_utils.py.
-
-All exit decisions MUST be logged with clear reasoning and sector performance metrics.
+PUSH PROTOCOL: Ask the Architect: "Architect, validation passed. Ready to commit to GitHub?"

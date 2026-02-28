@@ -24,7 +24,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 # Import production components
-from src.utils.notifier import EmailNotifier
+from core.utils.notifier import EmailNotifier
 from core.ai_models import EnsemblePredictor
 
 class PreFlightCheckError(Exception):

@@ -1,506 +1,528 @@
 """
-Interactive Brokers Execution Engine (ib_async)
-==============================================
+Interactive Brokers Execution Engine (ib_insync)
+================================================
 
-Real paper trading execution engine for NeuralTrader using ib_async.
-Handles order execution, account management, and position tracking.
+Synchronous IBKR engine for NeuralTrader paper trading.
+Built on ib_insync which manages its own internal event loop —
+no asyncio wrappers needed, no event-loop conflicts on Windows.
 
-Features:
-- Real-time market data and execution using ib_async
-- Paper trading on TWS (port 7497)
-- Market and Limit order support
-- Account summary and position tracking
-- Risk management integration
-- Async/await support for modern Python
+Reference: D:/GitHub/VolatilityHunter/src/brokerage_interface.py (IBKRInterface)
+
+Port mapping:
+  7497 — TWS Paper Trading  (default)
+  7496 — TWS Live Trading
+  4002 — IB Gateway Paper
+  4001 — IB Gateway Live
 """
 
-import asyncio
+import os
+import socket
+import random
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+import traceback
+from typing import Dict, List, Optional, Any
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Availability check — ib_insync only, no ib_async
+# ---------------------------------------------------------------------------
 try:
-    import ib_async
+    from ib_insync import IB, Stock, MarketOrder, LimitOrder, util
     IB_AVAILABLE = True
-    logger.info("[IBKR] ib_async module available")
-except ImportError as e:
+    logger.info("[IBKR] ib_insync available")
+except ImportError:
     IB_AVAILABLE = False
-    logger.warning(f"[IBKR] ib_async not available: {e}")
+    logger.warning("[IBKR] ib_insync not installed. Run: pip install ib_insync")
 except Exception as e:
     IB_AVAILABLE = False
-    print(f"[IBKR] Error importing ib_async: {e}")
+    logger.warning(f"[IBKR] ib_insync import error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Data classes (kept for backward compatibility)
+# ---------------------------------------------------------------------------
 
 class OrderType(Enum):
-    """Order types supported by IBKR engine"""
     MARKET = "MKT"
-    LIMIT = "LMT"
+    LIMIT  = "LMT"
 
 class OrderSide(Enum):
-    """Order sides"""
-    BUY = "BUY"
+    BUY  = "BUY"
     SELL = "SELL"
 
 @dataclass
 class OrderResult:
-    """Result of order execution"""
-    order_id: int
-    status: str
-    filled: bool
+    order_id:        int
+    status:          str
+    filled:          bool
     filled_quantity: int
-    fill_price: float
-    commission: float
-    timestamp: datetime
-    error: Optional[str] = None
+    fill_price:      float
+    commission:      float
+    timestamp:       datetime
+    error:           Optional[str] = None
 
 @dataclass
 class AccountSummary:
-    """Account summary information"""
-    cash_balance: float
-    portfolio_value: float
-    buying_power: float
+    cash_balance:     float
+    portfolio_value:  float
+    buying_power:     float
     equity_with_loan: float
-    total_positions: int
-    timestamp: datetime
+    total_positions:  int
+    timestamp:        datetime
+    account_id:       str = ""
 
 @dataclass
 class Position:
-    """Position information"""
-    symbol: str
-    quantity: int
-    market_price: float
-    market_value: float
-    average_cost: float
+    symbol:         str
+    quantity:       int
+    market_price:   float
+    market_value:   float
+    average_cost:   float
     unrealized_pnl: float
-    side: str
+    side:           str
+
+
+# ---------------------------------------------------------------------------
+# Main engine
+# ---------------------------------------------------------------------------
 
 class IBKRExecutionEngine:
     """
-    Interactive Brokers Execution Engine using ib_async
-    
-    This engine handles real paper trading execution through IBKR TWS Paper Trading.
-    It provides methods for order execution, account management, and position tracking.
+    NeuralTrader IBKR Execution Engine — ib_insync, synchronous API.
+
+    ib_insync manages its own event loop internally.
+    All public methods are synchronous and safe to call from the scheduler.
     """
-    
-    def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1):
-        """
-        Initialize IBKR Execution Engine
-        
-        Args:
-            host: IBKR TWS host address
-            port: IBKR TWS port (7497 for paper trading)
-            client_id: Client ID for IBKR connection
-        """
-        self.host = host
-        self.port = port
-        self.client_id = client_id
-        self.ib = None
+
+    def __init__(
+        self,
+        host:      str = "127.0.0.1",
+        port:      int = 7497,
+        client_id: int = None,
+    ):
+        self.host      = host
+        self.port      = port
+        self.client_id = client_id or random.randint(100, 999)
+        self.ib:       Optional[IB] = None
         self.connected = False
-        self.logger = logging.getLogger(__name__)
-        
-        self.logger.info(f"[IBKR] Initializing IBKR Engine - Host: {host}, Port: {port}, Client ID: {client_id}")
-        
-        if not IB_AVAILABLE:
-            raise ImportError("ib_async is not available. Install with: pip install ib_async")
-    
-    async def connect_async(self) -> bool:
-        """
-        Connect to IBKR TWS asynchronously
-        
-        Returns:
-            bool: True if connection successful, False otherwise
-        """
-        try:
-            self.logger.info(f"[IBKR] Connecting to IBKR TWS at {self.host}:{self.port}...")
-            
-            # Create IB connection
-            self.ib = ib_async.IB()
-            
-            # Connect asynchronously
-            await self.ib.connectAsync(self.host, self.port, clientId=self.client_id)
-            
-            # Wait for connection to establish
-            await asyncio.sleep(1)
-            
-            if self.ib.isConnected():
-                self.connected = True
-                self.logger.info("[IBKR] Successfully connected to IBKR")
-                return True
-            else:
-                self.logger.error("[IBKR] Failed to connect to IBKR")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"[IBKR] Connection error: {e}")
-            self.connected = False
-            return False
-    
+        self.logger    = logging.getLogger(__name__)
+        self.logger.info(
+            f"[IBKR] Engine init | host={host} port={port} clientId={self.client_id}"
+        )
+
+    # ------------------------------------------------------------------
+    # Connection
+    # ------------------------------------------------------------------
+
+    def _port_open(self) -> bool:
+        """Quick TCP probe to avoid hanging on connect()."""
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.settimeout(5)
+        result = probe.connect_ex((self.host, self.port)) == 0
+        probe.close()
+        return result
+
     def connect(self) -> bool:
         """
-        Connect to IBKR TWS (synchronous wrapper)
-        
-        Returns:
-            bool: True if connection successful, False otherwise
+        Connect to IBKR TWS / IB Gateway.
+        Uses ib_insync's synchronous connect() — no asyncio event loop needed.
         """
+        if not IB_AVAILABLE:
+            self.logger.error("[IBKR] ib_insync not installed — cannot connect")
+            return False
+
         try:
-            # Run async connection in new event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            if not self._port_open():
+                self.logger.error(
+                    f"[IBKR] Port {self.port} not reachable. "
+                    "Is TWS / IB Gateway running?"
+                )
+                return False
+
+            self.ib = IB()
+            self.ib.connect(
+                self.host,
+                self.port,
+                clientId=self.client_id,
+                timeout=15,
+                readonly=False,
+            )
+
+            if not self.ib.isConnected():
+                self.logger.error("[IBKR] connect() returned but isConnected() is False")
+                return False
+
+            self.connected = True
+
+            # Log available cash for confirmation
             try:
-                return loop.run_until_complete(self.connect_async())
-            finally:
-                loop.close()
+                for v in self.ib.accountValues():
+                    if v.tag == 'AvailableFunds' and v.currency == 'USD':
+                        self.logger.info(
+                            f"[IBKR] Connected | clientId={self.client_id} "
+                            f"| AvailableFunds=${float(v.value):,.2f}"
+                        )
+                        break
+            except Exception:
+                self.logger.info(f"[IBKR] Connected | clientId={self.client_id}")
+
+            return True
+
         except Exception as e:
-            self.logger.error(f"[IBKR] Connection error: {e}")
+            self.logger.error(f"[IBKR] connect() failed: {e}")
+            self.logger.error(traceback.format_exc())
             self.connected = False
             return False
-    
-    async def disconnect_async(self):
-        """Disconnect from IBKR TWS asynchronously"""
-        try:
-            if self.ib and self.ib.isConnected():
-                await self.ib.disconnectAsync()
-                self.connected = False
-                self.logger.info("[IBKR] Disconnected from IBKR")
-        except Exception as e:
-            self.logger.error(f"[IBKR] Disconnect error: {e}")
-    
+
     def disconnect(self):
-        """Disconnect from IBKR TWS (synchronous wrapper)"""
+        """Disconnect cleanly."""
         try:
             if self.ib and self.ib.isConnected():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self.disconnect_async())
-                finally:
-                    loop.close()
+                self.ib.disconnect()
+                self.logger.info("[IBKR] Disconnected")
         except Exception as e:
-            self.logger.error(f"[IBKR] Disconnect error: {e}")
-    
-    async def execute_trade_async(
-        self, 
-        symbol: str, 
-        side: OrderSide, 
-        order_type: OrderType, 
-        quantity: int, 
-        limit_price: Optional[float] = None
-    ) -> OrderResult:
-        """
-        Execute trade asynchronously
-        
-        Args:
-            symbol: Stock symbol (e.g., 'AAPL')
-            side: Buy or Sell
-            order_type: Market or Limit
-            quantity: Number of shares
-            limit_price: Limit price (required for limit orders)
-            
-        Returns:
-            OrderResult: Result of order execution
-        """
-        try:
-            if not self.connected or not self.ib:
-                raise Exception("Not connected to IBKR")
-            
-            self.logger.info(f"[IBKR] Executing {side.value} {quantity} shares of {symbol} ({order_type.value})")
-            
-            # Create contract
-            contract = ib_async.Stock(symbol, 'SMART', 'USD')
-            
-            # Create order
-            if order_type == OrderType.MARKET:
-                order = ib_async.MarketOrder(side.value, quantity)
-            elif order_type == OrderType.LIMIT:
-                if limit_price is None:
-                    raise ValueError("Limit price required for limit orders")
-                order = ib_async.LimitOrder(side.value, quantity, limit_price)
-            else:
-                raise ValueError(f"Unsupported order type: {order_type}")
-            
-            # Submit order
-            trade = await self.ib.placeOrderAsync(contract, order)
-            
-            # Wait for order to process
-            await asyncio.sleep(1)
-            
-            # Create result
-            result = OrderResult(
-                order_id=trade.order.orderId,
-                status=trade.orderStatus.status,
-                filled=trade.orderStatus.filled > 0,
-                filled_quantity=trade.orderStatus.filled,
-                fill_price=trade.orderStatus.avgFillPrice if trade.orderStatus.filled > 0 else 0.0,
-                commission=trade.commissionReport.commission if trade.commissionReport else 0.0,
-                timestamp=datetime.now()
-            )
-            
-            self.logger.info(f"[IBKR] Order submitted: {result.order_id} ({result.status})")
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"[IBKR] Order execution error: {e}")
-            return OrderResult(
-                order_id=0,
-                status="ERROR",
-                filled=False,
-                filled_quantity=0,
-                fill_price=0.0,
-                commission=0.0,
-                timestamp=datetime.now(),
-                error=str(e)
-            )
-    
-    def execute_trade(
-        self, 
-        symbol: str, 
-        side: OrderSide, 
-        order_type: OrderType, 
-        quantity: int, 
-        limit_price: Optional[float] = None
-    ) -> OrderResult:
-        """
-        Execute trade (synchronous wrapper)
-        
-        Args:
-            symbol: Stock symbol (e.g., 'AAPL')
-            side: Buy or Sell
-            order_type: Market or Limit
-            quantity: Number of shares
-            limit_price: Limit price (required for limit orders)
-            
-        Returns:
-            OrderResult: Result of order execution
-        """
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(
-                    self.execute_trade_async(symbol, side, order_type, quantity, limit_price)
-                )
-            finally:
-                loop.close()
-        except Exception as e:
-            self.logger.error(f"[IBKR] Order execution error: {e}")
-            return OrderResult(
-                order_id=0,
-                status="ERROR",
-                filled=False,
-                filled_quantity=0,
-                fill_price=0.0,
-                commission=0.0,
-                timestamp=datetime.now(),
-                error=str(e)
-            )
-    
-    async def get_account_summary_async(self) -> AccountSummary:
-        """
-        Get account summary asynchronously
-        
-        Returns:
-            AccountSummary: Account summary information
-        """
-        try:
-            if not self.connected or not self.ib:
-                raise Exception("Not connected to IBKR")
-            
-            self.logger.info("[IBKR] Fetching account summary...")
-            
-            # Get account summary
-            summary = await self.ib.accountSummaryAsync()
-            
-            # Extract key values
-            cash_balance = 0.0
-            portfolio_value = 0.0
-            buying_power = 0.0
-            equity_with_loan = 0.0
-            
-            for item in summary:
-                if item.tag == 'TotalCashBalance':
-                    cash_balance = float(item.value)
-                elif item.tag == 'NetLiquidation':
-                    portfolio_value = float(item.value)
-                elif item.tag == 'BuyingPower':
-                    buying_power = float(item.value)
-                elif item.tag == 'EquityWithLoanValue':
-                    equity_with_loan = float(item.value)
-            
-            # Get positions
-            positions = await self.ib.positionsAsync()
-            total_positions = len(positions)
-            
-            account_summary = AccountSummary(
-                cash_balance=cash_balance,
-                portfolio_value=portfolio_value,
-                buying_power=buying_power,
-                equity_with_loan=equity_with_loan,
-                total_positions=total_positions,
-                timestamp=datetime.now()
-            )
-            
-            self.logger.info(f"[IBKR] Account summary: Cash=${cash_balance:,.2f}, Portfolio=${portfolio_value:,.2f}")
-            
-            return account_summary
-            
-        except Exception as e:
-            self.logger.error(f"[IBKR] Account summary error: {e}")
-            raise
-    
+            self.logger.error(f"[IBKR] disconnect() error: {e}")
+        finally:
+            self.ib        = None
+            self.connected = False
+
+    # ------------------------------------------------------------------
+    # Account
+    # ------------------------------------------------------------------
+
     def get_account_summary(self) -> Dict[str, Any]:
         """
-        Get account summary (synchronous wrapper)
-        
-        Returns:
-            Dict: Account summary information
+        Returns a dict with keys:
+          cash_balance, portfolio_value, buying_power, equity_with_loan,
+          total_positions, account_id, timestamp
+        On error returns {'error': <message>}.
         """
+        if not self.connected or not self.ib:
+            return {'error': 'Not connected to IBKR'}
+
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                summary = loop.run_until_complete(self.get_account_summary_async())
-                return {
-                    'cash_balance': summary.cash_balance,
-                    'portfolio_value': summary.portfolio_value,
-                    'buying_power': summary.buying_power,
-                    'equity_with_loan': summary.equity_with_loan,
-                    'total_positions': summary.total_positions,
-                    'timestamp': summary.timestamp.isoformat()
-                }
-            finally:
-                loop.close()
+            self.logger.info("[IBKR] Fetching account summary...")
+
+            cash_balance     = 0.0
+            portfolio_value  = 0.0
+            buying_power     = 0.0
+            equity_with_loan = 0.0
+            account_id       = ""
+
+            for v in self.ib.accountValues():
+                if v.currency != 'USD':
+                    continue
+                if v.tag == 'AvailableFunds':
+                    cash_balance = float(v.value)
+                elif v.tag == 'NetLiquidation':
+                    equity_with_loan = float(v.value)
+                    portfolio_value  = float(v.value)
+                elif v.tag == 'BuyingPower':
+                    buying_power = float(v.value)
+                elif v.tag == 'GrossPositionValue':
+                    portfolio_value = float(v.value)
+                if v.account:
+                    account_id = v.account
+
+            positions = self.ib.positions()
+
+            self.logger.info(
+                f"[IBKR] Account | Cash=${cash_balance:,.2f} "
+                f"| NetLiq=${equity_with_loan:,.2f} "
+                f"| Positions={len(positions)}"
+            )
+
+            return {
+                'cash_balance':     cash_balance,
+                'portfolio_value':  portfolio_value,
+                'buying_power':     buying_power,
+                'equity_with_loan': equity_with_loan,
+                'total_positions':  len(positions),
+                'account_id':       account_id,
+                'timestamp':        datetime.now().isoformat(),
+            }
+
         except Exception as e:
-            self.logger.error(f"[IBKR] Account summary error: {e}")
+            self.logger.error(f"[IBKR] get_account_summary() error: {e}")
+            self.logger.error(traceback.format_exc())
             return {'error': str(e)}
-    
-    async def get_positions_async(self) -> List[Position]:
-        """
-        Get current positions asynchronously
-        
-        Returns:
-            List[Position]: List of current positions
-        """
-        try:
-            if not self.connected or not self.ib:
-                raise Exception("Not connected to IBKR")
-            
-            self.logger.info("[IBKR] Fetching positions...")
-            
-            # Get positions
-            ib_positions = await self.ib.positionsAsync()
-            
-            positions = []
-            for pos in ib_positions:
-                position = Position(
-                    symbol=pos.contract.symbol,
-                    quantity=int(pos.position),
-                    market_price=float(pos.marketPrice),
-                    market_value=float(pos.marketValue),
-                    average_cost=float(pos.averageCost),
-                    unrealized_pnl=float(pos.unrealizedPNL),
-                    side="LONG" if pos.position > 0 else "SHORT"
-                )
-                positions.append(position)
-            
-            self.logger.info(f"[IBKR] Found {len(positions)} positions")
-            
-            return positions
-            
-        except Exception as e:
-            self.logger.error(f"[IBKR] Positions error: {e}")
-            return []
-    
+
+    # ------------------------------------------------------------------
+    # Positions
+    # ------------------------------------------------------------------
+
     def get_positions(self) -> List[Dict[str, Any]]:
         """
-        Get current positions (synchronous wrapper)
-        
-        Returns:
-            List[Dict]: List of current positions
+        Returns list of dicts with keys:
+          symbol, quantity, market_price, market_value,
+          average_cost, unrealized_pnl, side
+        Returns [] on error.
         """
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                positions = loop.run_until_complete(self.get_positions_async())
-                return [
-                    {
-                        'symbol': pos.symbol,
-                        'quantity': pos.quantity,
-                        'market_price': pos.market_price,
-                        'market_value': pos.market_value,
-                        'average_cost': pos.average_cost,
-                        'unrealized_pnl': pos.unrealized_pnl,
-                        'side': pos.side
-                    }
-                    for pos in positions
-                ]
-            finally:
-                loop.close()
-        except Exception as e:
-            self.logger.error(f"[IBKR] Positions error: {e}")
+        if not self.connected or not self.ib:
+            self.logger.warning("[IBKR] get_positions() called but not connected")
             return []
-    
+
+        try:
+            self.logger.info("[IBKR] Fetching positions...")
+            result = []
+            for pos in self.ib.positions():
+                if pos.contract.secType != 'STK':
+                    continue
+                qty = pos.position
+                avg = float(pos.avgCost)
+                mv  = float(pos.marketValue) if hasattr(pos, 'marketValue') else avg * abs(qty)
+                mp  = mv / qty if qty != 0 else avg
+                pnl = mv - avg * abs(qty)
+
+                result.append({
+                    'symbol':        pos.contract.symbol,
+                    'quantity':      int(qty),
+                    'market_price':  round(mp, 4),
+                    'market_value':  round(mv, 2),
+                    'average_cost':  round(avg, 4),
+                    'unrealized_pnl': round(pnl, 2),
+                    'side':          'long' if qty > 0 else 'short',
+                })
+
+            self.logger.info(f"[IBKR] {len(result)} stock positions fetched")
+            return result
+
+        except Exception as e:
+            self.logger.error(f"[IBKR] get_positions() error: {e}")
+            self.logger.error(traceback.format_exc())
+            return []
+
+    # ------------------------------------------------------------------
+    # Order execution
+    # ------------------------------------------------------------------
+
+    def place_market_order(
+        self,
+        symbol:   str,
+        quantity: int,
+        side:     str,
+    ) -> Dict[str, Any]:
+        """
+        Place a market order.
+        side: 'BUY' or 'SELL' (case-insensitive).
+        Returns dict with keys: success, order_id, symbol, quantity, side, status.
+        """
+        if not self.connected or not self.ib:
+            return {'success': False, 'reason': 'Not connected to IBKR'}
+
+        if quantity <= 0:
+            return {'success': False, 'reason': f'Invalid quantity: {quantity}'}
+
+        action = side.upper()
+        if action not in ('BUY', 'SELL'):
+            return {'success': False, 'reason': f'Invalid side: {side}'}
+
+        try:
+            contract = Stock(symbol, 'SMART', 'USD')
+            order    = MarketOrder(action, quantity)
+            trade    = self.ib.placeOrder(contract, order)
+
+            self.logger.info(
+                f"[IBKR] Market order placed | {action} {quantity} {symbol} "
+                f"| orderId={trade.order.orderId}"
+            )
+            return {
+                'success':  True,
+                'order_id': str(trade.order.orderId),
+                'symbol':   symbol,
+                'quantity': quantity,
+                'side':     action,
+                'type':     'market',
+                'status':   trade.orderStatus.status,
+            }
+
+        except Exception as e:
+            self.logger.error(f"[IBKR] place_market_order() error: {e}")
+            self.logger.error(traceback.format_exc())
+            return {'success': False, 'reason': str(e)}
+
+    def place_limit_order(
+        self,
+        symbol:   str,
+        quantity: int,
+        side:     str,
+        price:    float,
+    ) -> Dict[str, Any]:
+        """
+        Place a limit order.
+        Returns dict with keys: success, order_id, symbol, quantity, side, price, status.
+        """
+        if not self.connected or not self.ib:
+            return {'success': False, 'reason': 'Not connected to IBKR'}
+
+        if quantity <= 0:
+            return {'success': False, 'reason': f'Invalid quantity: {quantity}'}
+
+        action = side.upper()
+        if action not in ('BUY', 'SELL'):
+            return {'success': False, 'reason': f'Invalid side: {side}'}
+
+        try:
+            contract = Stock(symbol, 'SMART', 'USD')
+            order    = LimitOrder(action, quantity, price)
+            trade    = self.ib.placeOrder(contract, order)
+
+            self.logger.info(
+                f"[IBKR] Limit order placed | {action} {quantity} {symbol} @ ${price:.2f} "
+                f"| orderId={trade.order.orderId}"
+            )
+            return {
+                'success':  True,
+                'order_id': str(trade.order.orderId),
+                'symbol':   symbol,
+                'quantity': quantity,
+                'side':     action,
+                'type':     'limit',
+                'price':    price,
+                'status':   trade.orderStatus.status,
+            }
+
+        except Exception as e:
+            self.logger.error(f"[IBKR] place_limit_order() error: {e}")
+            self.logger.error(traceback.format_exc())
+            return {'success': False, 'reason': str(e)}
+
+    def cancel_order(self, order_id: str) -> Dict[str, Any]:
+        """Cancel an open order by order_id string."""
+        if not self.connected or not self.ib:
+            return {'success': False, 'reason': 'Not connected to IBKR'}
+
+        try:
+            for trade in self.ib.openTrades():
+                if str(trade.order.orderId) == str(order_id):
+                    self.ib.cancelOrder(trade.order)
+                    self.logger.info(f"[IBKR] Order cancelled | orderId={order_id}")
+                    return {'success': True, 'order_id': order_id}
+
+            return {'success': False, 'reason': f'Order {order_id} not found in open trades'}
+
+        except Exception as e:
+            self.logger.error(f"[IBKR] cancel_order() error: {e}")
+            return {'success': False, 'reason': str(e)}
+
+    def get_order_status(self, order_id: str) -> Dict[str, Any]:
+        """Get status of an open order."""
+        if not self.connected or not self.ib:
+            return {'success': False, 'reason': 'Not connected to IBKR'}
+
+        try:
+            for trade in self.ib.openTrades():
+                if str(trade.order.orderId) == str(order_id):
+                    return {
+                        'success':          True,
+                        'order_id':         order_id,
+                        'symbol':           trade.contract.symbol,
+                        'quantity':         trade.order.totalQuantity,
+                        'side':             trade.order.action.lower(),
+                        'type':             trade.order.orderType.lower(),
+                        'status':           trade.orderStatus.status,
+                        'filled_qty':       trade.orderStatus.filled,
+                        'filled_avg_price': trade.orderStatus.avgFillPrice or 0.0,
+                    }
+
+            return {'success': False, 'reason': f'Order {order_id} not found'}
+
+        except Exception as e:
+            self.logger.error(f"[IBKR] get_order_status() error: {e}")
+            return {'success': False, 'reason': str(e)}
+
+    # ------------------------------------------------------------------
+    # High-level helpers used by NeuralTrader orchestrator
+    # ------------------------------------------------------------------
+
+    def execute_trade(
+        self,
+        symbol:      str,
+        side:        Any,        # OrderSide enum or str 'BUY'/'SELL'
+        order_type:  Any = None, # OrderType enum or str 'MKT'/'LMT'
+        quantity:    int  = 1,
+        limit_price: Optional[float] = None,
+    ) -> OrderResult:
+        """
+        Unified trade execution — wraps place_market_order / place_limit_order.
+        Accepts both enum and string arguments for backward compatibility.
+        """
+        action = side.value if isinstance(side, OrderSide) else str(side).upper()
+        otype  = (order_type.value if isinstance(order_type, OrderType)
+                  else str(order_type).upper() if order_type else 'MKT')
+
+        if otype == 'LMT' and limit_price is not None:
+            res = self.place_limit_order(symbol, quantity, action, limit_price)
+        else:
+            res = self.place_market_order(symbol, quantity, action)
+
+        if res.get('success'):
+            return OrderResult(
+                order_id=int(res.get('order_id', 0)),
+                status=res.get('status', 'Submitted'),
+                filled=False,
+                filled_quantity=0,
+                fill_price=limit_price or 0.0,
+                commission=0.0,
+                timestamp=datetime.now(),
+            )
+        else:
+            return OrderResult(
+                order_id=0,
+                status='ERROR',
+                filled=False,
+                filled_quantity=0,
+                fill_price=0.0,
+                commission=0.0,
+                timestamp=datetime.now(),
+                error=res.get('reason', 'Unknown error'),
+            )
+
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
     def __enter__(self):
-        """Context manager entry"""
         self.connect()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
         self.disconnect()
 
-# Legacy compatibility class
-class IBKREngineSync(IBKRExecutionEngine):
-    """Legacy compatibility wrapper for IBKRExecutionEngine"""
-    pass
 
-# Test function
-async def test_ibkr_engine():
-    """Test IBKR engine functionality"""
-    engine = IBKRExecutionEngine()
-    
-    try:
-        # Test connection
-        connected = await engine.connect_async()
-        if not connected:
-            print("Failed to connect to IBKR")
-            return
-        
-        print("Connected to IBKR successfully")
-        
-        # Test account summary
-        summary = await engine.get_account_summary_async()
-        print(f"Account Summary: Cash=${summary.cash_balance:,.2f}")
-        
-        # Test positions
-        positions = await engine.get_positions_async()
-        print(f"Positions: {len(positions)}")
-        
-        # Test order (dummy order that won't execute)
-        print("Testing order execution...")
-        result = await engine.execute_trade_async(
-            symbol="AAPL",
-            side=OrderSide.BUY,
-            order_type=OrderType.LIMIT,
-            quantity=1,
-            limit_price=1.00  # Very low price, won't execute
-        )
-        print(f"Order result: {result.order_id} ({result.status})")
-        
-        # Cancel the order if it was submitted
-        if result.order_id > 0 and result.status not in ["ERROR", "Cancelled"]:
-            print("Cancelling test order...")
-            # Note: Order cancellation would need to be implemented
-            
-    except Exception as e:
-        print(f"Test error: {e}")
-    finally:
-        await engine.disconnect_async()
+# ---------------------------------------------------------------------------
+# IBKREngineSync — alias kept for backward compatibility with orchestrator
+# ---------------------------------------------------------------------------
+IBKREngineSync = IBKRExecutionEngine
+
+
+# ---------------------------------------------------------------------------
+# Quick connection test (run standalone)
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Run test
-    asyncio.run(test_ibkr_engine())
+    import sys
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+    engine = IBKRExecutionEngine(port=7497)
+    if not engine.connect():
+        print("[FAIL] Could not connect to IBKR TWS on port 7497")
+        sys.exit(1)
+
+    try:
+        acct = engine.get_account_summary()
+        print(f"[OK] Account | Cash=${acct.get('cash_balance', 0):,.2f} "
+              f"| NetLiq=${acct.get('equity_with_loan', 0):,.2f}")
+
+        positions = engine.get_positions()
+        print(f"[OK] Positions: {len(positions)}")
+        for p in positions:
+            print(f"     {p['symbol']}: {p['quantity']} shares @ ${p['average_cost']:.2f}")
+
+    finally:
+        engine.disconnect()
+        print("[OK] Disconnected")

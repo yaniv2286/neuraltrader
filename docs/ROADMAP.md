@@ -1,149 +1,216 @@
-🏛️ NeuralTrader Roadmap (v6.0 - Live Paper Trading Era)
-
-🛡️ SYSTEM FOUNDATIONS (IMMUTABLE)
-STATUS: 🔒 LOCKED & ACTIVE
-These are the permanent architectural laws. They do not change between phases.
-
-[x] Core Kernel Architecture: core/ is physically isolated from execution logic.
-[x] Fail-Safe Integrity: verify_system_integrity() is hardwired into startup.
-[x] "No Silent Failures": System crashes (Fail Fast) if intelligence or features are missing.
-[x] The "Holy Ground" Rule: Core logic (Stop Loss, Risk %, Indicators) cannot be changed without an explicit "UNLOCK" command from the Architect.
-
-🏆 LEGACY ACHIEVEMENTS (Phases 1-7)
-Phase 1-6: Infrastructure, daily automation, and "Legacy Sample" validation.
-Phase 7 (Feb 5, 2026): Achieved 84.48% CAGR on 150-ticker sample. [SUPERSEDED BY UNIVERSAL SCALE]
-
-🏛️ PHASE 8: DATA PURIFICATION ✅
-Date: February 10, 2026
-Status: COMPLETE
-Achievement: Modern Era protocol implementation with institutional-grade data purification.
-
-[x] Modern Era Data Scope: Transitioned to January 1, 2000 – Present timeframe
-[x] The Liquidity Gate: Implemented $1M Dollar Volume + $5 Price filter
-[x] Survivorship Bias Prevention: Preserved delisted tickers, filtered noise rows
-[x] Repository Zen: 100% signal, 0% noise tree structure
-[x] Data Quality: Eliminated pre-decimalization noise and pre-ETF anomalies
-[x] Visualization: Built 'scripts/visualize_shield_modern.py' for Regime Audit
-[x] Feature Intelligence: Validated 'Price_SMA_Ratio' as #1 Predictor
-
-🚀 PHASE 9: UNIVERSAL OPTIMIZATION (3-PILLAR SYSTEM) ✅
-Date: February 12, 2026
-Status: COMPLETE
-Achievement: Sector Authority integration with global volatility protection.
-
-[x] Model Infrastructure: Standardized production model filenames (xgboost_model.pkl, etc.)
-[x] Memory Efficiency: Implemented ticker-by-ticker lazy loading (9.5M rows → 4K rows)
-[x] Data Preparation: Robust column normalization and NaN removal pipeline
-[x] Batch Predictions: Fixed EnsemblePredictor tuple issue, added predict_batch() method
-[x] Feature Generation: Working 3,863 features from 3,913 rows per ticker
-[x] Shield Logic: 4 competing regime filter implementations
-[x] Stop Loss Types: Fixed ATR, Trailing ATR, Percent Trailing implementations
-[x] Sector Rotation Integration: Dynamic sector momentum analysis with 15% tax
-[x] Global Volatility Shield: VXX Bollinger Band gate for market stress protection
-[x] Performance Achievement: 34.3% CAGR with -20.8% Max Drawdown
-[x] Universe Scale: 217 Tickers | 1.28M Rows (Modern Era Data)
-[x] Strategy Status: Sector Authority Active (15% Tax on Bottom 3 Sectors)
-
-🎯 PHASE 10: SENTIMENT & DYNAMIC EXITS ✅ COMPLETED
-Date: February 20, 2026
-Status: COMPLETE - REAL SENTIMENT DATA INTEGRATION ACHIEVED
-Achievement: Complete real sentiment data integration with economic, news, and social intelligence.
-
-[x] Economic Sentiment: Real Federal Reserve data (31/35 indicators successful)
-[x] News Sentiment: Real financial news integration (API with fallback)
-[x] Social Sentiment: Complete Twitter infrastructure ready
-[x] Sentiment Integration: Unified sentiment scoring and regime detection
-[x] Feature Enhancement: 76 features (64 technical + 12 sentiment)
-[x] Intelligence Reports: Daily market sentiment analysis
-
-🎯 PHASE 10.1: MODEL RETRAINING WITH SENTIMENT ✅ COMPLETED
-Date: February 21, 2026
-Status: COMPLETE - ALL MODELS RETRAINED WITH REAL SENTIMENT DATA
-Achievement: Complete model retraining with real sentiment data integration.
-
-[x] Model Retraining: XGBoost, LightGBM, Random Forest, Ensemble all retrained
-[x] Massive Dataset: 14.6 million training samples with sentiment features
-[x] Complete Coverage: 2,182/2,183 tickers successfully processed
-[x] Enhanced Features: 76 features with real sentiment data
-[x] Production Models: All models saved and ready for deployment
-[x] Performance Metrics: 53.5% accuracy, 0.55 AUC consistent across models
-[x] Memory Optimization: Smart sampling for efficient training
-
-🚀 PHASE 10.2: INSTITUTIONAL EXECUTION UPGRADE ✅ COMPLETED
-Date: February 23, 2026
-Status: COMPLETE - LIVE PAPER TRADING INFRASTRUCTURE DEPLOYED
-Achievement: Complete mock data eradication and IBKR live paper trading integration.
-
-[x] Mock Data Eradication: ALL mock data permanently removed from signal generation
-[x] IBKR Integration: Complete Interactive Brokers integration with ib_async
-[x] Live Paper Trading: Real execution on TWS Paper Trading (Port 7497)
-[x] Modern Infrastructure: Upgraded from deprecated ib_insync to maintained ib_async
-[x] Broker Ground Truth: Portfolio data now sourced directly from IBKR, not portfolio.json
-[x] Risk Law Enforcement: Real volatility inverse sizing strictly implemented (1% risk, 1/σ weighting)
-[x] Pre-Flight Validation: Tier 0 checklist ensures no silent failures in production
-[x] Order Execution: Real Market/Limit orders routed through Interactive Brokers
-[x] Position Sizing: Mathematical allocation using 20-day annualized volatility
-
-🤖 PHASE 11: LIVE PAPER EXECUTION & SYSTEM HARDENING ⏳ ACTIVE
-Date: February 23, 2026
-Status: ACTIVE - LIVE PAPER TRADING OPERATIONAL
-Objective: Monitor and harden live paper trading execution with institutional risk enforcement.
-
-[x] Live Paper Trading: IBKR TWS Paper Trading (Port 7497) fully operational ✅ ACTIVE
-[x] Risk Law Enforcement: Real volatility inverse sizing (1% risk, 1/σ weighting) ✅ ENFORCED
-[x] Mock Data Eradication: 100% AI Ensemble signal generation ✅ COMPLETE
-[x] Broker Integration: ib_async with Interactive Brokers ✅ INTEGRATED
-[x] Pre-Flight Validation: Tier 0 checklist operational ✅ VALIDATING
-[x] Ground Truth Data: Live broker portfolio data ✅ ACTIVE
-[x] Order Execution: Real Market/Limit orders ✅ ROUTING
-[x] Position Sizing: Mathematical allocation with 20-day volatility ✅ ENFORCED
-
-🎉 PHASE 10 ACHIEVEMENTS:
-- Complete market intelligence system with economic, news, and social media analysis
-- Adaptive exit logic based on sector performance
-- Institutional-grade sentiment analysis architecture
-- Multi-factor decision-making capabilities
-- Enhanced risk management with sentiment insights
-
-🤖 FUTURE FRONTIERS
-Phase 11: Adaptive Learning ⏳
-Objective: Implement continuous learning and model adaptation.
-
-[ ] Online Learning: Real-time model updates without full retraining
-[ ] Regime-Specific Models: Different ensembles for bull/bear markets
-[ ] Dynamic Feature Selection: Automatic feature importance tracking and selection
-[ ] Performance Attribution: Detailed alpha source analysis and attribution
-
-📊 CURRENT METRICS & TARGETS
-Primary KPI: 25%+ CAGR with <20% Maximum Drawdown ✅ ACHIEVED
-Current Status: Phase 11 Active - Live Paper Trading Operational
-Data Universe: 217 tickers, 1.28M rows (Modern Era 2000-Present)
-Model Performance: Ensemble Council with 64 technical features + Sentiment Intelligence
-Risk Management: 1% risk per trade with Real Volatility Inverse Sizing (1/σ weighting)
-Sector Tax: 15% penalty on bottom 3 weakest sectors
-Volatility Gate: VXX Bollinger Band protection
-Market Intelligence: Economic + News + Social Media Sentiment Analysis
-Exit Logic: Weekly Shield + Emergency Stop + Dynamic Sector Exits
-Execution Platform: Interactive Brokers TWS Paper Trading (Port 7497) via ib_async
-Ground Truth: Live broker portfolio data (portfolio.json deprecated)
-
-🎯 IMMEDIATE NEXT STEPS (Phase 11)
-1. 🔄 Daily Tier 0 Pre-Flight Checklist - Run before every trading session
-2. 📊 Monitor IBKR Execution Logs - Validate order routing and portfolio updates
-3. 🏛️ Validate Sector Authority Live Tax Applications - Confirm 15% tax enforcement
-4. 🛡️ Monitor Risk Law Enforcement - Ensure 1% risk and 1/σ weighting compliance
-5. 📧 Review Daily Reports - Validate live broker data in communications
-6. 🔍 System Hardening - Monitor for any silent failures or anomalies
-
-🎯 NEXT MILESTONES
-1. ✅ Dynamic Sector-Based Exits - COMPLETED
-2. ✅ Economic Data Integration - COMPLETED
-3. ✅ News Sentiment Analysis - COMPLETED
-4. ✅ Social Media Signals - COMPLETED
-5. ✅ Complete Sentiment Integration - COMPLETED
-6. 🔄 Phase 11: Adaptive Learning - NEXT PRIORITY
-7. ⏳ Multi-Asset Expansion - FUTURE
+# NEURALTRADER: ROADMAP (v8.0)
+**Last Updated:** February 28, 2026
+**Current Phase:** Phase 12 — Pure AI Entry/Exit (68 Features, AI Regime Classifier)
 
 ---
-"The AI is the Pilot. The Constitution is the Law. The Alpha is the Mission."
-Last Updated: February 23, 2026 (Phase 11 Active - Live Paper Trading Operational)
+
+## SYSTEM FOUNDATIONS (IMMUTABLE LAWS)
+Status: LOCKED & ACTIVE — These do not change between phases.
+
+- [x] Core Kernel Architecture: `core/` is physically isolated from execution logic
+- [x] Fail-Safe Integrity: `verify_system_integrity()` hardwired into startup
+- [x] No Silent Failures: System crashes `[FATAL]` if intelligence or features are missing
+- [x] Holy Ground Rule: Core logic (Stop Loss, Risk %, Indicators) cannot be changed without explicit `[UNLOCK]` from the Architect
+- [x] ASCII-Only Logging: No Unicode/emoji in Python logger — standardized tags only
+- [x] Path Safety: All file paths use `Path(__file__).resolve().parent.parent` — no relative paths
+- [x] OOM Safety: Never call df.values on DataFrames > 5M rows. Use per-ticker numpy accumulation + np.vstack()
+- [x] Lean Pipeline: Active code only in core/ and scripts/. src/ is ARCHIVED.
+
+---
+
+## COMPLETED PHASES
+
+### Phase 1-7: Infrastructure & Legacy Validation
+Date: Pre-February 2026 | Status: COMPLETE (superseded)
+- Daily automation, modular architecture, CPU model interfaces
+- Achieved 84.48% CAGR on 150-ticker sample (data artifact — superseded by universal scale)
+
+### Phase 8: Data Purification
+Date: February 10, 2026 | Status: COMPLETE
+- [x] Modern Era data scope: January 1, 2000 — Present
+- [x] Liquidity Gate: $1M Dollar Volume + $5 price filter
+- [x] Survivorship bias prevention: preserved delisted tickers
+- [x] 2,183-ticker universe built from Tiingo parquet files
+- [x] Eliminated pre-decimalization noise and pre-ETF anomalies
+
+### Phase 9: Universal Optimization (3-Pillar System)
+Date: February 12, 2026 | Status: COMPLETE
+- [x] Standardized production model filenames (flat models/ directory)
+- [x] Memory-efficient ticker-by-ticker lazy loading
+- [x] Batch predictions via `predict_batch()` in EnsemblePredictor
+- [x] Sector Authority integration: 15% tax on bottom 3 sectors
+- [x] Global Volatility Shield: VXX Bollinger Band gate
+- [x] Uncle Point circuit breaker: 10% DD -> 8-day cooldown (tightened from 12%)
+- [x] Inverse volatility position sizing (1/σ weighting, 0.8% risk per trade)
+- [x] Anti-Whipsaw Hysteresis: 15% confidence premium for position swaps
+
+### Phase 10: Sentiment Integration
+Date: February 20, 2026 | Status: COMPLETE
+- [x] Economic sentiment: FRED API (31/35 indicators integrated)
+- [x] News sentiment: Financial news analysis with API + fallback
+- [x] Social sentiment: Twitter/Reddit/StockTwits infrastructure
+- [x] 76-feature models: 64 technical + 12 sentiment features
+- [x] `src/sentiment/` complete module built
+
+### Phase 10.1: Model Retraining with Sentiment
+Date: February 21, 2026 | Status: COMPLETE
+- [x] All 3 models retrained with real sentiment data (76 features)
+- [x] 14.6M training samples, 2,182/2,183 tickers processed
+- [x] 53.5% accuracy, 0.55 AUC across XGBoost / LightGBM / RF
+- [x] Sentiment models saved to `models/` root
+
+### Phase 10.2: IBKR Institutional Execution Upgrade
+Date: February 23, 2026 | Status: COMPLETE
+- [x] Mock data eradicated — 100% AI Ensemble signal generation
+- [x] IBKR integration: `core/ibkr_engine.py` via `ib_async`
+- [x] Live paper trading: TWS Paper Trading port 7497
+- [x] Broker ground truth: portfolio data from IBKR, not portfolio.json
+- [x] Tier 0 pre-flight checklist: `scripts/pre_flight_check.py`
+- [x] Brain-Gate retraining protection: `scripts/retrain_ensemble.py`
+
+### Phase 11.0: Optimized Retraining + Clean Pipeline
+Date: February 28, 2026 | Status: COMPLETE
+- [x] Retrained production models with optimized labels (5-day forward returns, >1% threshold)
+- [x] **64.9% accuracy at 0.60 confidence threshold** (up from 53.5%)
+- [x] Uncle Point re-trigger bug fixed: peak resets after liquidation
+- [x] MIN_PRICE = $5.00 filter added
+- [x] MIN_AVG_VOLUME = 100,000 filter added
+- [x] Single unified backtest engine: `scripts/run_full_backtest.py` (UnifiedBacktest)
+- [x] Simulation mode added: `scripts/run_simulation.py`
+- [x] Single entry point confirmed: `main_orchestrator_ist.py`
+- [x] Full project tree cleaned — orphaned scripts + model files archived to src/
+
+**Validated Backtest Results (2010-2024):**
+```
+CAGR            12.80%
+Max Drawdown    17.74%
+Sharpe          0.82
+Win Rate        53.5%
+Profit Factor   1.34
+Total Return    508.90%  ($100k -> $608k over 15 years)
+2020 COVID      +31.24%
+2022 Bear       -18.40%
+```
+
+### Phase 11.1: Drawdown Reduction
+Date: February 28, 2026 | Status: COMPLETE
+Objective: Bring Max DD from 17.74% down to <12% — **ACHIEVED: 11.02%**
+
+- [x] SPY Regime Filter: only enter when SPY > 100-day SMA (bears blocked)
+- [x] Confidence-weighted sizing: position size * (conf / 0.60)^2
+- [x] Take-profit raised from 20% to 30% (let winners run)
+- [x] MAX_HOLD_DAYS reduced from 30 to 20 (cut dead weight faster)
+- [x] MAX_POSITIONS hard cap: 20 concurrent positions
+- [x] Per-ticker re-entry cooldown: 5 days after stop-loss
+- [x] MAX_RISK_PER_TRADE reduced from 1% to 0.8%
+- [x] UNCLE_POINT_DD tightened from 12% to 10% trigger
+- [x] SPY history extended to 2000-01-03 (was truncated to 2010)
+- [x] Disk cache system: cold run ~18 min, warm run ~25 sec
+- [x] Full backtest period extended to 26 years (2000-2026)
+
+**Validated Backtest Results (2000-2026, Phase 11.1 baseline):**
+```
+CAGR             6.67%
+Max Drawdown    11.02%  [TARGET MET: <12%]
+Sharpe           1.01   [TARGET MET: >1.0]
+Win Rate        56.5%   [TARGET MET: >55%]
+Profit Factor    1.42
+Total Return   440.99%  ($100k -> $541k over 26 years)
+Total Trades   11,888
+2000-2002 Dot-Com       +14.86% / 3.88% DD
+2008 Financial Crisis   +20.28% / 7.25% DD
+2020 COVID Crash        +5.26%  / 9.37% DD
+2022 Bear Market        -6.96%  / 8.91% DD
+```
+
+---
+
+## ACTIVE PHASE
+
+### Phase 12: Pure AI Entry/Exit (68 Features + AI Regime Classifier)
+Date: February 28, 2026 | Status: IN PROGRESS
+Objective: Replace noisy 64-feature/SMA-regime models with precision-trained 68-feature ensemble + AI regime gate.
+
+**Step 1 (DONE):** Raised confidence threshold 0.60 -> 0.65. Diagnostic result:
+```
+CAGR: 0.93% | DD: 2.87% | Trades: 1,680
+Conclusion: Old models too noisy at 0.65. Full retraining required.
+```
+
+**Step 2 (IN PROGRESS):** Retrain models on full 14.7M rows with corrected labels:
+- [x] Label fix: 5-day forward return > 2% (was: noisy 1-day direction)
+- [x] Data cap removed: 14,678,159 rows / 2,184 tickers (was: 100K rows capped)
+- [x] 4 new momentum features: rs_vs_spy, high_52w_prox, volume_breakout, roc_63
+- [x] RF replaced with HistGradientBoosting (10x faster, 2M-row subsample)
+- [x] Tree count reduced 400 -> 200 (large dataset converges faster)
+- [x] 24h numpy disk cache: reruns 15 min -> 5 sec (np.vstack, float32)
+- [x] XGBoost trained: prec@0.65 = **89.6%** (val 1.47M rows, AUC=0.601)
+- [x] LightGBM trained: prec@0.65 = **89.5%** (val 1.47M rows, AUC=0.601)
+- [ ] HGB training (in progress)
+- [ ] Brain-Gate ensemble check + model save
+
+**Step 3 (DONE):** AI Regime Classifier trained:
+- [x] 3-class GradientBoosting (CRISIS=0 / BEAR=1 / BULL=2)
+- [x] VXX Bollinger Band crisis detection (real Tiingo VXX data 2009-2026)
+- [x] Validation accuracy: **100%** on 2022+ holdout set
+- [x] Distribution: CRISIS 4.8% | BEAR 16.1% | BULL 79.1%
+- [x] Saved: models/regime_classifier.pkl + models/regime_scaler.pkl
+
+**Step 4 (PENDING):** Full 26yr backtest with Phase 12 models + AI regime classifier
+
+---
+
+## NEXT PHASES
+
+### Phase 13: Live IBKR Paper Trading Validation
+Objective: Run simulation mode in parallel with live paper orders. Confirm P&L matches.
+- [ ] Run `--mode=simulation` daily alongside `--mode=paper`
+- [ ] Compare simulation vs IBKR execution prices (slippage analysis)
+- [ ] Validate Brain-Gate Saturday retrain does not degrade live performance
+- [ ] Monitor Uncle Point, regime gate, and volatility enforcement in live logs
+- [ ] Target: 30 days clean paper trading with no silent failures
+
+### Phase 14: Sentiment Model Integration (Optional)
+Objective: Evaluate adding FRED/news sentiment as additional features.
+- [ ] Compare CAGR/DD: 68-feat Phase 12 vs 68+sentiment features
+- [ ] Only promote if sentiment shows >1% CAGR improvement
+- [ ] Ensure FRED + News API keys loaded from .env, graceful degradation
+
+### Phase 15: Live Trading Graduation
+Objective: Graduate from paper to real capital on IBKR Live (port 7496).
+Prerequisites:
+- [ ] 90 days clean paper trading with Sharpe > 1.0
+- [ ] No Uncle Point trigger from model error (only genuine market crashes)
+- [ ] Max DD in paper < 12% over any 90-day window
+- [ ] Brain-Gate validated through at least 4 Saturday retrains
+- [ ] Architect approval required: explicit `[UNLOCK:LIVE]` command
+
+---
+
+## CURRENT KPIs & TARGETS
+
+| KPI                    | Ph 11.1 (2000-2026)   | Ph 12 Model Stats      | Ph 12 Target |
+|------------------------|-----------------------|------------------------|--------------|
+| CAGR                   | 6.67%                 | backtest pending       | 15%+         |
+| Max Drawdown           | 11.02% [PASS <12%]    | backtest pending       | < 10%        |
+| Sharpe Ratio           | 1.01  [PASS >1.0]     | backtest pending       | > 1.2        |
+| Win Rate               | 56.5% [PASS >55%]     | backtest pending       | > 58%        |
+| Model prec@0.65 (XGB)  | ~52% (noisy labels)   | **89.6%** [PASS]       | > 55%        |
+| Model prec@0.65 (LGB)  | ~52% (noisy labels)   | **89.5%** [PASS]       | > 55%        |
+| Regime accuracy        | N/A (SMA rule)        | **100%** (2022+)       | > 90%        |
+| Training rows          | 100,000 (capped)      | **14,678,159** (full)  | -            |
+| Paper Trading DD       | Not monitored         | Not monitored          | < 12%/90d    |
+
+---
+
+## IMMEDIATE NEXT STEPS
+
+1. **Phase 12 Step 4** — Run full 26yr backtest with Phase 12 models + AI regime classifier
+2. **Phase 12 Step 5** — Compare results vs Phase 11.1 baseline on all stress periods
+3. **Phase 13** — Start daily simulation run alongside paper mode (`--mode=simulation`)
+4. **Phase 13** — Set up log comparison: simulation P&L vs IBKR paper P&L
+
+---
+
+*"The AI is the Pilot. The Constitution is the Law. The Alpha is the Mission."*
+**Last Updated: February 28, 2026 | v8.0**
