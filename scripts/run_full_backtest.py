@@ -124,7 +124,7 @@ def _cache_save(ticker: str, cache_key: str,
 # ---------------------------------------------------------------------------
 # Constants  (ARCHITECTURE.md / Rule 2.1-2.4)
 # ---------------------------------------------------------------------------
-CONFIDENCE_THRESHOLD = 0.65    # AI entry gate — Phase 12: raised for precision (was 0.60)
+CONFIDENCE_THRESHOLD = 0.44    # AI entry gate — Phase 12: p98 of score dist (base rate 31.9%)
 STOP_LOSS_PCT        = 0.10    # 10% stop-loss exit
 TAKE_PROFIT_PCT      = 0.30    # 30% take-profit — let winners run (was 20%)
 MAX_HOLD_DAYS        = 20      # 20-day timeout — cut dead weight faster (was 30)
@@ -481,16 +481,25 @@ class UnifiedBacktest:
         regime = 2  # default: BULL
 
         if self._regime_clf is not None and self._regime_feat_names:
-            vec = self._build_regime_features_for_date(as_of)
-            if vec is not None:
-                try:
-                    vec_s  = self._regime_scaler.transform(vec)
-                    regime = int(self._regime_clf.predict(vec_s)[0])
-                except Exception as _e:
-                    logger.debug(f'[REGIME] Classifier predict failed: {_e} — SMA fallback')
-                    regime = self._spy_sma_regime(as_of)
-            else:
+            # AI classifier requires VXX data — fall back to SMA rule for pre-VXX dates
+            vxx = self.market_data.get('VXX')
+            vxx_available = (
+                vxx is not None and
+                len(vxx.loc[:as_of, 'close'].dropna()) > 20
+            )
+            if not vxx_available:
                 regime = self._spy_sma_regime(as_of)
+            else:
+                vec = self._build_regime_features_for_date(as_of)
+                if vec is not None:
+                    try:
+                        vec_s  = self._regime_scaler.transform(vec)
+                        regime = int(self._regime_clf.predict(vec_s)[0])
+                    except Exception as _e:
+                        logger.debug(f'[REGIME] Classifier predict failed: {_e} — SMA fallback')
+                        regime = self._spy_sma_regime(as_of)
+                else:
+                    regime = self._spy_sma_regime(as_of)
         else:
             regime = self._spy_sma_regime(as_of)
 
@@ -523,8 +532,8 @@ class UnifiedBacktest:
             if thr is None:  # CRISIS
                 return 999.0  # effectively blocks all entries
             return float(thr)
-        # SMA fallback: BEAR -> 0.70, BULL -> CONFIDENCE_THRESHOLD
-        return 0.70 if regime == 1 else CONFIDENCE_THRESHOLD
+        # SMA fallback: BEAR -> 0.46, BULL -> CONFIDENCE_THRESHOLD
+        return 0.46 if regime == 1 else CONFIDENCE_THRESHOLD
 
     def _get_confidence(self, ticker: str, as_of: pd.Timestamp) -> float:
         scores = self.confidence_cache.get(ticker)

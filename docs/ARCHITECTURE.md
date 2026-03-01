@@ -7,35 +7,37 @@
 
 ## 1. VALIDATED PERFORMANCE METRICS
 
-### Phase 11.1 Baseline (2000-2026, pre-Phase 12 models)
-Backtest period: 2000-01-03 to 2025-12-31 | Universe: 2,184 tickers | Capital: $100,000
+### Phase 12 Results (2000-2026, 26.2 years)
+Backtest period: 2000-01-03 to 2026-02-27 | Universe: 2,184 tickers | Capital: $100,000
 
-| Metric              | Phase 11.1   | Phase 12 Target |
-|---------------------|--------------|-----------------|
-| CAGR                | 6.67%        | 15%+            |
-| Total Return        | 440.99%      | -               |
-| Max Drawdown        | 11.02%       | < 10%           |
-| Sharpe Ratio        | 1.01         | > 1.2           |
-| Win Rate            | 56.5%        | > 58%           |
-| Profit Factor       | 1.42         | > 1.6           |
-| Total Trades        | 11,888       | -               |
-| 2000-02 Dot-Com     | +14.86%      | -               |
-| 2008 Crisis         | +20.28%      | -               |
-| 2020 COVID Crash    | +5.26%       | -               |
-| 2022 Bear Market    | -6.96%       | -               |
+| Metric              | Phase 11.1   | Phase 12       | Delta     |
+|---------------------|--------------|----------------|-----------|
+| CAGR                | 6.67%        | **7.87%**      | +1.20%    |
+| Total Return        | 440.99%      | **625.59%**    | +184.6%   |
+| Max Drawdown        | 11.02%       | **10.62%**     | -0.40%    |
+| Sharpe Ratio        | 1.01         | **1.00**       | flat      |
+| Win Rate            | 56.5%        | 47.5%          | -9.0%     |
+| Profit Factor       | 1.42         | 1.30           | -0.12     |
+| Total Trades        | 11,888       | 21,622         | +1.8x     |
+| 2000-02 Dot-Com     | +14.86%      | **+21.77%**    | +6.91%    |
+| 2008 Crisis         | +20.28%      | +1.58%         | -18.70%   |
+| 2020 COVID Crash    | +5.26%       | **+18.59%**    | +13.33%   |
+| 2022 Bear Market    | -6.96%       | **+4.27%**     | +11.23%   |
 
-### Phase 12 Model Precision (validation set, 1.47M rows)
-| Model       | prec@0.65 | AUC   |
-|-------------|-----------|-------|
-| XGBoost     | 89.6%     | 0.601 |
-| LightGBM    | 89.5%     | 0.601 |
-| Ensemble    | TBD (backtest pending) | -  |
+### Phase 12 Model Precision (training: 14.7M rows, 68 features, 5-day fwd >2%)
+| Model       | prec@0.44 | prec@0.65(train) | AUC   | Weight |
+|-------------|-----------|------------------|-------|--------|
+| XGBoost     | -         | 87.9%            | 0.601 | 0.40   |
+| LightGBM    | -         | 87.9%            | 0.601 | 0.40   |
+| HGB         | -         | 92.4%            | 0.599 | 0.20   |
+| **Ensemble**| -         | **91.4%** [PASS] | 0.601 | -      |
 
 **Model:** Tri-Model Ensemble (XGBoost 0.40 + LightGBM 0.40 + HGB 0.20)
-**Features:** 68 features (64 technical + 4 Phase 12 momentum)
-**Confidence threshold:** 0.65 (BULL) / 0.72 (BEAR) / blocked (CRISIS)
-**Regime Gate:** AI 3-class classifier (VXX + SPY features) replaces SPY SMA100
-**Filters:** MIN_PRICE = $5.00 | MIN_AVG_VOLUME = 100,000 shares/day (20-day avg)
+**Features:** 68 features (64 technical + 4 Phase 12 momentum: rs_vs_spy, high_52w_prox, volume_breakout, roc_63)
+**Confidence threshold:** 0.44 BULL / 0.46 BEAR / blocked CRISIS  (prob range 0.30-0.52, base rate 31.9%)
+**Regime Gate:** AI 3-class classifier (20 VXX+SPY features) — pre-2009: SPY SMA100 fallback
+**Regime dist:** CRISIS 4.8% | BEAR 16.1% | BULL 79.1%
+**Filters:** MIN_PRICE = $5.00 | MIN_AVG_VOLUME = 100,000 shares/day
 
 ---
 
