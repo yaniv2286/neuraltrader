@@ -1803,7 +1803,8 @@ This is an automated message from NeuralTrader Paper Trading System.
             
             self.logger.info(f"[OK] TRADE MODE completed in {duration.total_seconds():.2f} seconds")
             self.logger.info(f"   Trades executed: {trades_executed}")
-            self.logger.info(f"   Portfolio value: ${self.virtual_engine.portfolio['performance']['total_value']:,.2f}")
+            _pval = self.virtual_engine.get_account_info().get('portfolio_value', 0)
+            self.logger.info(f"   Portfolio value: ${_pval:,.2f}")
             
             return True
             
@@ -2088,11 +2089,11 @@ NeuralTrader Automated Trading System v5.3 - Phase 10 Economic Data Integration 
             self.logger.info("[RETRAIN] Starting Saturday model retraining...")
             start_time = time.time()
             
-            # Execute the Brain-Gate protected ensemble training script
-            self.logger.info("[RETRAIN] Executing: python scripts/retrain_ensemble.py")
+            # Execute the Phase 12 Brain-Gate protected retraining script
+            self.logger.info("[RETRAIN] Executing: python scripts/retrain_phase12.py")
             
             result = subprocess.run(
-                [sys.executable, "scripts/retrain_ensemble.py"],
+                [sys.executable, "scripts/retrain_phase12.py"],
                 capture_output=True,
                 text=True,
                 cwd="."  # Run from project root

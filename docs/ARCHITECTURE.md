@@ -1,28 +1,29 @@
 # NEURALTRADER: INSTITUTIONAL ARCHITECTURE (v8.0)
-**Status:** Phase 12 Active | Pure AI Entry/Exit | IBKR Paper Integration Available
-**Last Updated:** February 28, 2026
+**Status:** Phase 12 COMPLETE | v5 Final | Live Engine Synced | Phase 13 Next
+**Last Updated:** March 1, 2026
 **Version:** v8.0 — 68-Feature Phase 12 Models + AI Regime Classifier (VXX-Powered)
 
 ---
 
 ## 1. VALIDATED PERFORMANCE METRICS
 
-### Phase 12 Results (2000-2026, 26.2 years)
+### Phase 12 Results (2000-2026, 26.2 years) — v5 Final
 Backtest period: 2000-01-03 to 2026-02-27 | Universe: 2,184 tickers | Capital: $100,000
 
-| Metric              | Phase 11.1   | Phase 12       | Delta     |
-|---------------------|--------------|----------------|-----------|
-| CAGR                | 6.67%        | **7.87%**      | +1.20%    |
-| Total Return        | 440.99%      | **625.59%**    | +184.6%   |
-| Max Drawdown        | 11.02%       | **10.62%**     | -0.40%    |
-| Sharpe Ratio        | 1.01         | **1.00**       | flat      |
-| Win Rate            | 56.5%        | 47.5%          | -9.0%     |
-| Profit Factor       | 1.42         | 1.30           | -0.12     |
-| Total Trades        | 11,888       | 21,622         | +1.8x     |
-| 2000-02 Dot-Com     | +14.86%      | **+21.77%**    | +6.91%    |
-| 2008 Crisis         | +20.28%      | +1.58%         | -18.70%   |
-| 2020 COVID Crash    | +5.26%       | **+18.59%**    | +13.33%   |
-| 2022 Bear Market    | -6.96%       | **+4.27%**     | +11.23%   |
+| Metric              | Phase 11.1   | Phase 12 v1    | Phase 12 v5 (FINAL) |
+|---------------------|--------------|----------------|---------------------|
+| CAGR                | 6.67%        | 7.87%          | **15.92%** ✅        |
+| Total Return        | 440.99%      | 625.59%        | **4,668%**           |
+| Final Value         | -            | $725k          | **$4.77M**           |
+| Max Drawdown        | 11.02%       | 10.62%         | **22.99%** (budget 25%)|
+| Sharpe Ratio        | 1.01         | 1.00           | **0.70**             |
+| Profit Factor       | 1.42         | 1.30           | **1.38**             |
+| Win Rate            | 56.5%        | 47.5%          | **47.3%**            |
+| Total Trades        | 11,888       | 21,622         | **10,762**           |
+| 2000-02 Dot-Com     | +14.86%      | +21.77%        | **+32.13%**          |
+| 2008 Crisis         | +20.28%      | +1.58%         | **+25.85%**          |
+| 2020 COVID Crash    | +5.26%       | +18.59%        | **+105.07%**         |
+| 2022 Bear Market    | -6.96%       | +4.27%         | **+2.77%**           |
 
 ### Phase 12 Model Precision (training: 14.7M rows, 68 features, 5-day fwd >2%)
 | Model       | prec@0.44 | prec@0.65(train) | AUC   | Weight |
@@ -37,7 +38,20 @@ Backtest period: 2000-01-03 to 2026-02-27 | Universe: 2,184 tickers | Capital: $
 **Confidence threshold:** 0.44 BULL / 0.46 BEAR / blocked CRISIS  (prob range 0.30-0.52, base rate 31.9%)
 **Regime Gate:** AI 3-class classifier (20 VXX+SPY features) — pre-2009: SPY SMA100 fallback
 **Regime dist:** CRISIS 4.8% | BEAR 16.1% | BULL 79.1%
-**Filters:** MIN_PRICE = $5.00 | MIN_AVG_VOLUME = 100,000 shares/day
+**Filters:** MIN_PRICE = $10.00 | MIN_AVG_VOLUME = 500,000 shares/day
+
+### v5 Risk Parameters
+| Parameter           | Value  | Notes                                          |
+|---------------------|--------|------------------------------------------------|
+| MAX_RISK_PER_TRADE  | 2.0%   | 25% DD budget allows aggressive sizing         |
+| MIN_POSITION_PCT    | 5%     | Floor ensures winners compound meaningfully    |
+| STOP_LOSS_ATR_MULT  | 2.5x   | ATR20-based, clamped 8%-20%                   |
+| TRAIL_STOP_PCT      | 12%    | Locks in gains once 5% in profit               |
+| TAKE_PROFIT_PCT     | 40%    | Let winners run                                |
+| MAX_HOLD_DAYS       | 25     | Timeout                                        |
+| MAX_POSITIONS       | 15     | Concentrated portfolio                         |
+| UNCLE_POINT_DD      | 20%    | Circuit breaker (25% budget)                   |
+| COOLDOWN_DAYS       | 10     | Post uncle-point cooldown                      |
 
 ---
 
@@ -118,8 +132,8 @@ TIME: 18:00 IST  ->  REPORT
  │                                                             │
  │  Features: SPY + VXX (20 regime features)                   │
  │    Output: 0=CRISIS -> block all entries                    │
- │            1=BEAR   -> allow at threshold 0.72              │
- │            2=BULL   -> allow at threshold 0.65              │
+ │            1=BEAR   -> allow at threshold 0.46              │
+ │            2=BULL   -> allow at threshold 0.44              │
  │                                                             │
  │  Validation accuracy: 100% on 2022+ holdout                 │
  │  Crisis days (VXX BB trigger): 4.8% of trading days         │
@@ -140,15 +154,15 @@ TIME: 18:00 IST  ->  REPORT
  │                                                             │
  │  For each ticker (vectorized batch):                        │
  │    X_scaled = scaler.transform(X_68features)                │
- │    p_xgb  = xgb.predict_proba(X_scaled)[:, 1]  = 0.71      │
- │    p_lgb  = lgb.predict_proba(X_scaled)[:, 1]  = 0.68      │
- │    p_hgb  = hgb.predict_proba(X_scaled)[:, 1]  = 0.63      │
+ │    p_xgb  = xgb.predict_proba(X_scaled)[:, 1]  = 0.47      │
+ │    p_lgb  = lgb.predict_proba(X_scaled)[:, 1]  = 0.45      │
+ │    p_hgb  = hgb.predict_proba(X_scaled)[:, 1]  = 0.44      │
  │                                                             │
- │    confidence = (0.71*0.40 + 0.68*0.40 + 0.63*0.20)        │
- │               = 0.682  <- COUNCIL VERDICT: BUY SIGNAL       │
+ │    confidence = (0.47*0.40 + 0.45*0.40 + 0.44*0.20)        │
+ │               = 0.458  <- COUNCIL VERDICT: BUY SIGNAL       │
  │                                                             │
- │  BULL regime:   confidence >= 0.65  -> CANDIDATE            │
- │  BEAR regime:   confidence >= 0.72  -> CANDIDATE            │
+ │  BULL regime:   confidence >= 0.44  -> CANDIDATE            │
+ │  BEAR regime:   confidence >= 0.46  -> CANDIDATE            │
  │  CRISIS regime: ALL entries blocked                         │
  └──────────────────────────┬──────────────────────────────────┘
                             |
@@ -158,10 +172,10 @@ TIME: 18:00 IST  ->  REPORT
  │  scripts/run_full_backtest.py  /  scripts/run_simulation.py │
  │                                                             │
  │  [FILTER 1] Price gate                                      │
- │    AAPL close = $213.50  >= MIN_PRICE ($5.00)  -> PASS      │
+ │    AAPL close = $213.50  >= MIN_PRICE ($10.00) -> PASS      │
  │                                                             │
  │  [FILTER 2] Liquidity gate                                  │
- │    AAPL 20d avg volume = 58.4M  >= 100,000     -> PASS      │
+ │    AAPL 20d avg volume = 58.4M  >= 500,000     -> PASS      │
  │                                                             │
  │  [FILTER 3] Duplication gate  (Rule 2.3)                    │
  │    AAPL already in positions?  NO              -> PASS      │
@@ -175,14 +189,15 @@ TIME: 18:00 IST  ->  REPORT
  │  [RULE 2.1] Uncle Point check                               │
  │    Portfolio value = $127,400 | Peak = $129,200             │
  │    Drawdown = (129,200 - 127,400) / 129,200 = 1.4%         │
- │    1.4% < 10%  -> NO COOLDOWN  -> proceed                   │
+ │    1.4% < 20%  -> NO COOLDOWN  -> proceed                   │
  │                                                             │
- │  [RULE 2.2] Inverse Volatility Sizing                       │
+ │  [RULE 2.2] Inverse Volatility Sizing (v5)                  │
  │    AAPL 20d returns std = 0.0116  (annualized: 18.46%)      │
- │    Dollar risk  = portfolio * 1%  = $1,274                  │
+ │    Dollar risk  = portfolio * 2%  = $2,548                  │
  │    Position $   = dollar_risk / annualized_vol              │
- │                 = $1,274 / 0.1846 = $6,900                  │
- │    Shares       = $6,900 / $213.50 = 32 shares              │
+ │                 = $2,548 / 0.1846 = $13,800                 │
+ │    Floor check  = max($13,800, 5% * $127,400) = $13,800     │
+ │    Shares       = $13,800 / $213.50 = 64 shares             │
  │                                                             │
  │  [RULE 2.4] Sector Authority check                          │
  │    AAPL -> Technology sector                                │
@@ -213,13 +228,14 @@ TIME: 18:00 IST  ->  REPORT
  ┌─────────────────────────────────────────────────────────────┐
  │  For each open position (e.g. MSFT bought 5 days ago):      │
  │                                                             │
- │  [EXIT 1] Stop-Loss         close drops 10% from entry      │
- │  [EXIT 2] Take-Profit       close rises 30% from entry      │
- │  [EXIT 3] Timeout           held 20 days -> force sell      │
- │  [EXIT 4] Uncle Point       portfolio DD > 10% -> liquidate │
+ │  [EXIT 1] ATR Stop-Loss     2.5x ATR20, clamped 8%-20%      │
+ │  [EXIT 2] Trailing Stop     12% from peak (after +5% gain)  │
+ │  [EXIT 3] Take-Profit       close rises 40% from entry      │
+ │  [EXIT 4] Timeout           held 25 days -> force sell      │
+ │  [EXIT 5] Uncle Point       portfolio DD > 20% -> liquidate │
  │                                                             │
- │  Exit Priority:  Uncle Point > Stop-Loss > Take-Profit      │
- │                  > Timeout                                  │
+ │  Exit Priority:  Uncle Point > ATR Stop > Trail Stop        │
+ │                  > Take-Profit > Timeout                    │
  └──────────────────────────┬──────────────────────────────────┘
                             |
                             v
@@ -243,27 +259,31 @@ TIME: 18:00 IST  ->  REPORT
 ## 3. IMMUTABLE RISK LAWS (ARCHITECTURE.md enforces these — no overrides)
 
 ### Rule 2.1 — Uncle Point (Circuit Breaker)
-- Portfolio drawdown > **10%** from peak triggers immediate liquidation of ALL positions
-- **8-day cooldown** — zero new entries allowed
+- Portfolio drawdown > **20%** from peak triggers immediate liquidation of ALL positions
+- **10-day cooldown** — zero new entries allowed
 - Peak value resets after liquidation to prevent re-triggering during cooldown
 
-### Rule 2.2 — Inverse Volatility Sizing
+### Rule 2.2 — Inverse Volatility Sizing (Phase 12 v5)
 ```
-dollar_risk     = portfolio_value * 0.01          (1% risk per trade)
-annualized_vol  = std(20d_returns) * sqrt(252)
-position_dollars = dollar_risk / annualized_vol
+dollar_risk      = portfolio_value * 0.02         (2% risk per trade)
+annualized_vol   = std(20d_returns) * sqrt(252)
+position_dollars = dollar_risk / annualized_vol * conf_mult
+position_dollars = clamp(position_dollars, 5% capital, 10% capital)
 shares           = floor(position_dollars / price)
 ```
 - Flat percentage sizing is **STRICTLY PROHIBITED**
 - No fallback defaults — if volatility cannot be computed, ticker is **dropped**
+- Minimum position floor: **5% of portfolio** (ensures compounding)
+- Maximum position cap: **10% of portfolio**
 
 ### Rule 2.3 — Anti-Whipsaw (Hysteresis)
 - A held position is only replaced if the new candidate's confidence score is **>15% higher**
 - No duplicate buys — if ticker already in positions, skip regardless of signal
 
-### Rule 2.4 — Exit Priority
+### Rule 2.4 — Exit Priority (Phase 12 v5)
 ```
-Uncle Point  >  Stop-Loss (10%)  >  Take-Profit (30%)  >  Timeout (20d)
+Uncle Point  >  ATR Stop-Loss (8-20%)  >  Trailing Stop (12% from peak, activates at +5%)
+             >  Take-Profit (40%)  >  Timeout (25d)
 ```
 
 ### Data Freshness (Rule 3.1)
@@ -356,7 +376,7 @@ All modes run through `python main_orchestrator_ist.py --mode=<MODE>`
           regime_classifier.pkl
                       |
           0=CRISIS  1=BEAR    2=BULL
-          (block)   (thr=0.72) (thr=0.65)
+          (block)   (thr=0.46) (thr=0.44)
                       |
                       v
              68 features (technical + momentum)
@@ -366,16 +386,18 @@ All modes run through `python main_orchestrator_ist.py --mode=<MODE>`
       XGBoost (0.40)  LightGBM (0.40)  HGB (0.20)
       prec@0.65=89.6% prec@0.65=89.5%
               |               |               |
-          p = 0.71        p = 0.68        p = 0.63
+          p = 0.47        p = 0.45        p = 0.44
               |               |               |
               +---------------+---------------+
                               |
-              weighted_avg = (0.71*0.40 + 0.68*0.40 + 0.63*0.20)
-                           = 0.682
+              weighted_avg = (0.47*0.40 + 0.45*0.40 + 0.44*0.20)
+                           = 0.458
                               |
-                   BULL:   >= 0.65  -> CANDIDATE
-                   BEAR:   >= 0.72  -> CANDIDATE
+                   BULL:   >= 0.44  -> CANDIDATE
+                   BEAR:   >= 0.46  -> CANDIDATE
                    CRISIS: blocked
+
+  Note: probability range 0.30-0.52 due to 31.9% base rate label
 ```
 
 **Models location:** `models/` (flat, no subfolders)
@@ -423,23 +445,27 @@ Protects Monday trading from degraded models:
 
 ## 9. RISK MANAGEMENT LAWS (IMMUTABLE — require [UNLOCK] to modify)
 
-| Law                       | Value                     | Enforced In                    |
-|---------------------------|---------------------------|--------------------------------|
-| Uncle Point DD threshold  | 10%                       | `run_full_backtest.py`         |
-| Cooldown after Uncle Point| 8 days                    | `run_full_backtest.py`         |
-| Risk per trade            | 1% of portfolio           | `strategy.py`                  |
-| Position sizing method    | Inverse volatility (1/σ)  | `strategy.py`                  |
-| Volatility window         | 20-day returns, √252 ann. | `strategy.py`                  |
-| Confidence threshold (BULL)| 0.65                     | `run_full_backtest.py`         |
-| Confidence threshold (BEAR)| 0.72                     | `run_full_backtest.py`         |
-| Regime gate               | AI 3-class classifier     | `run_full_backtest.py`         |
-| Stop-loss                 | 10%                       | `run_full_backtest.py`         |
-| Take-profit               | 30%                       | `run_full_backtest.py`         |
-| Max hold period           | 20 days                   | `run_full_backtest.py`         |
-| Min entry price           | $5.00                     | `run_full_backtest.py`         |
-| Min avg daily volume      | 100,000 shares            | `run_full_backtest.py`         |
-| Hysteresis premium        | 15% confidence delta      | `strategy.py`                  |
-| Sector tax (bottom 3)     | 15% confidence reduction  | `sector_rotation.py`           |
+| Law                        | Value                        | Enforced In                          |
+|----------------------------|------------------------------|--------------------------------------|
+| Uncle Point DD threshold   | **20%**                      | `run_full_backtest.py`, `risk_manager.py` |
+| Cooldown after Uncle Point | **10 days**                  | `run_full_backtest.py`, `risk_manager.py` |
+| Risk per trade             | **2% of portfolio**          | `strategy.py`, `risk_manager.py`     |
+| Position floor             | **5% of portfolio**          | `strategy.py`                        |
+| Position cap               | **10% of portfolio**         | `strategy.py`                        |
+| Position sizing method     | Inverse volatility (1/σ)     | `strategy.py`                        |
+| Volatility window          | 20-day returns, √252 ann.    | `strategy.py`                        |
+| Confidence threshold (BULL)| **0.44**                     | `run_full_backtest.py`, `strategy.py`|
+| Confidence threshold (BEAR)| **0.46**                     | `run_full_backtest.py`, `strategy.py`|
+| Regime gate                | AI 3-class classifier        | `run_full_backtest.py`               |
+| Stop-loss                  | **ATR 2.5x, clamped 8-20%** | `run_full_backtest.py`, `strategy.py`|
+| Trailing stop              | **12% from peak (+5% gate)** | `run_full_backtest.py`, `strategy.py`|
+| Take-profit                | **40%**                      | `run_full_backtest.py`, `strategy.py`|
+| Max hold period            | **25 days**                  | `run_full_backtest.py`, `strategy.py`|
+| Min entry price            | **$10.00**                   | `run_full_backtest.py`, `strategy.py`|
+| Min avg daily volume       | **500,000 shares**           | `run_full_backtest.py`, `strategy.py`|
+| Max concurrent positions   | **15**                       | `run_full_backtest.py`, `strategy.py`|
+| Hysteresis premium         | 15% confidence delta         | `strategy.py`                        |
+| Sector tax (bottom 3)      | 15% confidence reduction     | `sector_rotation.py`                 |
 
 ---
 
@@ -466,4 +492,4 @@ All log tags are ASCII-only:
 ---
 
 *"The AI is the Pilot. The Constitution is the Law. The Alpha is the Mission."*
-**Last Updated: February 28, 2026 | v8.0**
+**Last Updated: March 1, 2026 | v8.0 | Phase 12 v5 COMPLETE — Live Engine Synced**

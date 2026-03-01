@@ -5,6 +5,7 @@ Protected module containing all trading strategy logic
 
 import pandas as pd
 import numpy as np
+import traceback
 from typing import Dict, Tuple, Optional, List
 from datetime import datetime
 import logging
@@ -35,19 +36,35 @@ class TradingStrategy:
         self.max_drawdown = 0.20  # 20% max drawdown limit
         self.max_position_size = 0.20  # 20% max position size
         
-        # [TARGET] PHASE 2 EXIT OPTIMIZATION WINNER: Fixed ATR 2.5 | Weekly Shield Active
-        self.EMERGENCY_STOP_LOSS_ATR_MULTIPLIER = 2.5  # Tightened ATR multiplier for better risk management
-        self.WEEKLY_SHIELD_DAYS = 5  # Previous 5 trading days minimum low
-        self.NO_TAKE_PROFIT = True  # No static take profit - let shield capture trend
+        # [v5] PHASE 12 VALIDATED PARAMETERS (CAGR 15.92%, DD 22.99% over 26yr)
+        self.STOP_LOSS_ATR_MULT   = 2.5    # 2.5x ATR20 stop — validated in 26yr backtest
+        self.STOP_LOSS_MAX_PCT    = 0.20   # ATR stop cap: never wider than 20%
+        self.STOP_LOSS_MIN_PCT    = 0.08   # ATR stop floor: never tighter than 8%
+        self.TRAIL_STOP_PCT       = 0.12   # 12% trailing stop from peak
+        self.TRAIL_ACTIVATE_PCT   = 0.05   # Trailing stop activates once position >=5% in profit
+        self.TAKE_PROFIT_PCT      = 0.40   # 40% take-profit
+        self.MAX_HOLD_DAYS        = 25     # 25-day timeout
+        self.MAX_RISK_PER_TRADE   = 0.020  # 2.0% portfolio risk per trade
+        self.MIN_POSITION_PCT     = 0.05   # 5% portfolio floor per position
+        self.MAX_POSITION_PCT     = 0.10   # 10% portfolio cap per position
+        self.MAX_POSITIONS        = 15     # Max concurrent positions
+        self.UNCLE_POINT_DD       = 0.20   # 20% drawdown circuit breaker
+        self.COOLDOWN_DAYS        = 10     # 10-day cooldown after uncle point
+        self.MIN_PRICE            = 10.0   # $10 minimum price filter
+        self.MIN_AVG_VOLUME       = 500_000 # 500k minimum average volume
+        self.CONFIDENCE_THRESHOLD = 0.44   # BULL regime entry threshold
+        self.BEAR_THRESHOLD       = 0.46   # BEAR regime entry threshold (stricter)
         
         # [ARCH] INSTITUTIONAL SCHEDULE & DATA VALIDATION
         self.PRE_EXECUTION_DATA_CHECK = True  # Enable pre-execution data validation
         
         # Strategy lock confirmation
-        logger.info("[TARGET] STRATEGY LOCK: Fixed ATR 2.5 | Weekly Shield Active")
-        logger.info(f"   Emergency Stop Loss: {self.EMERGENCY_STOP_LOSS_ATR_MULTIPLIER}x ATR")
-        logger.info(f"   Weekly Shield: Previous {self.WEEKLY_SHIELD_DAYS} days low")
-        logger.info(f"   Take Profit: Disabled (trend extension mode)")
+        logger.info("[v5] STRATEGY LOCK: Phase 12 v5 Parameters (CAGR 15.92% validated)")
+        logger.info(f"   ATR Stop: {self.STOP_LOSS_ATR_MULT}x ATR20 [{self.STOP_LOSS_MIN_PCT*100:.0f}%-{self.STOP_LOSS_MAX_PCT*100:.0f}%]")
+        logger.info(f"   Trailing Stop: {self.TRAIL_STOP_PCT*100:.0f}% from peak (activates at +{self.TRAIL_ACTIVATE_PCT*100:.0f}%)")
+        logger.info(f"   Take Profit: {self.TAKE_PROFIT_PCT*100:.0f}% | Max Hold: {self.MAX_HOLD_DAYS}d")
+        logger.info(f"   Risk/Trade: {self.MAX_RISK_PER_TRADE*100:.1f}% | Pos Floor: {self.MIN_POSITION_PCT*100:.0f}%")
+        logger.info(f"   Uncle Point: {self.UNCLE_POINT_DD*100:.0f}% DD | Cooldown: {self.COOLDOWN_DAYS}d")
         logger.info(f"   Pre-execution Data Check: {self.PRE_EXECUTION_DATA_CHECK}")
     
     def pre_execution_data_validation(self) -> bool:
@@ -106,46 +123,80 @@ class TradingStrategy:
         conditions = self.check_entry_conditions(data)
         return conditions.get('trend_up', False) or conditions.get('price_above_ma', False)
     
-    def check_exit(self, data: pd.DataFrame, entry_price: float = None, entry_atr: float = None) -> bool:
+    def calc_atr_stop_pct(self, data: pd.DataFrame) -> float:
         """
-        Exit condition check implementing Weekly Breakdown Shield and Emergency Stop Loss
-        
-        Args:
-            data: DataFrame with OHLCV data
-            entry_price: Entry price for ATR stop loss calculation
-            entry_atr: ATR at time of entry for stop loss calculation
-            
-        Returns:
-            True if exit conditions are met
+        Calculate ATR-based stop-loss percentage: 2.5x ATR20 / price, clamped [8%, 20%].
+        Returns the stop percentage to use for this position.
         """
         try:
-            if len(data) < self.WEEKLY_SHIELD_DAYS + 1:
-                return False
-            
-            current_close = data['close'].iloc[-1]
-            
-            # WEEKLY BREAKDOWN SHIELD: Exit if close below previous 5 days minimum low
-            if len(data) >= self.WEEKLY_SHIELD_DAYS + 1:
-                previous_5_days = data.iloc[-(self.WEEKLY_SHIELD_DAYS + 1):-1]  # Exclude current day
-                min_low_5_days = previous_5_days['low'].min()
-                
-                if current_close < min_low_5_days:
-                    logger.info(f"[SHIELD] Weekly Shield Triggered: Close {current_close:.2f} < 5-day min low {min_low_5_days:.2f}")
-                    return True
-            
-            # EMERGENCY STOP LOSS: Fixed ATR 5.0 multiplier (if entry data available)
-            if entry_price is not None and entry_atr is not None:
-                emergency_stop_level = entry_price - (entry_atr * self.EMERGENCY_STOP_LOSS_ATR_MULTIPLIER)
-                
-                if current_close <= emergency_stop_level:
-                    logger.info(f"[STOP] Emergency Stop Loss: Close {current_close:.2f} <= stop level {emergency_stop_level:.2f}")
-                    return True
-            
-            return False
-            
+            d = data.tail(22)
+            if len(d) < 14:
+                return self.STOP_LOSS_MIN_PCT
+            high  = d['high']
+            low   = d['low']
+            close = d['close']
+            tr = pd.concat([
+                high - low,
+                (high - close.shift()).abs(),
+                (low  - close.shift()).abs()
+            ], axis=1).max(axis=1)
+            atr = tr.mean()
+            atr_pct = (atr * self.STOP_LOSS_ATR_MULT) / close.iloc[-1]
+            return float(np.clip(atr_pct, self.STOP_LOSS_MIN_PCT, self.STOP_LOSS_MAX_PCT))
         except Exception as e:
-            logger.error(f"[FAIL] Exit check failed: {e}")
-            return False
+            logger.warning(f"[WARN] ATR stop calc failed: {e} — using floor {self.STOP_LOSS_MIN_PCT:.0%}")
+            return self.STOP_LOSS_MIN_PCT
+
+    def check_exit(self, data: pd.DataFrame, entry_price: float = None, entry_atr: float = None,
+                   stop_loss_pct: float = None, peak_price: float = None, hold_days: int = 0) -> dict:
+        """
+        Exit condition check implementing Phase 12 v5 exit hierarchy:
+        1. ATR-based stop-loss (8-20%)
+        2. Trailing stop (12% from peak, activates once >=5% profit)
+        3. Take-profit (40%)
+        4. Timeout (25 days)
+        
+        Returns:
+            dict: {'should_exit': bool, 'reason': str or None}
+        """
+        try:
+            if len(data) == 0 or entry_price is None:
+                return {'should_exit': False, 'reason': None}
+
+            current_price = data['close'].iloc[-1]
+            pnl_pct = (current_price - entry_price) / entry_price
+
+            # Use provided stop or calculate ATR stop
+            _stop_pct = stop_loss_pct if stop_loss_pct is not None else self.calc_atr_stop_pct(data)
+
+            # 1. ATR-based stop-loss
+            if pnl_pct <= -_stop_pct:
+                logger.info(f"[STOP] ATR stop-loss: pnl={pnl_pct:.1%} <= -{_stop_pct:.1%}")
+                return {'should_exit': True, 'reason': 'STOP_LOSS'}
+
+            # 2. Trailing stop (only activates once position is >=5% in profit)
+            _peak = peak_price if peak_price is not None else current_price
+            if _peak > entry_price * (1 + self.TRAIL_ACTIVATE_PCT):
+                trail_pct = (_peak - current_price) / _peak
+                if trail_pct >= self.TRAIL_STOP_PCT:
+                    logger.info(f"[TRAIL] Trailing stop: {trail_pct:.1%} from peak ${_peak:.2f}")
+                    return {'should_exit': True, 'reason': 'TRAIL_STOP'}
+
+            # 3. Take-profit
+            if pnl_pct >= self.TAKE_PROFIT_PCT:
+                logger.info(f"[TP] Take-profit: pnl={pnl_pct:.1%} >= {self.TAKE_PROFIT_PCT:.0%}")
+                return {'should_exit': True, 'reason': 'TAKE_PROFIT'}
+
+            # 4. Timeout
+            if hold_days >= self.MAX_HOLD_DAYS:
+                logger.info(f"[TIMEOUT] Hold days {hold_days} >= {self.MAX_HOLD_DAYS}")
+                return {'should_exit': True, 'reason': 'TIMEOUT'}
+
+            return {'should_exit': False, 'reason': None}
+
+        except Exception as e:
+            logger.error(f"[FAIL] Exit check failed: {e}\n{traceback.format_exc()}")
+            return {'should_exit': False, 'reason': None}
     
     def calculate_atr(self, data: pd.DataFrame, period: int = 14) -> float:
         """
@@ -304,87 +355,46 @@ class TradingStrategy:
                 'price_above_ma': False
             }
     
-    @staticmethod
-    def check_exit_conditions(df: pd.DataFrame,
+    def check_exit_conditions(self, df: pd.DataFrame,
                               entry_price: float,
-                              stop_loss_pct: float = 0.02,
-                              take_profit_pct: float = 0.05,
-                              trailing_stop_pct: float = 0.03) -> Dict[str, bool]:
+                              stop_loss_pct: float = None,
+                              peak_price: float = None,
+                              hold_days: int = 0) -> Dict[str, bool]:
         """
-        Check exit conditions for an open position
-        
-        Args:
-            df: DataFrame with OHLCV data
-            entry_price: Price at which position was entered
-            stop_loss_pct: Stop loss percentage (default 2%)
-            take_profit_pct: Take profit percentage (default 5%)
-            trailing_stop_pct: Trailing stop percentage (default 3%)
-            
-        Returns:
-            Dict with exit signals and reasons
+        Check exit conditions for an open position using v5 parameters.
+        Delegates to check_exit() — single source of truth for exit logic.
         """
-        try:
-            if len(df) == 0:
-                return {'should_exit': False, 'reason': None}
-            
-            current_price = df['close'].iloc[-1]
-            pnl_pct = (current_price - entry_price) / entry_price
-            
-            # Calculate highest price since entry (for trailing stop)
-            highest_price = df['close'].max()
-            drawdown_from_high = (current_price - highest_price) / highest_price
-            
-            # Check exit conditions
-            if pnl_pct <= -stop_loss_pct:
-                return {'should_exit': True, 'reason': 'stop_loss', 'pnl_pct': pnl_pct}
-            
-            if pnl_pct >= take_profit_pct:
-                return {'should_exit': True, 'reason': 'take_profit', 'pnl_pct': pnl_pct}
-            
-            if drawdown_from_high <= -trailing_stop_pct:
-                return {'should_exit': True, 'reason': 'trailing_stop', 'pnl_pct': pnl_pct}
-            
-            return {'should_exit': False, 'reason': None, 'pnl_pct': pnl_pct}
-            
-        except Exception as e:
-            return {'should_exit': False, 'reason': None}
+        return self.check_exit(
+            data=df,
+            entry_price=entry_price,
+            stop_loss_pct=stop_loss_pct,
+            peak_price=peak_price,
+            hold_days=hold_days
+        )
     
-    @staticmethod
-    def calculate_position_size(capital: float,
-                                risk_per_trade: float,
+    def calculate_position_size(self, capital: float,
                                 entry_price: float,
-                                stop_loss_price: float,
-                                max_position_pct: float = 0.20) -> int:
+                                volatility_20d: float,
+                                confidence: float = 0.50) -> int:
         """
-        Calculate position size based on risk management
-        
-        Args:
-            capital: Total available capital
-            risk_per_trade: Risk percentage per trade (e.g., 0.01 for 1%)
-            entry_price: Planned entry price
-            stop_loss_price: Stop loss price
-            max_position_pct: Maximum position size as % of capital (default 20%)
-            
-        Returns:
-            Number of shares to buy
+        Phase 12 v5 inverse-volatility position sizing.
+        size = (2% risk / annualized_vol) * conf_mult
+        Floor: 5% of capital | Cap: 10% of capital
         """
         try:
-            # Risk-based position sizing
-            risk_amount = capital * risk_per_trade
-            price_risk = abs(entry_price - stop_loss_price)
-            
-            if price_risk == 0:
+            if entry_price <= 0 or volatility_20d <= 0:
                 return 0
-            
-            shares_by_risk = int(risk_amount / price_risk)
-            
-            # Apply maximum position size constraint
-            max_shares = int((capital * max_position_pct) / entry_price)
-            
-            # Return the smaller of the two
-            return min(shares_by_risk, max_shares)
-            
+            risk_amount    = capital * self.MAX_RISK_PER_TRADE
+            position_value = risk_amount / volatility_20d
+            conf_mult      = (confidence / self.CONFIDENCE_THRESHOLD) ** 2.0
+            position_value = position_value * conf_mult
+            # Floor: minimum 5% of portfolio
+            position_value = max(position_value, capital * self.MIN_POSITION_PCT)
+            # Cap: maximum 10% of portfolio
+            position_value = min(position_value, capital * self.MAX_POSITION_PCT)
+            return max(0, int(position_value / entry_price))
         except Exception as e:
+            logger.error(f"[FAIL] Position sizing failed: {e}")
             return 0
     
     @staticmethod

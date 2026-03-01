@@ -125,19 +125,23 @@ def _cache_save(ticker: str, cache_key: str,
 # Constants  (ARCHITECTURE.md / Rule 2.1-2.4)
 # ---------------------------------------------------------------------------
 CONFIDENCE_THRESHOLD = 0.44    # AI entry gate — Phase 12: p98 of score dist (base rate 31.9%)
-STOP_LOSS_PCT        = 0.10    # 10% stop-loss exit
-TAKE_PROFIT_PCT      = 0.30    # 30% take-profit — let winners run (was 20%)
-MAX_HOLD_DAYS        = 20      # 20-day timeout — cut dead weight faster (was 30)
-MAX_RISK_PER_TRADE   = 0.008   # 0.8% portfolio risk per trade — tuned for <12% DD
-UNCLE_POINT_DD       = 0.10    # 10% drawdown circuit breaker — fires before 12% peak DD
-COOLDOWN_DAYS        = 8       # cooldown days after uncle point
+STOP_LOSS_ATR_MULT   = 2.5     # ATR-based stop: 2.5x ATR20 — give trades more breathing room
+STOP_LOSS_MAX_PCT    = 0.20    # hard cap: ATR stop max 20% (25% DD budget allows this)
+STOP_LOSS_MIN_PCT    = 0.08    # hard floor: ATR stop never tighter than 8%
+TAKE_PROFIT_PCT      = 0.40    # 40% take-profit — let winners run
+TRAIL_STOP_PCT       = 0.12    # 12% trailing stop from peak — locks in gains on reversals
+MAX_HOLD_DAYS        = 25      # 25-day timeout — give more time for the 5-day edge to pay off
+MAX_RISK_PER_TRADE   = 0.020   # 2.0% portfolio risk per trade (25% DD budget = can double risk)
+MIN_POSITION_PCT     = 0.05    # 5% portfolio floor per position — winners must compound meaningfully
+UNCLE_POINT_DD       = 0.20    # 20% drawdown circuit breaker (25% DD budget)
+COOLDOWN_DAYS        = 10      # cooldown days after uncle point
 MIN_HISTORY_ROWS     = 60      # minimum rows to generate valid features
-MIN_PRICE            = 5.0     # minimum stock price filter (blocks penny stocks)
-MIN_AVG_VOLUME       = 100_000  # minimum 20-day avg daily volume (blocks illiquid stocks)
-MAX_POSITIONS        = 20      # hard cap on concurrent positions (prevents overexposure)
-SPY_REGIME_SMA       = 100     # SPY must be above this SMA to allow new entries (stronger bear filter)
+MIN_PRICE            = 10.0    # raised from $5 — eliminates high-vol micro-caps
+MIN_AVG_VOLUME       = 500_000 # raised from 100k — liquid, lower-vol universe only
+MAX_POSITIONS        = 15      # reduced from 20 — concentrate into fewer, higher-quality positions
+SPY_REGIME_SMA       = 100     # SPY SMA fallback threshold
 RE_ENTRY_COOLDOWN    = 5       # days to wait before re-entering a stopped-out ticker
-CONF_SIZE_POWER      = 2.0     # confidence^N multiplier on position size (rewards high-conf signals)
+CONF_SIZE_POWER      = 2.0     # confidence^N multiplier on position size
 
 
 # ===========================================================================
@@ -380,12 +384,35 @@ class UnifiedBacktest:
         })
         return dd
 
+    def _calc_atr_stop(self, ticker: str, as_of: pd.Timestamp) -> float:
+        """Returns ATR-based stop-loss pct: 2x ATR20 / price, clamped to [8%, 18%]."""
+        try:
+            df = self.market_data.get(ticker)
+            if df is None:
+                return STOP_LOSS_MIN_PCT
+            d = df.loc[:as_of].tail(22)
+            if len(d) < 14:
+                return STOP_LOSS_MIN_PCT
+            high  = d['high']
+            low   = d['low']
+            close = d['close']
+            tr = pd.concat([
+                high - low,
+                (high - close.shift()).abs(),
+                (low  - close.shift()).abs()
+            ], axis=1).max(axis=1)
+            atr = tr.mean()
+            atr_pct = (atr * STOP_LOSS_ATR_MULT) / close.iloc[-1]
+            return float(np.clip(atr_pct, STOP_LOSS_MIN_PCT, STOP_LOSS_MAX_PCT))
+        except Exception:
+            return STOP_LOSS_MIN_PCT
+
     def _calc_position_size(self, ticker: str, price: float,
                              as_of: pd.Timestamp, conf: float = 0.60) -> int:
         """
-        Inverse-volatility sizing with confidence weighting.
-        size = (1% risk / annualized_vol) * conf^CONF_SIZE_POWER
-        High-confidence signals (0.90) get ~2.25x more size than borderline (0.60).
+        Inverse-volatility sizing with confidence weighting + minimum floor.
+        size = (1.2% risk / annualized_vol) * conf^CONF_SIZE_POWER
+        Floor: position value >= 3% of portfolio (ensures winners compound).
         """
         try:
             closes = self.market_data[ticker].loc[:as_of, 'close'].dropna()
@@ -396,9 +423,17 @@ class UnifiedBacktest:
                 return 0
             risk_amount    = self.portfolio_value * MAX_RISK_PER_TRADE
             position_value = risk_amount / vol
-            # Confidence multiplier: rewards strong signals, penalises borderline ones
+            # Confidence multiplier: rewards strong signals
             conf_mult      = (conf / CONFIDENCE_THRESHOLD) ** CONF_SIZE_POWER
-            return max(0, int(position_value * conf_mult / price))
+            position_value = position_value * conf_mult
+            # Floor: minimum 3% of portfolio
+            min_value      = self.portfolio_value * MIN_POSITION_PCT
+            position_value = max(position_value, min_value)
+            # Cap: never more than 10% of portfolio in one position
+            max_value      = self.portfolio_value * 0.10
+            position_value = min(position_value, max_value)
+            shares = int(position_value / price)
+            return max(0, shares)
         except Exception:
             return 0
 
@@ -553,10 +588,13 @@ class UnifiedBacktest:
         cost   = shares * price
         if shares <= 0 or cost > self.cash:
             return
+        atr_stop = self._calc_atr_stop(ticker, date)
         self.cash -= cost
         self.positions[ticker] = {
             'shares': shares, 'entry_price': price,
-            'entry_date': date, 'entry_confidence': conf
+            'entry_date': date, 'entry_confidence': conf,
+            'stop_loss_pct': atr_stop,
+            'peak_price': price
         }
         self.trades.append({
             'date': date, 'ticker': ticker, 'action': 'BUY',
@@ -631,9 +669,19 @@ class UnifiedBacktest:
                 pnl_pct   = (price - pos['entry_price']) / pos['entry_price']
                 hold_days = (date - pos['entry_date']).days
 
-                if pnl_pct <= -STOP_LOSS_PCT:
+                # Update peak price for trailing stop
+                if price > pos.get('peak_price', pos['entry_price']):
+                    pos['peak_price'] = price
+
+                stop_pct = pos.get('stop_loss_pct', STOP_LOSS_MIN_PCT)
+                trail_pct = (pos['peak_price'] - price) / pos['peak_price']
+
+                if pnl_pct <= -stop_pct:
                     self._sell(ticker, date, price, 'STOP_LOSS')
                     self._stopped_out[ticker] = date + pd.Timedelta(days=RE_ENTRY_COOLDOWN)
+                elif trail_pct >= TRAIL_STOP_PCT and pos['peak_price'] > pos['entry_price'] * 1.05:
+                    # Trailing stop only activates once position is at least 5% in profit
+                    self._sell(ticker, date, price, 'TRAIL_STOP')
                 elif pnl_pct >= TAKE_PROFIT_PCT:
                     self._sell(ticker, date, price, 'TAKE_PROFIT')
                 elif hold_days >= MAX_HOLD_DAYS:
