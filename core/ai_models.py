@@ -161,16 +161,14 @@ class XGBoostInference:
             prob_down = probabilities[0]
             prob_up = probabilities[1]
             
-            # Determine signal based on confidence thresholds
-            if prob_up > 0.60:  # Strong BUY signal
+            # PURE AI - Let the model decide (no human thresholds)
+            # Return raw probabilities - AI decides everything
+            if prob_up > prob_down:
                 signal = 'BUY'
                 confidence = prob_up
-            elif prob_down > 0.60:  # Strong SELL signal
+            else:
                 signal = 'SELL'
                 confidence = prob_down
-            else:  # Weak signal - HOLD
-                signal = 'HOLD'
-                confidence = max(prob_up, prob_down)
             
             # Get feature importance for explainability
             feature_importance = pd.DataFrame({
@@ -212,8 +210,8 @@ class XGBoostInference:
             # Generate features
             features = self.generate_features(data)
             
-            # Make prediction
-            signal, confidence, details = self.predict(features, threshold=0.60)
+            # Make prediction (PURE AI - no threshold)
+            signal, confidence, details = self.predict(features, threshold=None)
             
             return signal, confidence, details
             
@@ -466,7 +464,7 @@ class EnsemblePredictor:
             self.logger.error(f"[ERROR] Batch prediction failed: {e}")
             return np.array([])
     
-    def predict(self, features: pd.DataFrame, threshold: Optional[float] = 0.60) -> Tuple[str, float, Dict]:
+    def predict(self, features: pd.DataFrame, threshold: Optional[float] = None) -> Tuple[str, float, Dict]:
         """
         Generate ensemble trading signal from features with dynamic threshold
         
@@ -536,20 +534,25 @@ class EnsemblePredictor:
             if total_weight > 0:
                 weighted_prob_up /= total_weight
             
-            # DYNAMIC THRESHOLD - Free the Sniper!
+            # PURE AI - No human thresholds, AI decides everything
             if threshold is None:
-                # Return raw score without threshold decision
-                signal = 'HOLD'  # Default, will be overridden by backtester
-                confidence = weighted_prob_up
+                # Pure AI decision based on probability comparison
+                if weighted_prob_up > 0.5:
+                    signal = 'BUY'
+                else:
+                    signal = 'SELL'
+                confidence = weighted_prob_up if weighted_prob_up > 0.5 else (1.0 - weighted_prob_up)
                 threshold_used = None
-            elif weighted_prob_up > threshold:
-                signal = 'BUY'
-                confidence = weighted_prob_up
-                threshold_used = threshold
             else:
-                signal = 'HOLD'
-                confidence = weighted_prob_up
-                threshold_used = threshold
+                # Threshold provided (for backtesting compatibility)
+                if weighted_prob_up > threshold:
+                    signal = 'BUY'
+                    confidence = weighted_prob_up
+                    threshold_used = threshold
+                else:
+                    signal = 'HOLD'
+                    confidence = weighted_prob_up
+                    threshold_used = threshold
             
             # Prepare details
             details = {
@@ -591,8 +594,8 @@ class EnsemblePredictor:
             # Generate features
             features = self.generate_features(data)
             
-            # Make prediction
-            signal, confidence, details = self.predict(features, threshold=0.60)
+            # Make prediction (PURE AI - no threshold)
+            signal, confidence, details = self.predict(features, threshold=None)
             
             return signal, confidence, details
             

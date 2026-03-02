@@ -51,6 +51,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # Global variable to store current log file path for email attachments
 CURRENT_LOG_FILE = None
+TRADINGVIEW_SIGNAL_FILE = None
 os.chdir(PROJECT_ROOT)
 sys.path.insert(0, PROJECT_ROOT)
 
@@ -693,9 +694,13 @@ class MockVirtualEngine:
         """Execute shadow trades with full persistence and risk management"""
         try:
             self.logger.info("[MOCK] Executing shadow trades with persistence...")
+            self.logger.info(f"[MOCK] Trading strategy: {type(trading_strategy)}")
+            self.logger.info(f"[MOCK] Data manager: {type(data_manager)}")
+            self.logger.info(f"[MOCK] Sector auth: {type(sector_auth)}")
             
             # Get trading signals from strategy
             signals = self._generate_trading_signals(trading_strategy, data_manager, sector_auth)
+            self.logger.info(f"[MOCK] Generated {len(signals)} signals")
             
             trades_executed = []
             candidates_found = len(signals)
@@ -871,23 +876,27 @@ class MockVirtualEngine:
         """Generate genuine trading signals using AI model on ticker universe with IBKR integration"""
         signals = []
         
+        self.logger.info(f"[SIGNALS] Starting signal generation process...")
+        
         try:
-            # Connect to IBKR for live cash balance (Tier 3 requirement)
+            # For paper trading, IBKR connection is optional (we can generate signals without it)
             if self.ibkr_engine:
                 if not self.ibkr_engine.connect():
-                    self.logger.error("[SIGNALS] Failed to connect to IBKR - cannot generate signals")
-                    return []
-                self.logger.info("[SIGNALS] Connected to IBKR for live trading")
+                    self.logger.warning("[SIGNALS] Failed to connect to IBKR - continuing with local data")
+                else:
+                    self.logger.info("[SIGNALS] Connected to IBKR for live trading")
             else:
-                self.logger.error("[SIGNALS] IBKR engine not available - cannot generate signals")
-                return []
+                self.logger.info("[SIGNALS] IBKR engine not available - using local data only")
             
-            # Load ticker universe from config
-            ticker_file = os.path.join(PROJECT_ROOT, 'config', 'tickers.txt')
-            with open(ticker_file, 'r') as f:
-                ticker_universe = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            # Load ticker universe from ALL available parquet files (AI-driven selection)
+            raw_dir = Path(self.project_root) / 'data' / 'raw'
+            parquet_files = sorted(raw_dir.glob('*.parquet'))
+            ticker_universe = [pfile.stem for pfile in parquet_files]
             
-            self.logger.info(f"[SIGNALS] Processing {len(ticker_universe)} tickers from universe")
+            self.logger.info(f"[SIGNALS] AI-DRIVEN UNIVERSE: Processing {len(ticker_universe)} tickers (all available data)")
+            
+            # Collect all signals with confidence scores
+            all_signals = []
             
             # Process each ticker through AI model
             for ticker in ticker_universe:
@@ -896,48 +905,64 @@ class MockVirtualEngine:
                     ticker_data = data_manager._load_ticker_data(ticker)
                     
                     if ticker_data is None or len(ticker_data) < 50:
-                        self.logger.warning(f"[SIGNALS] Insufficient data for {ticker}, skipping")
+                        self.logger.debug(f"[SIGNALS] Insufficient data for {ticker}, skipping")
                         continue
                     
                     # Generate AI signal using the real trading strategy
                     from core.ai_models import get_ensemble_signal
                     signal, confidence, details = get_ensemble_signal(ticker_data)
                     
-                    # Only process genuine signals (no fallback to mock data)
-                    if signal == 'BUY' and confidence > 0.60:  # High confidence threshold
-                        # Get current price from latest data
+                    # PURE AI - Collect ALL BUY signals (no human threshold filtering)
+                    if signal == 'BUY':
                         current_price = float(ticker_data['close'].iloc[-1])
-                        
-                        # Calculate position size using Real Volatility Inverse Sizing with IBKR
-                        position_size = self._calculate_position_size(
-                            ticker, current_price, confidence, sector_auth
-                        )
-                        
-                        if position_size > 0:
-                            signal_dict = {
-                                'ticker': ticker,
-                                'action': 'buy',
-                                'quantity': position_size,
-                                'price': current_price,
-                                'reason': f'AI Signal: {confidence:.3f} confidence',
-                                'ai_score': confidence,
-                                'details': details
-                            }
-                            signals.append(signal_dict)
-                            
-                            self.logger.info(f"[SIGNALS] BUY {ticker}: {position_size} shares @ ${current_price:.2f} (AI: {confidence:.3f})")
-                    
-                    elif signal == 'SELL' and confidence > 0.60:  # High confidence for sells
-                        # Get current price from latest data
+                        all_signals.append({
+                            'ticker': ticker,
+                            'action': 'buy',
+                            'confidence': confidence,
+                            'price': current_price,
+                            'details': details
+                        })
+                    elif signal == 'SELL':
                         current_price = float(ticker_data['close'].iloc[-1])
-                        
-                        # For sells, we need to check if we actually hold this position
-                        # This would be handled by the risk manager later
-                        
-                        signal_dict = {
+                        all_signals.append({
                             'ticker': ticker,
                             'action': 'sell',
-                            'quantity': 0,  # Will be determined by portfolio state
+                            'confidence': confidence,
+                            'price': current_price,
+                            'details': details
+                        })
+                
+                except Exception as e:
+                    self.logger.warning(f"[SIGNALS] Error processing {ticker}: {e}")
+                    continue
+            
+            # Sort signals by confidence (highest first) - AI-driven ranking
+            all_signals.sort(key=lambda x: x['confidence'], reverse=True)
+            
+            # Take only top N signals (AI selects best opportunities)
+            top_signals = all_signals[:10]  # Top 10 signals per day
+            
+            self.logger.info(f"[SIGNALS] AI RANKING: Found {len(all_signals)} total signals, selecting top {len(top_signals)}")
+            
+            # Convert top signals to trade format
+            for signal in top_signals:
+                ticker = signal['ticker']
+                action = signal['action']
+                confidence = signal['confidence']
+                current_price = signal['price']
+                details = signal['details']
+                
+                if action == 'buy':
+                    # Calculate position size using Real Volatility Inverse Sizing with IBKR
+                    position_size = self._calculate_position_size(
+                        ticker, current_price, confidence, sector_auth
+                    )
+                    
+                    if position_size > 0:
+                        signal_dict = {
+                            'ticker': ticker,
+                            'action': 'buy',
+                            'quantity': position_size,
                             'price': current_price,
                             'reason': f'AI Signal: {confidence:.3f} confidence',
                             'ai_score': confidence,
@@ -945,11 +970,30 @@ class MockVirtualEngine:
                         }
                         signals.append(signal_dict)
                         
-                        self.logger.info(f"[SIGNALS] SELL {ticker}: @ ${current_price:.2f} (AI: {confidence:.3f})")
+                        self.logger.info(f"[SIGNALS] BUY {ticker}: {position_size} shares @ ${current_price:.2f} (AI: {confidence:.3f})")
                 
-                except Exception as e:
-                    self.logger.error(f"[SIGNALS] Error processing {ticker}: {e}")
-                    continue
+                elif action == 'sell':
+                    # For sells, we need to check if we actually hold this position
+                    # This would be handled by the risk manager later
+                    
+                    signal_dict = {
+                        'ticker': ticker,
+                        'action': 'sell',
+                        'quantity': 0,  # Will be determined by portfolio state
+                        'price': current_price,
+                        'reason': f'AI Signal: {confidence:.3f} confidence',
+                        'ai_score': confidence,
+                        'details': details
+                    }
+                    signals.append(signal_dict)
+                    
+                    self.logger.info(f"[SIGNALS] SELL {ticker}: @ ${current_price:.2f} (AI: {confidence:.3f})")
+            
+            # Export signals to TradingView-compatible CSV file
+            self._export_tradingview_signals(all_signals, top_signals)
+            
+            # Update portfolio with new signals (managed portfolio system)
+            self._update_portfolio(all_signals)
             
             # Enforce "No Silent Failures" rule
             if not signals:
@@ -972,6 +1016,79 @@ class MockVirtualEngine:
             if self.ibkr_engine:
                 self.ibkr_engine.disconnect()
                 self.logger.info("[SIGNALS] Disconnected from IBKR")
+    
+    def _export_tradingview_signals(self, all_signals, top_signals):
+        """Export signals to TradingView-compatible CSV file"""
+        try:
+            import csv
+            from datetime import datetime
+            
+            # Create reports directory if it doesn't exist
+            reports_dir = Path(self.project_root) / 'reports'
+            reports_dir.mkdir(exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            csv_file = reports_dir / f'tradingview_signals_{timestamp}.csv'
+            
+            # Write CSV file
+            with open(csv_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Header
+                writer.writerow(['Ticker', 'Action', 'Confidence', 'Price', 'Rank', 'Status'])
+                
+                # Write top signals (recommended)
+                for i, signal in enumerate(top_signals, 1):
+                    writer.writerow([
+                        signal['ticker'],
+                        signal['action'].upper(),
+                        f"{signal['confidence']:.3f}",
+                        f"{signal['price']:.2f}",
+                        i,
+                        'RECOMMENDED'
+                    ])
+                
+                # Write remaining signals (optional)
+                remaining = [s for s in all_signals if s not in top_signals]
+                for i, signal in enumerate(remaining, len(top_signals) + 1):
+                    writer.writerow([
+                        signal['ticker'],
+                        signal['action'].upper(),
+                        f"{signal['confidence']:.3f}",
+                        f"{signal['price']:.2f}",
+                        i,
+                        'OPTIONAL'
+                    ])
+            
+            self.logger.info(f"[TRADINGVIEW] Exported {len(all_signals)} signals to {csv_file}")
+            self.logger.info(f"[TRADINGVIEW] Top {len(top_signals)} signals marked as RECOMMENDED")
+            
+            # Store the file path for email attachment
+            global TRADINGVIEW_SIGNAL_FILE
+            TRADINGVIEW_SIGNAL_FILE = str(csv_file)
+            
+        except Exception as e:
+            self.logger.error(f"[TRADINGVIEW] Failed to export signals: {e}")
+    
+    def _update_portfolio(self, all_signals):
+        """Update managed portfolio with new signals"""
+        try:
+            from core.portfolio_manager import PortfolioManager
+            
+            # Convert signals to DataFrame
+            signals_df = pd.DataFrame(all_signals)
+            
+            # Initialize portfolio manager
+            manager = PortfolioManager(Path(self.project_root))
+            
+            # Update portfolio
+            updated_portfolio = manager.update_portfolio(signals_df)
+            
+            self.logger.info(f"[PORTFOLIO] Updated portfolio with {len(updated_portfolio)} positions")
+            
+        except Exception as e:
+            self.logger.error(f"[PORTFOLIO] Failed to update portfolio: {e}")
     
     def _calculate_position_size(self, ticker: str, current_price: float, confidence: float, sector_auth) -> int:
         """
@@ -2533,12 +2650,27 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
 </body>
 </html>"""
 
-            # ---- Send single email with log attached -------------------------
+            # ---- Send single email with log and TradingView signals attached ----
             logger.info("[EMAIL] Sending single notification with log attachment...")
+            
+            # Get TradingView signal file if it exists
+            tradingview_file = TRADINGVIEW_SIGNAL_FILE if 'TRADINGVIEW_SIGNAL_FILE' in globals() and TRADINGVIEW_SIGNAL_FILE else None
+            if tradingview_file:
+                logger.info(f"[EMAIL] Attaching TradingView signals: {tradingview_file}")
+            
+            # Get portfolio TradingView file if it exists (managed portfolio)
+            portfolio_file = PORTFOLIO_TRADINGVIEW_FILE if 'PORTFOLIO_TRADINGVIEW_FILE' in globals() and PORTFOLIO_TRADINGVIEW_FILE else None
+            if portfolio_file:
+                logger.info(f"[EMAIL] Attaching managed portfolio: {portfolio_file}")
+            
+            # Attach portfolio file (managed portfolio) instead of daily signals
+            attachment_to_use = portfolio_file if portfolio_file else tradingview_file
+            
             email_sent = notifier._send_email(
                 subject=subject,
                 html_content=html_body,
                 log_file_path=log_file_path,
+                attachment_file=attachment_to_use,
             )
 
             if email_sent:
