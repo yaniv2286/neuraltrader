@@ -105,7 +105,7 @@ TIME: 18:00 IST  ->  REPORT
  └──────────────────────────┬──────────────────────────────────┘
                             |
                             v
- STAGE 1: DATA SYNC  (16:05 IST)
+ STAGE 1: DATA SYNC  (04:00 IST)
  ┌─────────────────────────────────────────────────────────────┐
  │  scripts/data_manager.py   --mode fetch                     │
  │                                                             │
@@ -434,10 +434,10 @@ All modes run through `python main_orchestrator_ist.py --mode=<MODE>`
 
 | Time            | Task         | Script / Mode                       |
 |-----------------|--------------|-------------------------------------|
-| 16:05 (Mon-Fri) | Data Sync    | `--mode=fetch`                      |
+| 04:00 (Mon-Fri) | Data Sync    | `--mode=fetch`                      |
 | 17:15 (Mon-Fri) | Execution    | `--mode=trade` or `--mode=paper`    |
 | 18:00 (Mon-Fri) | Report       | `--mode=report`                     |
-| Sat 10:00 AM    | Model Retrain| `--mode=saturday_retrain`           |
+| Sat 04:00 AM    | Model Retrain| `--mode=saturday_retrain`           |
 
 ---
 

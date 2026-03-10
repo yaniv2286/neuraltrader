@@ -116,7 +116,7 @@ class RiskManager:
                                        current_date: datetime, 
                                        cooldown_date_str: Optional[str]) -> Tuple[bool, Optional[str]]:
         """
-        Check portfolio circuit breaker (Uncle Point). Halt trading if drawdown exceeds 12%.
+        DISABLED for paper trading - Circuit breaker removed for learning/testing.
         
         Args:
             current_value: Current portfolio value
@@ -126,60 +126,23 @@ class RiskManager:
             
         Returns:
             Tuple of (triggered: bool, cooldown_until: Optional[str])
-            - triggered: True if trading should be halted
-            - cooldown_until: ISO string of cooldown end date, or None if no cooldown
+            - triggered: Always False for paper trading
+            - cooldown_until: Always None for paper trading
             
         Logic:
-        1. If in cooldown period, keep trading halted
-        2. Calculate drawdown: (peak_value - current_value) / peak_value
-        3. If drawdown > 12%, trigger 8-day cooldown
-        4. Otherwise, trading is safe
+        1. DISABLED - Paper trading allows unlimited learning
+        2. No drawdown checks for paper trading
+        3. Always allows trading for learning purposes
         """
         try:
-            # Validate inputs
-            if current_value <= 0 or peak_value <= 0:
-                raise ValueError(f"Invalid portfolio values: current={current_value}, peak={peak_value}")
-            
-            # Check if we're currently in a cooldown period
-            if cooldown_date_str is not None:
-                try:
-                    cooldown_end = datetime.fromisoformat(cooldown_date_str.replace('Z', '+00:00'))
-                    if current_date < cooldown_end:
-                        # Still in cooldown period
-                        remaining_time = cooldown_end - current_date
-                        self.logger.warning(f"Circuit breaker ACTIVE: {remaining_time.days} days, {remaining_time.seconds//3600} hours remaining")
-                        return True, cooldown_date_str
-                    else:
-                        # Cooldown period expired
-                        self.logger.info("Circuit breaker cooldown EXPIRED - Trading resumed")
-                except ValueError as e:
-                    self.logger.warning(f"Invalid cooldown date format: {cooldown_date_str}, error: {e}")
-            
-            # Calculate current drawdown
-            drawdown = (peak_value - current_value) / peak_value
-            drawdown_pct = drawdown * 100
-            
-            self.logger.info(f"Portfolio drawdown check: {drawdown_pct:.2f}% (Peak: ${peak_value:,.2f}, Current: ${current_value:,.2f})")
-            
-            # Check if drawdown exceeds 20% threshold (Phase 12 v5 Uncle Point)
-            if drawdown > 0.20:  # 20% drawdown threshold (25% DD budget)
-                # Trigger circuit breaker - 10 calendar days
-                new_cooldown = current_date + timedelta(days=10)
-                new_cooldown_str = new_cooldown.isoformat()
-                
-                self.logger.error(f"[UNCLE_POINT] CIRCUIT BREAKER TRIGGERED! Drawdown: {drawdown_pct:.2f}%")
-                self.logger.error(f"[UNCLE_POINT] Trading HALTED until: {new_cooldown_str}")
-                
-                return True, new_cooldown_str
-            else:
-                # Safe to trade
-                self.logger.info(f"[OK] Circuit breaker SAFE: Drawdown {drawdown_pct:.2f}% < 20% threshold")
-                return False, None
+            # DISABLED: Circuit breaker removed for paper trading
+            self.logger.info("[OK] Circuit breaker DISABLED for paper trading - Learning mode active")
+            return False, None
                 
         except Exception as e:
             self.logger.error(f"Error in circuit breaker check: {e}")
-            # In case of error, be conservative and halt trading
-            return True, datetime.now().isoformat()
+            # DISABLED: Even on error, allow paper trading
+            return False, None
     
     def calculate_position_size_risk(self, ticker: str, entry_price: float, 
                                    stop_loss_price: float, portfolio_value: float,
