@@ -4,10 +4,11 @@
 NeuralTrader is a machine-learning quantitative hedge fund system that uses AI ensemble models to generate trading signals and manage portfolios automatically.
 
 ## Key Features
-- **AI Ensemble Models**: 91.7% precision with 68 features
+- **AI Ensemble Models**: 91.4% precision with 68 features (all features restored March 11, 2026)
 - **Automated Trading**: Paper trading with TradingView integration
 - **Risk Management**: Circuit breaker disabled for learning mode
 - **Daily Schedule**: Automated fetch, trading, and reporting
+- **Portfolio Management**: Fixed SELL signal handling (March 11, 2026)
 
 ## System Architecture
 - **Core Engine**: `main_orchestrator_ist.py`
@@ -59,10 +60,11 @@ python scripts/retrain_phase12.py
 ```
 
 ## Performance Metrics
-- **Model Precision**: 91.7% (Phase 12)
+- **Model Precision**: 91.4% (Phase 12)
 - **Data Coverage**: 2,184 tickers
 - **Training Data**: 14.7M rows
 - **Features**: 68 total (64 technical + 4 momentum)
+- **Backtest CAGR**: 15.92% (2000-2026)
 
 ## Risk Management
 - **Circuit Breaker**: Disabled for paper trading

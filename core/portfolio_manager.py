@@ -73,23 +73,36 @@ class PortfolioManager:
         active_positions = portfolio[portfolio['Status'] == 'ACTIVE'].copy()
         
         # Create signal lookup (handle both lowercase and uppercase column names)
+        # NORMALIZE all tickers to UPPERCASE for consistent matching
         if 'ticker' in signals_df.columns and 'action' in signals_df.columns:
-            signal_lookup = dict(zip(signals_df['ticker'], signals_df['action']))
+            signal_lookup = dict(zip(signals_df['ticker'].str.upper(), signals_df['action']))
         elif 'Ticker' in signals_df.columns and 'Action' in signals_df.columns:
-            signal_lookup = dict(zip(signals_df['Ticker'], signals_df['Action']))
+            signal_lookup = dict(zip(signals_df['Ticker'].str.upper(), signals_df['Action']))
         else:
             self.logger.error(f"[PORTFOLIO] Invalid signals DataFrame columns: {signals_df.columns.tolist()}")
             return portfolio
         
-        # Step 1: Close positions where signal changed
+        # Step 1: Close positions ONLY when AI explicitly signals to SELL
+        # DO NOT close positions just because they're not in today's signals (that means HOLD)
         positions_to_close = []
         for _, position in active_positions.iterrows():
             ticker = position['Ticker']
             current_action = position['Action']
             
-            # Check if signal changed or ticker not in today's signals
-            if ticker not in signal_lookup or signal_lookup[ticker] != current_action:
-                positions_to_close.append(position)
+            # Only close if:
+            # 1. Ticker IS in today's signals AND
+            # 2. Signal action is opposite (BUY position gets SELL signal, or vice versa)
+            if ticker in signal_lookup:
+                new_signal = signal_lookup[ticker]
+                # Close BUY positions only if we get explicit SELL signal
+                if current_action == 'BUY' and new_signal == 'SELL':
+                    positions_to_close.append(position)
+                    self.logger.info(f"[PORTFOLIO] Will close {ticker}: AI changed from BUY to SELL")
+                # Close SELL positions only if we get explicit BUY signal
+                elif current_action == 'SELL' and new_signal == 'BUY':
+                    positions_to_close.append(position)
+                    self.logger.info(f"[PORTFOLIO] Will close {ticker}: AI changed from SELL to BUY")
+            # If ticker NOT in signals, that means HOLD - do nothing
         
         # Close positions
         for position in positions_to_close:
@@ -140,9 +153,14 @@ class PortfolioManager:
             action_col = 'action' if 'action' in signals_df.columns else 'Action'
             price_col = 'price' if 'price' in signals_df.columns else 'Price'
             
-            new_signals = signals_df[~signals_df[ticker_col].isin(existing_tickers)]
+            # CRITICAL FIX: Only add BUY signals as new positions
+            # SELL signals should only close existing positions, never create new ones
+            new_signals = signals_df[
+                (~signals_df[ticker_col].isin(existing_tickers)) & 
+                (signals_df[action_col].str.upper() == 'BUY')
+            ]
             
-            # Add top N new positions
+            # Add top N new BUY positions
             new_positions = new_signals.head(available_slots)
             
             for _, signal in new_positions.iterrows():
@@ -151,8 +169,8 @@ class PortfolioManager:
                 
                 new_position = pd.DataFrame({
                     'Date': [current_date],
-                    'Ticker': [signal[ticker_col]],
-                    'Action': [signal[action_col]],
+                    'Ticker': [signal[ticker_col].upper()],  # Normalize to uppercase
+                    'Action': [signal[action_col].upper()],  # Normalize to uppercase
                     'EntryPrice': [entry_price],
                     'CurrentPrice': [entry_price],
                     'Quantity': [quantity],

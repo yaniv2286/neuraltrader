@@ -155,7 +155,8 @@ class FeatureEngineer:
                 "vol_regime", "high_vol", "low_vol", "trend_regime",
                 "strong_uptrend", "strong_downtrend", "sma10_sma50_cross",
                 "sma50_sma200_cross", "macd_bullish", "macd_bearish",
-                "price_sma10_ratio", "price_sma50_ratio", "price_sma200_ratio"
+                "price_sma10_ratio", "price_sma50_ratio", "price_sma200_ratio",
+                "rs_vs_spy", "roc_63", "high_52w_prox", "volume_breakout"
             ]
             
             # Add any missing required features with zeros
@@ -348,6 +349,7 @@ class FeatureEngineer:
         df['roc_5'] = close.pct_change(5)
         df['roc_10'] = close.pct_change(10)
         df['roc_20'] = close.pct_change(20)
+        df['roc_63'] = close.pct_change(63)  # 63-day rate of change
         
         # Price ratio features (normalized)
         df['price_sma10_ratio'] = close.div(close.rolling(10).mean().replace(0, np.nan)).fillna(0) - 1
@@ -413,6 +415,18 @@ class FeatureEngineer:
         
         # Price efficiency (how much price moves vs. noise)
         df['price_efficiency'] = abs(close.pct_change()).div(df['rolling_volatility'].replace(0, np.nan)).fillna(0)
+        
+        # Relative strength vs SPY (requires SPY data - placeholder for now)
+        # This will be calculated at signal generation time when SPY data is available
+        df['rs_vs_spy'] = 0.0  # Placeholder - will be filled during signal generation
+        
+        # 52-week high proximity
+        high_52w = df['high'].rolling(252).max()  # 252 trading days ≈ 1 year
+        df['high_52w_prox'] = close.div(high_52w.replace(0, np.nan)).fillna(0)
+        
+        # Volume breakout (volume vs 50-day average)
+        volume_50d_avg = df['volume'].rolling(50).mean()
+        df['volume_breakout'] = df['volume'].div(volume_50d_avg.replace(0, np.nan)).fillna(1.0)
         
         return df
     

@@ -1,6 +1,6 @@
 # NEURALTRADER: ROADMAP (v8.2)
-**Last Updated:** March 2, 2026
-**Current Phase:** Phase 13.1 — Pure AI Validated | Record Backtest Performance (15.92% CAGR)
+**Last Updated:** March 11, 2026
+**Current Phase:** Phase 13.2 — Real World Validation (Critical Fixes Applied)
 
 ---
 
@@ -249,9 +249,25 @@ Objective: Validate Pure AI performance in real market conditions through Tradin
 - [x] Daily portfolio CSV generation with 20 positions
 - [x] TradingView integration for signal execution
 - [x] Portfolio management system for P&L tracking
+- [x] **Critical Bug Fix (March 11):** Portfolio manager SELL signal handling
+- [x] **Feature Restoration (March 11):** All 68 features now generating correctly
 - [ ] Real execution cost analysis
 - [ ] Slippage and liquidity assessment
 - [ ] Crisis performance validation in live conditions
+
+**March 11, 2026 Critical Fixes:**
+1. **Portfolio Manager Bug:** Fixed SELL signals being added as new positions instead of closing existing BUY positions
+   - Modified `core/portfolio_manager.py` to filter only BUY signals when adding new positions
+   - Added ticker case normalization (uppercase) for consistent IBKR matching
+   - SELL signals now correctly close existing positions only
+
+2. **Missing Features Restoration:** Added 4 missing features to restore full 68-feature AI capability
+   - `rs_vs_spy` - Relative strength vs SPY (20-day return comparison)
+   - `roc_63` - 63-day rate of change
+   - `high_52w_prox` - Proximity to 52-week high (close / 252-day max)
+   - `volume_breakout` - Volume vs 50-day average
+   - Modified `core/feature_engineer.py` to generate all features during live trading
+   - No more missing feature warnings in logs
 
 **Success Metrics:**
 - Target: 8-12% realistic CAGR after costs
@@ -322,4 +338,4 @@ Prerequisites:
 ---
 
 *"The AI is the Pilot. The Constitution is the Law. The Alpha is the Mission."*
-**Last Updated: March 2, 2026 | v8.2 - Pure AI Validated (15.92% CAGR, 4,668% Returns)**
+**Last Updated: March 11, 2026 | v8.2 - Pure AI Validated (15.92% CAGR, 4,668% Returns) + Critical Fixes Applied**

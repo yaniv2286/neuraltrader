@@ -888,18 +888,35 @@ class MockVirtualEngine:
             else:
                 self.logger.info("[SIGNALS] IBKR engine not available - using local data only")
             
+            # Load current portfolio holdings to prioritize evaluation
+            portfolio_csv = Path(self.project_root) / 'data' / 'portfolio.csv'
+            held_tickers = set()
+            if portfolio_csv.exists():
+                import pandas as pd
+                portfolio_df = pd.read_csv(portfolio_csv)
+                active_positions = portfolio_df[portfolio_df['Status'] == 'ACTIVE']
+                held_tickers = set(active_positions['Ticker'].str.upper())
+                self.logger.info(f"[SIGNALS] Current holdings: {len(held_tickers)} positions - {', '.join(sorted(held_tickers))}")
+            
             # Load ticker universe from ALL available parquet files (AI-driven selection)
             raw_dir = Path(self.project_root) / 'data' / 'raw'
             parquet_files = sorted(raw_dir.glob('*.parquet'))
             ticker_universe = [pfile.stem for pfile in parquet_files]
             
-            self.logger.info(f"[SIGNALS] AI-DRIVEN UNIVERSE: Processing {len(ticker_universe)} tickers (all available data)")
+            # Prioritize held positions first, then scan rest of universe
+            held_tickers_lower = {t.lower() for t in held_tickers}
+            priority_tickers = [t for t in ticker_universe if t.lower() in held_tickers_lower]
+            other_tickers = [t for t in ticker_universe if t.lower() not in held_tickers_lower]
+            ordered_universe = priority_tickers + other_tickers
+            
+            self.logger.info(f"[SIGNALS] AI-DRIVEN UNIVERSE: {len(held_tickers)} held positions + {len(other_tickers)} opportunities = {len(ordered_universe)} total")
             
             # Collect all signals with confidence scores
             all_signals = []
+            held_position_signals = []  # Track signals for held positions separately
             
-            # Process each ticker through AI model
-            for ticker in ticker_universe:
+            # Process each ticker through AI model (held positions first)
+            for ticker in ordered_universe:
                 try:
                     # Fetch latest market data for this ticker
                     ticker_data = data_manager._load_ticker_data(ticker)
@@ -912,25 +929,36 @@ class MockVirtualEngine:
                     from core.ai_models import get_ensemble_signal
                     signal, confidence, details = get_ensemble_signal(ticker_data)
                     
-                    # PURE AI - Collect ALL BUY signals (no human threshold filtering)
+                    # PURE AI - Collect ALL BUY and SELL signals (no human threshold filtering)
+                    current_price = float(ticker_data['close'].iloc[-1])
+                    is_held = ticker.upper() in held_tickers
+                    
                     if signal == 'BUY':
-                        current_price = float(ticker_data['close'].iloc[-1])
-                        all_signals.append({
+                        signal_dict = {
                             'ticker': ticker,
                             'action': 'buy',
                             'confidence': confidence,
                             'price': current_price,
-                            'details': details
-                        })
+                            'details': details,
+                            'is_held': is_held
+                        }
+                        all_signals.append(signal_dict)
+                        if is_held:
+                            held_position_signals.append(signal_dict)
+                            self.logger.info(f"[SIGNALS] HELD: {ticker} - AI says BUY (confidence: {confidence:.3f}) - HOLD position")
                     elif signal == 'SELL':
-                        current_price = float(ticker_data['close'].iloc[-1])
-                        all_signals.append({
+                        signal_dict = {
                             'ticker': ticker,
                             'action': 'sell',
                             'confidence': confidence,
                             'price': current_price,
-                            'details': details
-                        })
+                            'details': details,
+                            'is_held': is_held
+                        }
+                        all_signals.append(signal_dict)
+                        if is_held:
+                            held_position_signals.append(signal_dict)
+                            self.logger.info(f"[SIGNALS] HELD: {ticker} - AI says SELL (confidence: {confidence:.3f}) - CLOSE position")
                 
                 except Exception as e:
                     self.logger.warning(f"[SIGNALS] Error processing {ticker}: {e}")
@@ -939,10 +967,21 @@ class MockVirtualEngine:
             # Sort signals by confidence (highest first) - AI-driven ranking
             all_signals.sort(key=lambda x: x['confidence'], reverse=True)
             
-            # Take only top N signals (AI selects best opportunities)
-            top_signals = all_signals[:10]  # Top 10 signals per day
+            # CRITICAL: Always include signals for held positions (for SELL evaluation)
+            # Then fill remaining slots with best new opportunities
+            top_signals = []
             
-            self.logger.info(f"[SIGNALS] AI RANKING: Found {len(all_signals)} total signals, selecting top {len(top_signals)}")
+            # First, add all held position signals (these are critical for portfolio management)
+            top_signals.extend(held_position_signals)
+            self.logger.info(f"[SIGNALS] Included {len(held_position_signals)} signals for held positions")
+            
+            # Then add best new opportunities (not already held)
+            remaining_slots = 20 - len(held_position_signals)  # Allow up to 20 total signals
+            new_opportunity_signals = [s for s in all_signals if not s.get('is_held', False)]
+            top_signals.extend(new_opportunity_signals[:remaining_slots])
+            
+            self.logger.info(f"[SIGNALS] AI RANKING: Found {len(all_signals)} total signals")
+            self.logger.info(f"[SIGNALS] Selected {len(held_position_signals)} held position signals + {len(top_signals) - len(held_position_signals)} new opportunities = {len(top_signals)} total")
             
             # Convert top signals to trade format
             for signal in top_signals:
@@ -1876,40 +1915,70 @@ This is an automated message from NeuralTrader Paper Trading System.
             else:
                 self.logger.info("[PAPER] Bypassing market hours check - paper trading mode")
             
-            # Trigger VirtualEngine to execute shadow trades
-            self.logger.info("[TRADING] Triggering VirtualEngine to execute shadow trades...")
+            # Generate trading signals using new AI-driven method with held position evaluation
+            self.logger.info("[TRADING] Generating AI trading signals with held position evaluation...")
             
-            # Execute shadow trades using MockVirtualEngine with sector rotation
             try:
-                # Import DataManager for mock engine
+                # Import DataManager for signal generation
                 import sys
                 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 from scripts.data_manager import DataManager
                 
                 data_manager = DataManager()
                 
-                # Execute shadow trades with full sector rotation integration
-                result = self.virtual_engine.execute_shadow_trades(
+                # Generate signals using new method (evaluates held positions + scans universe)
+                signals = self.virtual_engine._generate_trading_signals(
                     self.trading_strategy, 
                     data_manager, 
                     self.sector_auth
                 )
                 
-                if result['success']:
-                    trades_executed = result['trades_executed']
-                    self.logger.info(f"[OK] Shadow trading completed: {trades_executed} trades executed")
+                self.logger.info(f"[SIGNALS] Generated {len(signals)} AI signals")
+                
+                # Convert signals to DataFrame for portfolio manager
+                import pandas as pd
+                if signals:
+                    signals_df = pd.DataFrame(signals)
                     
-                    # Log session summary
+                    # Rename columns to match portfolio_manager expectations (uppercase)
+                    signals_df = signals_df.rename(columns={
+                        'ticker': 'Ticker',
+                        'action': 'Action',
+                        'price': 'Price'
+                    })
+                    
+                    # Use portfolio_manager to handle signal execution
+                    # This will properly evaluate held positions and execute trades
+                    from core.portfolio_manager import PortfolioManager
+                    project_root = Path(__file__).resolve().parent
+                    portfolio_manager = PortfolioManager(project_root)
+                    
+                    # Update portfolio with signals (handles BUY/SELL logic correctly)
+                    updated_portfolio = portfolio_manager.update_portfolio(signals_df)
+                    
+                    self.logger.info(f"[PORTFOLIO] Portfolio updated with {len(updated_portfolio)} positions")
+                    
+                    # Count trades by comparing before/after
+                    buy_signals = [s for s in signals if s['action'] == 'buy']
+                    sell_signals = [s for s in signals if s['action'] == 'sell']
+                    
+                    self.logger.info(f"[OK] Signal processing completed")
                     self.logger.info(f"[SUMMARY] Session Results:")
-                    self.logger.info(f"  Candidates Found: {result['candidates_found']}")
-                    self.logger.info(f"  Trades Executed: {result['trades_executed']}")
-                    self.logger.info(f"  Volatility Blocked: {'YES' if result['volatility_blocked'] else 'NO'}")
+                    self.logger.info(f"  Total Signals: {len(signals)}")
+                    self.logger.info(f"  Buy Signals: {len(buy_signals)}")
+                    self.logger.info(f"  Sell Signals: {len(sell_signals)}")
+                    self.logger.info(f"  Portfolio Positions: {len(updated_portfolio[updated_portfolio['Status'] == 'ACTIVE'])}")
                 else:
-                    self.logger.error("[FAIL] Shadow trading failed")
-                    return False
+                    self.logger.info("[SIGNALS] No signals generated")
+                    self.logger.info(f"[SUMMARY] Session Results:")
+                    self.logger.info(f"  Total Signals: 0")
+                    self.logger.info(f"  Buy Signals: 0")
+                    self.logger.info(f"  Sell Signals: 0")
                     
             except Exception as e:
-                self.logger.error(f"[ERROR] Shadow trading crashed: {e}")
+                self.logger.error(f"[ERROR] Signal generation failed: {e}")
+                import traceback
+                self.logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
                 return False
             
             # Update portfolio values
@@ -1919,7 +1988,6 @@ This is an automated message from NeuralTrader Paper Trading System.
             duration = session_end - session_start
             
             self.logger.info(f"[OK] TRADE MODE completed in {duration.total_seconds():.2f} seconds")
-            self.logger.info(f"   Trades executed: {trades_executed}")
             _pval = self.virtual_engine.get_account_info().get('portfolio_value', 0)
             self.logger.info(f"   Portfolio value: ${_pval:,.2f}")
             
