@@ -52,8 +52,15 @@ class TradingStrategy:
         self.COOLDOWN_DAYS        = 10     # 10-day cooldown after uncle point
         self.MIN_PRICE            = 10.0   # $10 minimum price filter
         self.MIN_AVG_VOLUME       = 500_000 # 500k minimum average volume
-        self.CONFIDENCE_THRESHOLD = 0.44   # BULL regime entry threshold
-        self.BEAR_THRESHOLD       = 0.46   # BEAR regime entry threshold (stricter)
+        
+        # 🚀 PHASE 13 REGIME-ADAPTIVE THRESHOLDS (Optimized)
+        self.CRISIS_THRESHOLD     = 0.80   # CRISIS: Very strict (no entries in crisis)
+        self.BEAR_THRESHOLD       = 0.72   # BEAR: Strict threshold
+        self.BULL_THRESHOLD       = 0.65   # BULL: Standard threshold
+        self.DEFAULT_THRESHOLD    = 0.70   # DEFAULT: Conservative fallback
+        
+        # Legacy thresholds (kept for compatibility)
+        self.CONFIDENCE_THRESHOLD = 0.65   # Standard entry threshold
         
         # [ARCH] INSTITUTIONAL SCHEDULE & DATA VALIDATION
         self.PRE_EXECUTION_DATA_CHECK = True  # Enable pre-execution data validation

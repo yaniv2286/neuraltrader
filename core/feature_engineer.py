@@ -156,7 +156,10 @@ class FeatureEngineer:
                 "strong_uptrend", "strong_downtrend", "sma10_sma50_cross",
                 "sma50_sma200_cross", "macd_bullish", "macd_bearish",
                 "price_sma10_ratio", "price_sma50_ratio", "price_sma200_ratio",
-                "rs_vs_spy", "roc_63", "high_52w_prox", "volume_breakout"
+                "rs_vs_spy", "roc_63", "high_52w_prox", "volume_breakout",
+                # 🚀 PHASE 13 DERIVATIVE FEATURES
+                "vol_regime_change", "atr_percentile", "vol_acceleration", "vol_atr_ratio",
+                "high_52w_momentum", "breakout_strength", "volume_trend", "volume_volatility"
             ]
             
             # Add any missing required features with zeros
@@ -338,7 +341,11 @@ class FeatureEngineer:
         # Lag features (returns instead of raw values)
         df['close_lag_1'] = close.pct_change(1)
         df['volume_lag_1'] = df['volume'].pct_change(1)
-        df['rsi_lag_1'] = df['rsi'].diff()  # RSI change
+        # RSI lag feature with error handling
+        if 'rsi' in df.columns:
+            df['rsi_lag_1'] = df['rsi'].diff()  # RSI change
+        else:
+            df['rsi_lag_1'] = 0  # Fallback if RSI not available
         
         # Momentum features (normalized returns)
         df['momentum_5'] = close.pct_change(5)
@@ -427,6 +434,22 @@ class FeatureEngineer:
         # Volume breakout (volume vs 50-day average)
         volume_50d_avg = df['volume'].rolling(50).mean()
         df['volume_breakout'] = df['volume'].div(volume_50d_avg.replace(0, np.nan)).fillna(1.0)
+        
+        # 🚀 PHASE 13 DERIVATIVE FEATURES - Optimized based on validation results
+        # Volatility derivatives (top performers)
+        df['vol_regime_change'] = df['vol_regime'].diff().fillna(0)  # Regime transitions
+        atr_max_252 = df['atr_14'].rolling(252, min_periods=60).max()
+        df['atr_percentile'] = df['atr_14'].div(atr_max_252.replace(0, np.nan)).fillna(0)  # ATR vs 1-year max
+        df['vol_acceleration'] = df['rolling_volatility'].diff(5).fillna(0)  # Volatility momentum
+        df['vol_atr_ratio'] = df['rolling_volatility'].div(df['atr_14'].replace(0, np.nan)).fillna(1.0)  # Two vol measures
+        
+        # Momentum derivatives
+        df['high_52w_momentum'] = df['high_52w_prox'].diff(5).fillna(0)  # Proximity change
+        df['breakout_strength'] = df['high_52w_prox'] * df['volume_breakout']  # Combined signal
+        
+        # Volume derivatives
+        df['volume_trend'] = df['adjVolume'].div(df['adjVolume'].shift(20).replace(0, np.nan)).fillna(1.0)  # Volume momentum
+        df['volume_volatility'] = df['adjVolume'].rolling(20, min_periods=5).std().fillna(0)  # Volume consistency
         
         return df
     
