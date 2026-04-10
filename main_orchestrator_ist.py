@@ -2205,17 +2205,20 @@ NeuralTrader Automated Trading System v5.3 - Phase 10 Economic Data Integration 
             
             # Send enhanced notification with logs
             if success:
-                try:
-                    # Generate dashboard
-                    self._send_html_report_with_attachments()
-                except Exception as email_error:
-                    self.logger.error(f"[ERROR] Failed to send dashboard notification: {email_error}")
-                    self.logger.error(f"[ERROR] Email notifier status: {type(self.email_notifier)}")
-                    # Fallback to plain text report
-                    try:
-                        self._send_daily_report_notification(report_content)
-                    except Exception as fallback_error:
-                        self.logger.error(f"[ERROR] Fallback plain text report also failed: {fallback_error}")
+                # DISABLED: Old dashboard email system (redundant with enhanced email in finally block)
+                # The enhanced email in the finally block now provides complete portfolio data
+                # try:
+                #     # Generate dashboard
+                #     self._send_html_report_with_attachments()
+                # except Exception as email_error:
+                #     self.logger.error(f"[ERROR] Failed to send dashboard notification: {email_error}")
+                #     self.logger.error(f"[ERROR] Email notifier status: {type(self.email_notifier)}")
+                #     # Fallback to plain text report
+                #     try:
+                #         self._send_daily_report_notification(report_content)
+                #     except Exception as fallback_error:
+                #         self.logger.error(f"[ERROR] Fallback plain text report also failed: {fallback_error}")
+                self.logger.info("[EMAIL] Dashboard email disabled - using enhanced email in finally block")
             else:
                 self.logger.error("[ERROR] Failed to generate daily executive brief")
             
