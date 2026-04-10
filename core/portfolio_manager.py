@@ -73,14 +73,20 @@ class PortfolioManager:
         active_positions = portfolio[portfolio['Status'] == 'ACTIVE'].copy()
         
         # Create signal lookup (handle both lowercase and uppercase column names)
-        # NORMALIZE all tickers to UPPERCASE for consistent matching
+        # NORMALIZE all tickers AND actions to UPPERCASE for consistent matching
         if 'ticker' in signals_df.columns and 'action' in signals_df.columns:
-            signal_lookup = dict(zip(signals_df['ticker'].str.upper(), signals_df['action']))
+            signal_lookup = dict(zip(signals_df['ticker'].str.upper(), signals_df['action'].str.upper()))
         elif 'Ticker' in signals_df.columns and 'Action' in signals_df.columns:
-            signal_lookup = dict(zip(signals_df['Ticker'].str.upper(), signals_df['Action']))
+            signal_lookup = dict(zip(signals_df['Ticker'].str.upper(), signals_df['Action'].str.upper()))
         else:
             self.logger.error(f"[PORTFOLIO] Invalid signals DataFrame columns: {signals_df.columns.tolist()}")
             return portfolio
+        
+        # Debug: Log signal lookup to verify TSLA and XEL are present
+        self.logger.info(f"[PORTFOLIO] Signal lookup created with {len(signal_lookup)} signals")
+        for ticker in ['TSLA', 'XEL']:
+            if ticker in signal_lookup:
+                self.logger.info(f"[PORTFOLIO] {ticker} signal: {signal_lookup[ticker]}")
         
         # Step 1: Close positions ONLY when AI explicitly signals to SELL
         # DO NOT close positions just because they're not in today's signals (that means HOLD)

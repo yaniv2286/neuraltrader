@@ -879,6 +879,27 @@ class MockVirtualEngine:
         self.logger.info(f"[SIGNALS] Starting signal generation process...")
         
         try:
+            # 🚀 PHASE 13: Detect market regime for adaptive thresholds
+            from core.regime_detector import RegimeDetector
+            regime_detector = RegimeDetector()
+            
+            # Load SPY and VXX data for regime detection
+            spy_data = data_manager._load_ticker_data('SPY')
+            vxx_data = data_manager._load_ticker_data('VXX')
+            
+            if spy_data is not None and len(spy_data) > 200:
+                regime_code, regime_name, regime_threshold = regime_detector.detect_regime(spy_data, vxx_data)
+                self.logger.info(f"[REGIME] Current: {regime_name} ({regime_code}) | Threshold: {regime_threshold}")
+            else:
+                regime_code, regime_name, regime_threshold = 2, 'BULL', 0.65
+                self.logger.warning("[REGIME] SPY data unavailable - using default BULL regime")
+            
+            # Phase 13 Regime Thresholds
+            # 0=CRISIS: No entries (threshold=None), 1=BEAR: 0.72, 2=BULL: 0.65
+            if regime_code == 0:  # CRISIS
+                self.logger.warning("[REGIME] CRISIS regime detected - blocking all new entries")
+                regime_threshold = None  # Block all entries
+            
             # For paper trading, IBKR connection is optional (we can generate signals without it)
             if self.ibkr_engine:
                 if not self.ibkr_engine.connect():
@@ -929,9 +950,17 @@ class MockVirtualEngine:
                     from core.ai_models import get_ensemble_signal
                     signal, confidence, details = get_ensemble_signal(ticker_data)
                     
-                    # PURE AI - Collect ALL BUY and SELL signals (no human threshold filtering)
+                    # Phase 13: Apply regime-based threshold filtering
                     current_price = float(ticker_data['close'].iloc[-1])
                     is_held = ticker.upper() in held_tickers
+                    
+                    # Filter BUY signals based on regime threshold
+                    if signal == 'BUY' and regime_threshold is not None and confidence < regime_threshold:
+                        # Signal doesn't meet regime threshold - skip
+                        continue
+                    elif signal == 'BUY' and regime_threshold is None:
+                        # CRISIS regime - block all new entries
+                        continue
                     
                     if signal == 'BUY':
                         signal_dict = {
@@ -1926,6 +1955,27 @@ This is an automated message from NeuralTrader Paper Trading System.
                 
                 data_manager = DataManager()
                 
+                # 🚀 PHASE 13: Detect market regime for adaptive thresholds
+                try:
+                    from core.regime_detector import RegimeDetector
+                    regime_detector = RegimeDetector()
+                    
+                    # Load SPY and VXX data for regime detection
+                    spy_data = data_manager._load_ticker_data('SPY')
+                    vxx_data = data_manager._load_ticker_data('VXX')
+                    
+                    if spy_data is not None and len(spy_data) > 200:
+                        regime_code, regime_name, regime_threshold = regime_detector.detect_regime(spy_data, vxx_data)
+                        self.logger.info(f"[REGIME] Current: {regime_name} ({regime_code}) | Threshold: {regime_threshold}")
+                    else:
+                        regime_code, regime_name, regime_threshold = 2, 'BULL', 0.65
+                        self.logger.warning("[REGIME] SPY data unavailable - using default BULL regime")
+                        self.logger.info(f"[REGIME] Current: BULL (2) | Threshold: 0.65")
+                except Exception as e:
+                    self.logger.error(f"[REGIME] Detection failed: {e} - using default BULL regime")
+                    regime_code, regime_name, regime_threshold = 2, 'BULL', 0.65
+                    self.logger.info(f"[REGIME] Current: BULL (2) | Threshold: 0.65")
+                
                 # Generate signals using new method (evaluates held positions + scans universe)
                 signals = self.virtual_engine._generate_trading_signals(
                     self.trading_strategy, 
@@ -1933,7 +1983,28 @@ This is an automated message from NeuralTrader Paper Trading System.
                     self.sector_auth
                 )
                 
-                self.logger.info(f"[SIGNALS] Generated {len(signals)} AI signals")
+                self.logger.info(f"[SIGNALS] Generated {len(signals)} AI signals (before regime filtering)")
+                
+                # 🚀 PHASE 13: Apply regime-based threshold filtering
+                if regime_threshold is not None:
+                    # Filter BUY signals based on regime threshold
+                    original_count = len(signals)
+                    signals = [
+                        s for s in signals 
+                        if s['action'] != 'buy' or s.get('ai_score', s.get('confidence', 0)) >= regime_threshold
+                    ]
+                    filtered_count = original_count - len(signals)
+                    if filtered_count > 0:
+                        self.logger.info(f"[REGIME] Filtered {filtered_count} BUY signals below {regime_threshold} threshold")
+                elif regime_code == 0:  # CRISIS
+                    # Block all new BUY entries in CRISIS regime
+                    original_count = len(signals)
+                    signals = [s for s in signals if s['action'] != 'buy']
+                    filtered_count = original_count - len(signals)
+                    if filtered_count > 0:
+                        self.logger.warning(f"[REGIME] CRISIS regime - blocked {filtered_count} BUY signals")
+                
+                self.logger.info(f"[SIGNALS] {len(signals)} AI signals after regime filtering")
                 
                 # Convert signals to DataFrame for portfolio manager
                 import pandas as pd
@@ -1958,9 +2029,40 @@ This is an automated message from NeuralTrader Paper Trading System.
                     
                     self.logger.info(f"[PORTFOLIO] Portfolio updated with {len(updated_portfolio)} positions")
                     
+                    # CRITICAL: Sync PortfolioManager positions to VirtualEngine portfolio_paper.json
+                    # PortfolioManager saves to portfolio.csv, but VirtualEngine uses portfolio_paper.json
+                    # We need to sync them so positions persist across runs
+                    active_positions = updated_portfolio[updated_portfolio['Status'] == 'ACTIVE']
+                    if len(active_positions) > 0:
+                        # Convert PortfolioManager positions to VirtualEngine format
+                        synced_positions = {}
+                        for _, row in active_positions.iterrows():
+                            ticker = row['Ticker'].upper()
+                            synced_positions[ticker] = {
+                                'shares': int(row['Quantity']),
+                                'cost_basis': float(row['EntryPrice']),
+                                'current_price': float(row['CurrentPrice'])
+                            }
+                        
+                        # Update VirtualEngine portfolio with synced positions
+                        self.virtual_engine.portfolio['positions'] = synced_positions
+                        self.virtual_engine.save_portfolio()
+                        self.logger.info(f"[SYNC] Synced {len(synced_positions)} positions from PortfolioManager to VirtualEngine")
+                    
                     # Count trades by comparing before/after
                     buy_signals = [s for s in signals if s['action'] == 'buy']
                     sell_signals = [s for s in signals if s['action'] == 'sell']
+                    
+                    # Store signals and portfolio data for email report
+                    global EMAIL_BUY_SIGNALS, EMAIL_SELL_SIGNALS, EMAIL_PORTFOLIO_DATA
+                    EMAIL_BUY_SIGNALS = buy_signals
+                    EMAIL_SELL_SIGNALS = sell_signals
+                    EMAIL_PORTFOLIO_DATA = {
+                        'active_positions': active_positions,
+                        'portfolio_value': self.virtual_engine.get_account_info().get('portfolio_value', 0),
+                        'cash': self.virtual_engine.portfolio.get('cash', 0),
+                        'total_pnl': sum(active_positions['PnL_USD']) if len(active_positions) > 0 else 0
+                    }
                     
                     self.logger.info(f"[OK] Signal processing completed")
                     self.logger.info(f"[SUMMARY] Session Results:")
@@ -1981,8 +2083,10 @@ This is an automated message from NeuralTrader Paper Trading System.
                 self.logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
                 return False
             
-            # Update portfolio values
-            self.virtual_engine.update_portfolio_values()
+            # CRITICAL FIX: Do NOT call update_portfolio_values() here
+            # PortfolioManager already saved positions correctly
+            # VirtualEngine.update_portfolio_values() was overwriting with empty portfolio
+            # self.virtual_engine.update_portfolio_values()  # REMOVED - causes phantom portfolio bug
             
             session_end = datetime.now()
             duration = session_end - session_start
@@ -2638,6 +2742,22 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
         logger.info("[IRONCLAD] Entering finally block - sending guaranteed notification")
 
         try:
+            # Declare globals to avoid UnboundLocalError
+            global EMAIL_BUY_SIGNALS, EMAIL_SELL_SIGNALS, EMAIL_PORTFOLIO_DATA
+            
+            # Initialize email data globals if not set
+            if 'EMAIL_BUY_SIGNALS' not in globals():
+                EMAIL_BUY_SIGNALS = []
+            if 'EMAIL_SELL_SIGNALS' not in globals():
+                EMAIL_SELL_SIGNALS = []
+            if 'EMAIL_PORTFOLIO_DATA' not in globals():
+                EMAIL_PORTFOLIO_DATA = {
+                    'active_positions': pd.DataFrame(),
+                    'portfolio_value': 0,
+                    'cash': 0,
+                    'total_pnl': 0
+                }
+            
             timestamp  = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             mode_label = (args.mode if 'args' in locals() and args.mode else 'UNKNOWN').upper()
             paper_flag = PAPER_TRADING if 'PAPER_TRADING' in globals() else False
@@ -2697,7 +2817,53 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
   </div>
 
   <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
-    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">System Status</h2>
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">💰 Portfolio Summary</h2>
+    <table style="width:100%;border-collapse:collapse;">
+      <tr><td style="padding:8px;color:#555;width:160px;"><strong>Portfolio Value</strong></td>
+          <td style="padding:8px;font-size:18px;font-weight:bold;color:#27ae60;">${EMAIL_PORTFOLIO_DATA.get('portfolio_value', 0):,.2f}</td></tr>
+      <tr style="background:#f9f9f9;">
+          <td style="padding:8px;color:#555;"><strong>Available Cash</strong></td>
+          <td style="padding:8px;">${EMAIL_PORTFOLIO_DATA.get('cash', 0):,.2f}</td></tr>
+      <tr><td style="padding:8px;color:#555;"><strong>Total P&L</strong></td>
+          <td style="padding:8px;font-weight:bold;color:{'#27ae60' if EMAIL_PORTFOLIO_DATA.get('total_pnl', 0) >= 0 else '#e74c3c'};">${EMAIL_PORTFOLIO_DATA.get('total_pnl', 0):,.2f}</td></tr>
+      <tr style="background:#f9f9f9;">
+          <td style="padding:8px;color:#555;"><strong>Active Positions</strong></td>
+          <td style="padding:8px;">{len(EMAIL_PORTFOLIO_DATA.get('active_positions', []))}</td></tr>
+    </table>
+  </div>
+
+  <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">📊 Current Positions</h2>
+    {''.join([f'''<div style="background:#f9f9f9;padding:12px;margin:8px 0;border-radius:6px;border-left:4px solid {'#27ae60' if row['PnL_Pct'] >= 0 else '#e74c3c'};">
+      <div style="font-weight:bold;font-size:16px;margin-bottom:6px;">{row['Ticker']}</div>
+      <table style="width:100%;font-size:13px;">
+        <tr><td style="color:#666;width:120px;">Quantity:</td><td>{int(row['Quantity'])}</td></tr>
+        <tr><td style="color:#666;">Entry Price:</td><td>${row['EntryPrice']:.2f}</td></tr>
+        <tr><td style="color:#666;">Current Price:</td><td>${row['CurrentPrice']:.2f}</td></tr>
+        <tr><td style="color:#666;">P&L:</td><td style="font-weight:bold;color:{'#27ae60' if row['PnL_Pct'] >= 0 else '#e74c3c'};">${row['PnL_USD']:.2f} ({row['PnL_Pct']:.2f}%)</td></tr>
+        <tr><td style="color:#666;">Days Held:</td><td>{int(row['DaysHeld'])}</td></tr>
+      </table>
+    </div>''' for _, row in EMAIL_PORTFOLIO_DATA.get('active_positions', pd.DataFrame()).iterrows()]) if len(EMAIL_PORTFOLIO_DATA.get('active_positions', [])) > 0 else '<p style="color:#999;text-align:center;padding:20px;">No active positions</p>'}
+  </div>
+
+  <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">🔵 Buy Signals Today</h2>
+    {''.join([f'''<div style="background:#e8f5e9;padding:10px;margin:6px 0;border-radius:4px;border-left:3px solid #27ae60;">
+      <strong>{signal['ticker'].upper()}</strong> @ ${signal['price']:.2f} — AI Score: {signal.get('ai_score', signal.get('confidence', 0)):.3f}
+      <div style="font-size:12px;color:#666;margin-top:4px;">Reason: {signal.get('reason', 'AI recommendation')}</div>
+    </div>''' for signal in EMAIL_BUY_SIGNALS]) if len(EMAIL_BUY_SIGNALS) > 0 else '<p style="color:#999;text-align:center;padding:20px;">No buy signals today</p>'}
+  </div>
+
+  <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">🔴 Sell Signals Today</h2>
+    {''.join([f'''<div style="background:#ffebee;padding:10px;margin:6px 0;border-radius:4px;border-left:3px solid #e74c3c;">
+      <strong>{signal['ticker'].upper()}</strong> @ ${signal['price']:.2f} — AI Score: {signal.get('ai_score', signal.get('confidence', 0)):.3f}
+      <div style="font-size:12px;color:#666;margin-top:4px;">Reason: {signal.get('reason', 'AI recommendation')}</div>
+    </div>''' for signal in EMAIL_SELL_SIGNALS]) if len(EMAIL_SELL_SIGNALS) > 0 else '<p style="color:#999;text-align:center;padding:20px;">No sell signals today</p>'}
+  </div>
+
+  <div style="background:white;padding:20px;margin-top:12px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+    <h2 style="border-bottom:2px solid #eee;padding-bottom:8px;">⚙️ System Status</h2>
     <table style="width:100%;border-collapse:collapse;">
       <tr><td style="padding:5px;color:#555;width:160px;"><strong>Orchestrator</strong></td>
           <td style="padding:5px;">{'INITIALIZED' if 'orchestrator' in locals() else 'NOT INITIALIZED'}</td></tr>
