@@ -173,7 +173,7 @@ PAPER_TRADING = False
 
 # Portfolio file routing — one file per mode
 _PORTFOLIO_FILES = {
-    'paper':      'data/portfolio_paper.json',       # persistent, IBKR-synced
+    'paper':      'data/portfolio_paper.json',       # persistent, AI-managed
     'trade':      'data/portfolio_paper.json',       # same as paper
     'report':     'data/portfolio_paper.json',       # read-only in report mode
     'simulation': 'data/portfolio_simulation.json',  # overwritten each run
@@ -188,7 +188,7 @@ class MockVirtualEngine:
     Provides real portfolio persistence and trade execution.
 
     Portfolio file routing:
-      paper / trade / report  ->  data/portfolio_paper.json   (persistent + IBKR synced)
+      paper / trade / report  ->  data/portfolio_paper.json   (persistent, AI-managed)
       simulation              ->  data/portfolio_simulation.json  (fresh each run)
       backtest                ->  data/portfolio_backtest.json    (fresh each run)
     """
@@ -206,8 +206,8 @@ class MockVirtualEngine:
 
         self.MAX_POSITIONS = 10
 
-        # Store IBKR engine for live paper trading
-        self.ibkr_engine = ibkr_engine
+        # IBKR engine not used in paper mode (AI-only trading with Tiingo data)
+        self.ibkr_engine = None  # Disabled for paper trading
 
         # Initialize portfolio structure with risk management keys
         self.portfolio = {
@@ -937,14 +937,8 @@ class MockVirtualEngine:
                 self.logger.warning("[REGIME] CRISIS regime detected - blocking all new entries")
                 regime_threshold = None  # Block all entries
             
-            # For paper trading, IBKR connection is optional (we can generate signals without it)
-            if self.ibkr_engine:
-                if not self.ibkr_engine.connect():
-                    self.logger.warning("[SIGNALS] Failed to connect to IBKR - continuing with local data")
-                else:
-                    self.logger.info("[SIGNALS] Connected to IBKR for live trading")
-            else:
-                self.logger.info("[SIGNALS] IBKR engine not available - using local data only")
+            # Paper mode: AI-only signal generation using Tiingo data (no broker needed)
+            self.logger.info("[SIGNALS] AI-only mode - generating signals from Tiingo data")
             
             # Load current portfolio holdings to prioritize evaluation
             portfolio_csv = Path(self.project_root) / 'data' / 'portfolio.csv'
@@ -1117,10 +1111,8 @@ class MockVirtualEngine:
             # Return empty list on any error - never fallback to mock data
             return []
         finally:
-            # Always disconnect from IBKR
-            if self.ibkr_engine:
-                self.ibkr_engine.disconnect()
-                self.logger.info("[SIGNALS] Disconnected from IBKR")
+            # Paper mode: No broker connection to disconnect
+            self.logger.info("[SIGNALS] Signal generation complete (AI-only mode)")
     
     def _export_tradingview_signals(self, all_signals, top_signals):
         """Export signals to TradingView-compatible CSV file"""
@@ -1204,18 +1196,9 @@ class MockVirtualEngine:
         Data Source: Real volatility calculated from data/raw/{ticker}.parquet files
         """
         try:
-            # Get live cash balance from IBKR (ditch portfolio.json)
-            if self.ibkr_engine and self.ibkr_engine.connected:
-                account_summary = self.ibkr_engine.get_account_summary()
-                if 'error' not in account_summary:
-                    available_cash = account_summary.get('cash_balance', 0.0)
-                    self.logger.info(f"[RISK] Live cash from IBKR: ${available_cash:,.2f}")
-                else:
-                    self.logger.error(f"[RISK] IBKR account summary error: {account_summary['error']}")
-                    return 0
-            else:
-                self.logger.error("[RISK] IBKR not connected - cannot calculate position size")
-                return 0
+            # Paper mode: Use portfolio cash (AI-managed, no broker needed)
+            available_cash = self.portfolio.get('cash', 100000.0)
+            self.logger.info(f"[RISK] Available cash (AI portfolio): ${available_cash:,.2f}")
             
             # Calculate real volatility from parquet data (ARCHITECTURE.md requirement)
             volatility = self._calculate_real_volatility(ticker)
@@ -1374,15 +1357,19 @@ class TradingOrchestrator:
             self.logger.error(f"[PHASE10] Failed to initialize Sentiment Integration: {e}")
             self.logger.info("[PHASE10] System will continue without sentiment analysis")
         
-        # Initialize IBKR Engine for Live Paper Trading (Tier 3)
+        # Paper mode: No IBKR needed (AI-only trading with Tiingo data)
         self.ibkr_engine = None
-        try:
-            from core.ibkr_engine import IBKREngineSync
-            self.ibkr_engine = IBKREngineSync()
-            self.logger.info("[IBKR] IBKR Engine initialized for live paper trading")
-        except Exception as e:
-            self.logger.error(f"[IBKR] Failed to initialize IBKR Engine: {e}")
-            self.logger.info("[IBKR] System will continue without live trading")
+        if PAPER_TRADING:
+            self.logger.info("[PAPER] IBKR disabled - AI-only mode with Tiingo data")
+        else:
+            # Only initialize IBKR for live trading mode
+            try:
+                from core.ibkr_engine import IBKREngineSync
+                self.ibkr_engine = IBKREngineSync()
+                self.logger.info("[IBKR] IBKR Engine initialized for live trading")
+            except Exception as e:
+                self.logger.error(f"[IBKR] Failed to initialize IBKR Engine: {e}")
+                self.logger.info("[IBKR] System will continue without live trading")
         
         self.logger.info("[TRADING] Trading Orchestrator (Master Runner) initialized")
         if self.supervision_logger:
@@ -1933,11 +1920,15 @@ This is an automated message from NeuralTrader Paper Trading System.
             if not self.initialize_modules():
                 return False
 
-            # IBKR sync: overwrite portfolio_paper.json with live IBKR ground truth
-            self.logger.info("[IBKR SYNC] Syncing portfolio_paper.json from IBKR...")
-            sync_ok = self.virtual_engine.sync_from_ibkr()
-            if not sync_ok:
-                self.logger.warning("[IBKR SYNC] Sync skipped or failed - proceeding with last saved state")
+            # Paper mode: AI-only trading with Tiingo data (no broker connection)
+            if PAPER_TRADING:
+                self.logger.info("[PAPER] AI-only mode - using Tiingo data, no broker connection")
+            else:
+                # Only sync with IBKR in live trading mode
+                self.logger.info("[IBKR SYNC] Syncing portfolio_paper.json from IBKR...")
+                sync_ok = self.virtual_engine.sync_from_ibkr()
+                if not sync_ok:
+                    self.logger.warning("[IBKR SYNC] Sync skipped or failed - proceeding with last saved state")
 
             # Check Portfolio Circuit Breaker (Uncle Point)
             try:
@@ -2153,11 +2144,15 @@ This is an automated message from NeuralTrader Paper Trading System.
             if not self.initialize_modules():
                 return False
 
-            # IBKR sync: refresh portfolio_paper.json before generating the report
-            self.logger.info("[IBKR SYNC] Syncing portfolio_paper.json from IBKR for report...")
-            sync_ok = self.virtual_engine.sync_from_ibkr()
-            if not sync_ok:
-                self.logger.warning("[IBKR SYNC] Sync skipped or failed - report will use last saved state")
+            # Paper mode: AI-only trading with Tiingo data (no broker sync needed)
+            if PAPER_TRADING:
+                self.logger.info("[PAPER] Report mode - using AI-managed portfolio data")
+            else:
+                # Only sync with IBKR in live trading mode
+                self.logger.info("[IBKR SYNC] Syncing portfolio_paper.json from IBKR for report...")
+                sync_ok = self.virtual_engine.sync_from_ibkr()
+                if not sync_ok:
+                    self.logger.warning("[IBKR SYNC] Sync skipped or failed - report will use last saved state")
 
             # Get portfolio info from virtual engine (always available in report mode)
             account_info = self.virtual_engine.get_account_info()
