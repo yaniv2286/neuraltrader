@@ -223,11 +223,12 @@ class MockVirtualEngine:
         # Load existing portfolio data (paper: persistent; sim/backtest: start fresh)
         if mode in ('paper', 'trade', 'report'):
             self._load_portfolio_data()
+            # CRITICAL: Sync market prices AFTER loading to update placeholder prices with real Tiingo data
+            self._sync_market_prices()
         else:
             self.logger.info(f"[PORTFOLIO] {mode} mode — starting with fresh portfolio (no history loaded)")
-
-        # Sync with current market prices
-        self._sync_market_prices()
+            # Still sync prices for any positions in fresh portfolio
+            self._sync_market_prices()
 
         self.logger.info(f"[MOCK] VirtualEngine ready | mode={mode} | positions={len(self.portfolio['positions'])} | cash=${self.portfolio['cash']:,.0f}")
     
@@ -371,45 +372,81 @@ class MockVirtualEngine:
                 pass
     
     def _sync_market_prices(self):
-        """Sync current market prices using data_manager"""
-        try:
-            # Import data_manager for price updates
-            import sys
-            sys.path.insert(0, os.path.join(self.project_root, 'scripts'))
-            from data_manager import DataManager
-            
-            data_manager = DataManager()
-            
-            # Get current prices for all positions
-            updated_positions = {}
-            for ticker, pos_data in self.portfolio['positions'].items():
-                try:
-                    # Get current price from data_manager
-                    df = data_manager._load_ticker_data(ticker)
-                    if df is not None and not df.empty:
-                        current_price = df.get('Close', df.get('close', df.get('adj_close'))).iloc[-1]
-                        # Update position with current price
-                        updated_positions[ticker] = {
-                            'shares': pos_data.get('shares', 0),
-                            'cost_basis': pos_data.get('cost_basis', 0),
-                            'current_price': current_price
-                        }
-                        self.logger.info(f"[MOCK] Updated {ticker} price: ${current_price:.2f}")
-                    else:
-                        # Keep existing price if no data available
-                        updated_positions[ticker] = pos_data
-                        
-                except Exception as e:
-                    self.logger.warning(f"[MOCK] Could not update {ticker} price: {e}")
-                    # Keep existing position data
-                    updated_positions[ticker] = pos_data
-            
-            # Update portfolio with synced prices
+        """Sync current market prices from real Tiingo parquet data - NO SILENT FAILURES"""
+        import pandas as pd
+        
+        if not self.portfolio['positions']:
+            self.logger.info("[PRICE SYNC] No positions to sync")
+            return
+        
+        raw_data_dir = os.path.join(self.project_root, 'data', 'raw')
+        updated_positions = {}
+        failed_tickers = []
+        
+        for ticker, pos_data in self.portfolio['positions'].items():
+            try:
+                # Try to load Tiingo parquet file (case-insensitive)
+                parquet_file = os.path.join(raw_data_dir, f"{ticker}.parquet")
+                if not os.path.exists(parquet_file):
+                    # Try lowercase
+                    parquet_file = os.path.join(raw_data_dir, f"{ticker.lower()}.parquet")
+                
+                if not os.path.exists(parquet_file):
+                    self.logger.error(f"[PRICE SYNC] [FATAL] Parquet file not found for {ticker}: {parquet_file}")
+                    failed_tickers.append(ticker)
+                    continue
+                
+                # Read parquet file
+                df = pd.read_parquet(parquet_file)
+                
+                if df.empty:
+                    self.logger.error(f"[PRICE SYNC] [FATAL] Empty data for {ticker}")
+                    failed_tickers.append(ticker)
+                    continue
+                
+                # Get latest close price (adjClose from Tiingo)
+                if 'adjClose' in df.columns:
+                    current_price = float(df['adjClose'].iloc[-1])
+                elif 'close' in df.columns:
+                    current_price = float(df['close'].iloc[-1])
+                elif 'Close' in df.columns:
+                    current_price = float(df['Close'].iloc[-1])
+                else:
+                    self.logger.error(f"[PRICE SYNC] [FATAL] No price column found for {ticker}. Columns: {df.columns.tolist()}")
+                    failed_tickers.append(ticker)
+                    continue
+                
+                # Validate price is reasonable
+                if current_price <= 0 or current_price > 1000000:
+                    self.logger.error(f"[PRICE SYNC] [FATAL] Invalid price for {ticker}: ${current_price}")
+                    failed_tickers.append(ticker)
+                    continue
+                
+                # Update position with REAL market price
+                updated_positions[ticker] = {
+                    'shares': pos_data.get('shares', 0),
+                    'cost_basis': pos_data.get('cost_basis', 0),
+                    'current_price': current_price
+                }
+                self.logger.info(f"[PRICE SYNC] [OK] {ticker}: ${current_price:.2f} (real Tiingo data)")
+                
+            except Exception as e:
+                self.logger.error(f"[PRICE SYNC] [FATAL] Failed to get price for {ticker}: {e}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+                failed_tickers.append(ticker)
+        
+        # CRITICAL: Fail loudly if ANY price sync failed
+        if failed_tickers:
+            error_msg = f"[PRICE SYNC] [FATAL] Failed to sync prices for {len(failed_tickers)} tickers: {failed_tickers}"
+            self.logger.error(error_msg)
+            self.logger.error("[PRICE SYNC] [FATAL] NO SILENT FAILURES - Portfolio has incomplete data")
+            # Still update the positions that succeeded
             self.portfolio['positions'] = updated_positions
-            self.logger.info(f"[MOCK] Market prices synced for {len(updated_positions)} positions")
-            
-        except Exception as e:
-            self.logger.error(f"[MOCK] Failed to sync market prices: {e}")
+        else:
+            # All prices synced successfully
+            self.portfolio['positions'] = updated_positions
+            self.logger.info(f"[PRICE SYNC] [SUCCESS] All {len(updated_positions)} positions synced with real Tiingo data")
     
     def execute_trade(self, ticker, action, quantity, price, reason):
         """Execute a trade and update portfolio persistently"""

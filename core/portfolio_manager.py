@@ -205,8 +205,8 @@ class PortfolioManager:
         return portfolio
     
     def _get_current_price(self, ticker: str) -> float:
-        """Get current price for ticker from today's signals"""
-        # Try to get price from today's signals file
+        """Get current price for ticker from real Tiingo parquet data - NO SILENT FAILURES"""
+        # Try to get price from today's signals file first
         try:
             reports_dir = self.project_root / 'reports'
             signal_files = sorted(reports_dir.glob('tradingview_signals_*.csv'))
@@ -214,12 +214,58 @@ class PortfolioManager:
                 latest_signals = pd.read_csv(signal_files[-1])
                 ticker_row = latest_signals[latest_signals['Ticker'] == ticker]
                 if not ticker_row.empty:
-                    return float(ticker_row['Price'].iloc[0])
+                    price = float(ticker_row['Price'].iloc[0])
+                    if price > 0 and price < 1000000:  # Validate price is reasonable
+                        self.logger.info(f"[PRICE] {ticker}: ${price:.2f} (from signals)")
+                        return price
         except Exception as e:
-            self.logger.warning(f"[PORTFOLIO] Could not get price for {ticker}: {e}")
+            self.logger.warning(f"[PRICE] Could not get {ticker} price from signals: {e}")
         
-        # Fallback to reasonable price
-        return 100.0
+        # Fallback to Tiingo parquet data (REAL DATA - NO PLACEHOLDERS)
+        try:
+            raw_data_dir = self.project_root / 'data' / 'raw'
+            parquet_file = raw_data_dir / f"{ticker}.parquet"
+            
+            if not parquet_file.exists():
+                # Try lowercase
+                parquet_file = raw_data_dir / f"{ticker.lower()}.parquet"
+            
+            if not parquet_file.exists():
+                self.logger.error(f"[PRICE] [FATAL] Parquet file not found for {ticker}")
+                raise FileNotFoundError(f"No parquet file for {ticker}")
+            
+            # Read parquet and get latest price
+            df = pd.read_parquet(parquet_file)
+            
+            if df.empty:
+                self.logger.error(f"[PRICE] [FATAL] Empty data for {ticker}")
+                raise ValueError(f"Empty parquet data for {ticker}")
+            
+            # Get latest close price (adjClose from Tiingo)
+            if 'adjClose' in df.columns:
+                current_price = float(df['adjClose'].iloc[-1])
+            elif 'close' in df.columns:
+                current_price = float(df['close'].iloc[-1])
+            elif 'Close' in df.columns:
+                current_price = float(df['Close'].iloc[-1])
+            else:
+                self.logger.error(f"[PRICE] [FATAL] No price column for {ticker}. Columns: {df.columns.tolist()}")
+                raise ValueError(f"No price column in parquet for {ticker}")
+            
+            # Validate price
+            if current_price <= 0 or current_price > 1000000:
+                self.logger.error(f"[PRICE] [FATAL] Invalid price for {ticker}: ${current_price}")
+                raise ValueError(f"Invalid price for {ticker}: ${current_price}")
+            
+            self.logger.info(f"[PRICE] {ticker}: ${current_price:.2f} (real Tiingo data)")
+            return current_price
+            
+        except Exception as e:
+            self.logger.error(f"[PRICE] [FATAL] Failed to get real price for {ticker}: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            # NO SILENT FAILURES - Raise error instead of returning placeholder
+            raise RuntimeError(f"[FATAL] Cannot get real price for {ticker} - NO PLACEHOLDER ALLOWED") from e
     
     def _calculate_pnl_pct(self, action: str, entry_price: float, current_price: float) -> float:
         """Calculate P&L percentage"""
