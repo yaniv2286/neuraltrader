@@ -3,7 +3,7 @@
 ## Overview
 NeuralTrader is a machine-learning quantitative hedge fund system that uses AI ensemble models to generate trading signals and manage portfolios automatically.
 
-**Current Version:** Phase 13 Optimized (v13.0) - March 19, 2026 (OPERATIONAL)
+**Current Version:** Phase 13 Optimized (v13.0) - April 15, 2026 (FRESH START - Day 1)
 
 ## Key Features
 - **AI Ensemble Models**: 97.9% precision (target) with 76 features (Phase 13 Optimized)
@@ -116,5 +116,5 @@ python scripts/retrain_phase13_optimized.py
 
 ## Version
 - **Current**: v13.0 (Phase 13 Optimized)
-- **Last Updated**: March 15, 2026
-- **Status**: Ready for Monday market open (March 17, 2026)
+- **Last Updated**: April 15, 2026
+- **Status**: OPERATIONAL - Fresh Start Day 1 ($100K baseline portfolio)

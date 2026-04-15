@@ -34,6 +34,14 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, accuracy_score
 
+# CNN Fear & Greed Index integration
+try:
+    from fear_and_greed import get as get_fear_greed
+    FEAR_GREED_AVAILABLE = True
+except ImportError:
+    FEAR_GREED_AVAILABLE = False
+    logger.warning('[WARN] fear-and-greed library not available - CNN sentiment will default to neutral (50)')
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -68,10 +76,28 @@ REGIME_LABELS = {0: 'CRISIS', 1: 'BEAR', 2: 'BULL'}
 # Feature builder for regime classification
 # ---------------------------------------------------------------------------
 
+def get_cnn_sentiment() -> float:
+    """
+    Fetch CNN Fear & Greed Index
+    Returns value 0-100 (50 = neutral default on failure)
+    """
+    try:
+        if not FEAR_GREED_AVAILABLE:
+            return 50.0
+        
+        result = get_fear_greed()
+        sentiment_value = float(result.value)
+        logger.info(f'[SENTIMENT] CNN Fear & Greed: {sentiment_value:.1f}')
+        return sentiment_value
+    except Exception as e:
+        logger.warning(f'[WARN] Failed to fetch CNN sentiment: {e} - using neutral default (50)')
+        return 50.0
+
 def build_regime_features(spy: pd.DataFrame, vxx: pd.DataFrame) -> pd.DataFrame:
     """
-    Build daily regime features from SPY + VXX OHLCV data.
+    Build daily regime features from SPY + VXX + CNN Fear & Greed data.
     All features are purely backward-looking (no lookahead).
+    Now includes 21 features (20 SPY/VXX + 1 CNN sentiment).
     """
     close_spy = spy['adjClose'] if 'adjClose' in spy.columns else spy['close']
     close_spy = close_spy.sort_index()
@@ -131,6 +157,13 @@ def build_regime_features(spy: pd.DataFrame, vxx: pd.DataFrame) -> pd.DataFrame:
         logger.warning('[WARN] VXX not available — regime classifier will use SPY-only features')
         for col in ['vxx_level', 'vxx_roc_5', 'vxx_roc_20', 'vxx_bb_pct', 'vxx_above_bb']:
             features[col] = 0.0
+    
+    # 🚀 CNN Fear & Greed Index (21st feature)
+    # For historical training, use neutral value (50) as we don't have historical sentiment data
+    # In live trading, this will be fetched in real-time
+    sentiment_value = 50.0  # Neutral default for historical training
+    features['cnn_fear_greed'] = sentiment_value / 100.0  # Normalize to 0-1 range
+    logger.info(f'[FEATURE] Added CNN Fear & Greed feature (training default: {sentiment_value})')
 
     features = features.dropna()
     return features

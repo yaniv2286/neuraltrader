@@ -308,8 +308,8 @@ class EnsemblePredictor:
                 self.logger.info(f"[OK] Loaded {len(self.models)} sentiment-enhanced models (76 features)")
                 return
 
-            # --- PRIORITY 2: base models (64 features) ---
-            self.logger.warning("[WARN] Sentiment models not found, falling back to base models (64 features)")
+            # --- PRIORITY 2: base models (76 features - Phase 13) ---
+            self.logger.warning("[WARN] Sentiment models not found, falling back to base models (76 features)")
 
             # Load metadata
             metadata_path = self.models_dir / "ensemble_metadata.pkl"

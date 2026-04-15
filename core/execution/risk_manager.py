@@ -116,7 +116,10 @@ class RiskManager:
                                        current_date: datetime, 
                                        cooldown_date_str: Optional[str]) -> Tuple[bool, Optional[str]]:
         """
-        DISABLED for paper trading - Circuit breaker removed for learning/testing.
+        Uncle Point Circuit Breaker - IMMUTABLE LAW (Rule 2.1)
+        
+        Checks for 20% drawdown from peak portfolio value and enforces 10-day cooldown.
+        This protection is MANDATORY for all execution modes including paper trading.
         
         Args:
             current_value: Current portfolio value
@@ -126,23 +129,59 @@ class RiskManager:
             
         Returns:
             Tuple of (triggered: bool, cooldown_until: Optional[str])
-            - triggered: Always False for paper trading
-            - cooldown_until: Always None for paper trading
+            - triggered: True if drawdown > 20% or in cooldown period
+            - cooldown_until: ISO string of cooldown end date, or None
             
         Logic:
-        1. DISABLED - Paper trading allows unlimited learning
-        2. No drawdown checks for paper trading
-        3. Always allows trading for learning purposes
+        1. Check if currently in cooldown period
+        2. Calculate drawdown from peak
+        3. If drawdown > 20%, trigger Uncle Point and set 10-day cooldown
+        4. Return True to block trading if triggered
         """
         try:
-            # DISABLED: Circuit breaker removed for paper trading
-            self.logger.info("[OK] Circuit breaker DISABLED for paper trading - Learning mode active")
-            return False, None
+            # Check if currently in cooldown
+            if cooldown_date_str:
+                try:
+                    cooldown_until = datetime.fromisoformat(cooldown_date_str)
+                    if current_date < cooldown_until:
+                        days_remaining = (cooldown_until - current_date).days
+                        self.logger.warning(f"[UNCLE POINT] In cooldown period - {days_remaining} days remaining until {cooldown_date_str}")
+                        return True, cooldown_date_str
+                    else:
+                        self.logger.info("[UNCLE POINT] Cooldown period expired - resuming trading")
+                except Exception as e:
+                    self.logger.warning(f"[WARN] Invalid cooldown date format: {e}")
+            
+            # Calculate current drawdown from peak
+            if peak_value <= 0:
+                self.logger.warning("[WARN] Invalid peak value - cannot calculate drawdown")
+                return False, None
+            
+            drawdown_pct = (peak_value - current_value) / peak_value
+            
+            # Uncle Point threshold: 20% drawdown (IMMUTABLE LAW)
+            UNCLE_POINT_THRESHOLD = 0.20
+            COOLDOWN_DAYS = 10
+            
+            if drawdown_pct >= UNCLE_POINT_THRESHOLD:
+                # Uncle Point triggered - enforce 10-day cooldown
+                cooldown_until = current_date + timedelta(days=COOLDOWN_DAYS)
+                cooldown_str = cooldown_until.isoformat()
+                
+                self.logger.error(f"[UNCLE POINT] TRIGGERED! Drawdown: {drawdown_pct:.1%} >= {UNCLE_POINT_THRESHOLD:.0%}")
+                self.logger.error(f"[UNCLE POINT] Current: ${current_value:,.2f}, Peak: ${peak_value:,.2f}")
+                self.logger.error(f"[UNCLE POINT] Trading HALTED for {COOLDOWN_DAYS} days until {cooldown_str}")
+                
+                return True, cooldown_str
+            else:
+                # Safe to trade
+                self.logger.info(f"[UNCLE POINT] Safe - Drawdown: {drawdown_pct:.1%} < {UNCLE_POINT_THRESHOLD:.0%}")
+                return False, None
                 
         except Exception as e:
-            self.logger.error(f"Error in circuit breaker check: {e}")
-            # DISABLED: Even on error, allow paper trading
-            return False, None
+            self.logger.error(f"[ERROR] Circuit breaker check failed: {e}")
+            # On error, be conservative and halt trading
+            return True, None
     
     def calculate_position_size_risk(self, ticker: str, entry_price: float, 
                                    stop_loss_price: float, portfolio_value: float,
