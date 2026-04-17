@@ -928,11 +928,11 @@ class MockVirtualEngine:
                 regime_code, regime_name, regime_threshold = regime_detector.detect_regime(spy_data, vxx_data)
                 self.logger.info(f"[REGIME] Current: {regime_name} ({regime_code}) | Threshold: {regime_threshold}")
             else:
-                regime_code, regime_name, regime_threshold = 2, 'BULL', 0.65
+                regime_code, regime_name, regime_threshold = 2, 'BULL', 0.55
                 self.logger.warning("[REGIME] SPY data unavailable - using default BULL regime")
             
             # Phase 13 Regime Thresholds
-            # 0=CRISIS: No entries (threshold=None), 1=BEAR: 0.72, 2=BULL: 0.65
+            # 0=CRISIS: No entries (threshold=None), 1=BEAR: 0.72, 2=BULL: 0.55
             if regime_code == 0:  # CRISIS
                 self.logger.warning("[REGIME] CRISIS regime detected - blocking all new entries")
                 regime_threshold = None  # Block all entries
@@ -1996,13 +1996,13 @@ This is an automated message from NeuralTrader Paper Trading System.
                         regime_code, regime_name, regime_threshold = regime_detector.detect_regime(spy_data, vxx_data)
                         self.logger.info(f"[REGIME] Current: {regime_name} ({regime_code}) | Threshold: {regime_threshold}")
                     else:
-                        regime_code, regime_name, regime_threshold = 2, 'BULL', 0.65
+                        regime_code, regime_name, regime_threshold = 2, 'BULL', 0.55
                         self.logger.warning("[REGIME] SPY data unavailable - using default BULL regime")
-                        self.logger.info(f"[REGIME] Current: BULL (2) | Threshold: 0.65")
+                        self.logger.info(f"[REGIME] Current: BULL (2) | Threshold: 0.55")
                 except Exception as e:
                     self.logger.error(f"[REGIME] Detection failed: {e} - using default BULL regime")
-                    regime_code, regime_name, regime_threshold = 2, 'BULL', 0.65
-                    self.logger.info(f"[REGIME] Current: BULL (2) | Threshold: 0.65")
+                    regime_code, regime_name, regime_threshold = 2, 'BULL', 0.55
+                    self.logger.info(f"[REGIME] Current: BULL (2) | Threshold: 0.55")
                 
                 # Generate signals using new method (evaluates held positions + scans universe)
                 signals = self.virtual_engine._generate_trading_signals(

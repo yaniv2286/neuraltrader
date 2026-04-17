@@ -45,7 +45,7 @@ class RegimeDetector:
         self.regime_thresholds = {
             0: None,    # CRISIS - no new entries
             1: 0.72,    # BEAR - strict threshold
-            2: 0.65,    # BULL - standard threshold
+            2: 0.55,    # BULL - quant industry standard (51-55% edge)
         }
         
         # CNN Fear & Greed sentiment categories
@@ -67,7 +67,7 @@ class RegimeDetector:
             meta_path = self.models_dir / 'regime_classifier_meta.json'
             
             if not clf_path.exists():
-                self.logger.warning("[WARN] Regime classifier not found - using default BULL threshold (0.65)")
+                self.logger.warning("[WARN] Regime classifier not found - using default BULL threshold (0.55)")
                 return
             
             # Load classifier
@@ -201,8 +201,8 @@ class RegimeDetector:
         """
         Apply contrarian buy override based on CNN Fear & Greed Index
         
-        Rule: If CNN Sentiment < 20 (Extreme Fear) AND AI confidence > 0.60,
-              allow BULL entry even if primary threshold is 0.65
+        Rule: If CNN Sentiment < 20 (Extreme Fear) AND AI confidence > 0.50,
+              allow BULL entry even if primary threshold is 0.55
         
         Args:
             regime_code: Current regime (0=CRISIS, 1=BEAR, 2=BULL)
@@ -255,7 +255,7 @@ class RegimeDetector:
             
             if len(features) == 0:
                 self.logger.warning("[WARN] No regime features - using default BULL")
-                return 2, 'BULL', 0.65
+                return 2, 'BULL', 0.55
             
             # Get latest features
             latest = features.iloc[[-1]]
@@ -273,7 +273,7 @@ class RegimeDetector:
             # Predict regime
             regime_code = int(self.classifier.predict(latest_scaled)[0])
             regime_name = self.regime_labels.get(regime_code, 'UNKNOWN')
-            threshold = self.regime_thresholds.get(regime_code, 0.65)
+            threshold = self.regime_thresholds.get(regime_code, 0.55)
             
             # Apply contrarian override if AI confidence provided
             if ai_confidence is not None:
@@ -292,8 +292,8 @@ class RegimeDetector:
             
         except Exception as e:
             self.logger.error(f"[ERROR] Regime detection failed: {e}")
-            return 2, 'BULL', 0.65  # Default to BULL on error
+            return 2, 'BULL', 0.55  # Default to BULL on error
     
     def get_threshold_for_regime(self, regime_code: int) -> Optional[float]:
         """Get confidence threshold for a given regime"""
-        return self.regime_thresholds.get(regime_code, 0.65)
+        return self.regime_thresholds.get(regime_code, 0.55)
