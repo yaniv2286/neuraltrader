@@ -3,23 +3,22 @@
 ## Overview
 NeuralTrader is a machine-learning quantitative hedge fund system that uses AI ensemble models to generate trading signals and manage portfolios automatically.
 
-**Current Version:** Phase 13 Optimized (v13.0) - April 15, 2026 (FRESH START - Day 1)
+**Current Version:** Phase 16 (v16.0) - May 4, 2026
 
 ## Key Features
-- **AI Ensemble Models**: 97.9% precision (target) with 76 features (Phase 13 Optimized)
-- **Precision-Optimized Weights**: XGBoost 0.356, LightGBM 0.366, HGB 0.278
-- **Regime-Adaptive Thresholds**: CRISIS 0.80, BEAR 0.72, BULL 0.65
-- **Validated Performance**: Comprehensive AI validation completed March 14, 2026
-- **OPERATIONAL STATUS**: Phase 13 fully deployed March 19, 2026 - Dynamic signals active
-- **Automated Trading**: Paper trading with TradingView integration
+- **AI Ensemble Models**: 98.2% LONG precision with 64 clean features (Phase 15 TB 3-Class)
+- **Tri-Model Ensemble**: XGBoost 0.40 + LightGBM 0.40 + HGB 0.20
+- **Phase 16 Optimized Strategy**: +15.88% CAGR (v11) / +11.22% CAGR -13.93% DD (v12)
+- **High-Turnover AI**: 100 tickers, weekly rebalancing, 5-day timeout, trailing stop exits
+- **Automated Trading**: Paper trading with daily signal generation
 - **Risk Management**: Brain-Gate protection with automatic rollback
 
 ## System Architecture
 - **Core Engine**: `main_orchestrator_ist.py`
-- **AI Models**: Phase 13 ensemble (XGBoost, LightGBM, HGB) with precision-optimized weights
-- **Features**: 76 total (68 Phase 12 + 8 Phase 13 derivatives)
+- **AI Models**: Phase 15 ensemble (XGBoost, LightGBM, HGB) with TB 3-class labels
+- **Features**: 64 clean derived indicators (raw OHLCV excluded for stationarity)
 - **Data Pipeline**: Tiingo API integration with 2,184 tickers
-- **Portfolio Management**: Real-time position tracking with regime-adaptive thresholds
+- **Portfolio Management**: Daily exits + weekly entries, max 18-20 long positions
 
 ## Daily Schedule (IST Timezone)
 
@@ -64,25 +63,27 @@ python main_orchestrator_ist.py --mode=report
 python scripts/retrain_phase13_optimized.py
 ```
 
-## Performance Metrics
-- **Model Precision**: 91.4% → 97.9% (Phase 12 → Phase 13 target)
-- **Data Coverage**: 2,184 tickers
-- **Training Data**: 14.9M rows
-- **Features**: 76 total (68 Phase 12 + 8 Phase 13 derivatives)
-  - Volatility derivatives: vol_regime_change, atr_percentile, vol_acceleration, vol_atr_ratio
-  - Momentum derivatives: high_52w_momentum, breakout_strength
-  - Volume derivatives: volume_trend, volume_volatility
-- **Backtest CAGR**: 15.92% (2000-2026, Phase 12 baseline)
-- **Expected Improvement**: +5% accuracy, +6.5% precision, -5-10% false positives
+## Performance Metrics (Phase 16 Backtest: 2020-2025)
+
+| Config | CAGR | Max DD | Trades | Win Rate | Final Equity |
+|--------|------|--------|--------|----------|--------------|
+| **v11 (Aggressive)** | **+15.88%** | -16.43% | 4,929 | 54.2% | $242,032 |
+| **v12 (Conservative)** | +11.22% | **-13.93%** | 4,139 | 53.8% | $189,278 |
+
+- **Model Precision**: 98.2% LONG prec@0.65
+- **Data Coverage**: 2,184 tickers (100 used in backtest)
+- **Training Data**: 14.7M rows, 64 clean features
+- **Strategy**: High-turnover (5-day holds, ~985 trades/year)
 
 ## Risk Management
 - **Brain-Gate Protection**: Precision @ 0.65 must be >= 55%
-- **Automatic Rollback**: Phase 12 models backed up to models/backup_phase12/
-- **Position Sizing**: Inverse volatility based (1/σ weighting)
-- **Stop Loss**: ATR-based (2.5x ATR20, clamped 8-20%)
-- **Uncle Point**: 20% drawdown circuit breaker
-- **Portfolio Limit**: 15 concurrent positions
-- **Regime-Adaptive**: Different thresholds for CRISIS/BEAR/BULL markets
+- **Stop Loss**: 4% fixed (cut losers fast)
+- **Trailing Stop**: Activate at +2%, trail 1.2% below peak
+- **Timeout**: 5-day maximum hold (fast churn)
+- **Uncle Point**: DISABLED (was #1 performance killer in backtest)
+- **Shorts**: DISABLED (49.8% WR = net negative)
+- **Portfolio Limit**: 18-20 concurrent long positions
+- **Regime-Adaptive**: AI 3-class classifier (CRISIS/BEAR/BULL)
 
 ## Documentation
 - [Architecture Details](docs/ARCHITECTURE.md)
@@ -96,25 +97,23 @@ python scripts/retrain_phase13_optimized.py
 - **Logs**: `logs/automation_YYYYMMDD_HHMMSS.log`
 - **Reports**: `reports/dashboard_YYYYMMDD_HHMMSS.html`
 
-## Phase 13 Optimizations (March 15, 2026)
+## Phase 16 Optimization (May 4, 2026)
 
-### What's New
-1. **8 Derivative Features** - Targeting top performers (volatility, momentum, volume)
-2. **Precision-Optimized Weights** - 0.356, 0.366, 0.278 (was 0.4, 0.4, 0.2)
-3. **Regime-Adaptive Thresholds** - CRISIS: 0.80, BEAR: 0.72, BULL: 0.65
-
-### Validation Evidence
-- Sentiment tested and rejected: degraded performance by 14.25%
-- Top features identified: vol_regime (286.41), atr_14 (250.41), high_52w_prox (241.21)
-- Derivatives capture transitions and accelerations, not just levels
-- Precision-based weighting outperforms arbitrary weights
+### Key Findings (12 iterations)
+1. **Uncle Point DISABLED** - Was #1 performance killer (forced liquidation destroyed recovery)
+2. **Shorts DISABLED** - 49.8% WR = net negative P&L
+3. **High Turnover Strategy** - 5-day timeout + weekly rebalancing compounds thin edge faster
+4. **Trailing Stop Primary Exit** - TP effectively disabled; trail locks in gains at +2%
+5. **100 Tickers Optimal** - 50 too few (poor selection), 200 too slow (>1hr runtime)
+6. **Lower Threshold = More CAGR** - 0.35-0.40 with top-N ranking outperforms 0.45+
 
 ### Safety Features
-- Brain-Gate validation prevents bad deployments
-- Phase 12 models backed up for rollback
-- Incremental changes: 8 features at a time
+- Brain-Gate validation prevents bad model deployments
+- 4% stop loss cuts losers fast
+- Trailing stop locks in gains after +2%
+- Confidence-weighted position sizing
 
 ## Version
-- **Current**: v13.0 (Phase 13 Optimized)
-- **Last Updated**: April 15, 2026
-- **Status**: OPERATIONAL - Fresh Start Day 1 ($100K baseline portfolio)
+- **Current**: v16.0 (Phase 16 Optimized)
+- **Last Updated**: May 4, 2026
+- **Status**: Backtest optimization complete. Paper trading validation pending.

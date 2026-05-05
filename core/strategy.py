@@ -31,48 +31,51 @@ class TradingStrategy:
     """
     
     def __init__(self):
-        """Initialize strategy with Phase 2 Exit Optimization winning parameters"""
+        """Initialize strategy with Phase 16 Optimized parameters"""
         # Safety constraints - required by integrity check
         self.max_drawdown = 0.20  # 20% max drawdown limit
         self.max_position_size = 0.20  # 20% max position size
         
-        # [v5] PHASE 12 VALIDATED PARAMETERS (CAGR 15.92%, DD 22.99% over 26yr)
-        self.STOP_LOSS_ATR_MULT   = 2.5    # 2.5x ATR20 stop — validated in 26yr backtest
-        self.STOP_LOSS_MAX_PCT    = 0.20   # ATR stop cap: never wider than 20%
-        self.STOP_LOSS_MIN_PCT    = 0.08   # ATR stop floor: never tighter than 8%
-        self.TRAIL_STOP_PCT       = 0.12   # 12% trailing stop from peak
-        self.TRAIL_ACTIVATE_PCT   = 0.05   # Trailing stop activates once position >=5% in profit
-        self.TAKE_PROFIT_PCT      = 0.40   # 40% take-profit
-        self.MAX_HOLD_DAYS        = 25     # 25-day timeout
-        self.MAX_RISK_PER_TRADE   = 0.020  # 2.0% portfolio risk per trade
-        self.MIN_POSITION_PCT     = 0.05   # 5% portfolio floor per position
-        self.MAX_POSITION_PCT     = 0.10   # 10% portfolio cap per position
-        self.MAX_POSITIONS        = 15     # Max concurrent positions
-        self.UNCLE_POINT_DD       = 0.20   # 20% drawdown circuit breaker
-        self.COOLDOWN_DAYS        = 10     # 10-day cooldown after uncle point
+        # [P16] PHASE 16 OPTIMIZED PARAMETERS (v11: CAGR +15.88%, v12: DD -13.93%)
+        self.STOP_LOSS_PCT        = 0.04   # 4% fixed stop loss — cut losers fast
+        self.STOP_LOSS_ATR_MULT   = 0      # ATR stop DISABLED — use fixed % instead
+        self.STOP_LOSS_MAX_PCT    = 0.04   # Fixed at 4%
+        self.STOP_LOSS_MIN_PCT    = 0.04   # Fixed at 4%
+        self.TRAIL_STOP_PCT       = 0.012  # 1.2% trailing stop from peak
+        self.TRAIL_ACTIVATE_PCT   = 0.02   # Trailing stop activates at +2% profit
+        self.TAKE_PROFIT_PCT      = 0.20   # 20% take-profit (effectively disabled — trail handles exits)
+        self.MAX_HOLD_DAYS        = 5      # 5-day timeout — fast churn of non-performers
+        self.MAX_RISK_PER_TRADE   = 0.008  # 0.8% portfolio risk per trade
+        self.BASE_POSITION_PCT    = 0.05   # 5% base allocation per position
+        self.MIN_POSITION_PCT     = 0.03   # 3% portfolio floor per position
+        self.MAX_POSITION_PCT     = 0.08   # 8% portfolio cap per position
+        self.MAX_POSITIONS        = 20     # Max concurrent long positions
+        self.UNCLE_POINT_DD       = None   # Uncle Point DISABLED — was #1 performance killer
+        self.COOLDOWN_DAYS        = 0      # Cooldown DISABLED
         self.MIN_PRICE            = 10.0   # $10 minimum price filter
         self.MIN_AVG_VOLUME       = 500_000 # 500k minimum average volume
+        self.SHORTS_ENABLED       = False  # Shorts DISABLED — 49.8% WR = net negative
+        self.REBALANCE_DAY        = 0      # Monday = 0 (weekly entry on Monday only)
         
-        # 🚀 PHASE 13 REGIME-ADAPTIVE THRESHOLDS (Optimized)
-        self.CRISIS_THRESHOLD     = 0.80   # CRISIS: Very strict (no entries in crisis)
-        self.BEAR_THRESHOLD       = 0.72   # BEAR: Strict threshold
-        self.BULL_THRESHOLD       = 0.65   # BULL: Standard threshold
-        self.DEFAULT_THRESHOLD    = 0.70   # DEFAULT: Conservative fallback
+        # Phase 16 Regime-Adaptive Thresholds
+        self.CRISIS_THRESHOLD     = None   # CRISIS: No entries allowed
+        self.BEAR_THRESHOLD       = 0.42   # BEAR: Strict threshold
+        self.BULL_THRESHOLD       = 0.35   # BULL: Lower threshold = more trades = more CAGR
+        self.DEFAULT_THRESHOLD    = 0.38   # DEFAULT: Conservative fallback (v12 config)
         
         # Legacy thresholds (kept for compatibility)
-        self.CONFIDENCE_THRESHOLD = 0.65   # Standard entry threshold
+        self.CONFIDENCE_THRESHOLD = 0.35   # Standard entry threshold (Phase 16 v11)
         
         # [ARCH] INSTITUTIONAL SCHEDULE & DATA VALIDATION
         self.PRE_EXECUTION_DATA_CHECK = True  # Enable pre-execution data validation
         
         # Strategy lock confirmation
-        logger.info("[v5] STRATEGY LOCK: Phase 12 v5 Parameters (CAGR 15.92% validated)")
-        logger.info(f"   ATR Stop: {self.STOP_LOSS_ATR_MULT}x ATR20 [{self.STOP_LOSS_MIN_PCT*100:.0f}%-{self.STOP_LOSS_MAX_PCT*100:.0f}%]")
-        logger.info(f"   Trailing Stop: {self.TRAIL_STOP_PCT*100:.0f}% from peak (activates at +{self.TRAIL_ACTIVATE_PCT*100:.0f}%)")
+        logger.info("[P16] STRATEGY LOCK: Phase 16 Optimized (v11: +15.88% CAGR, v12: -13.93% DD)")
+        logger.info(f"   Stop Loss: {self.STOP_LOSS_PCT*100:.0f}% fixed | Trail: {self.TRAIL_STOP_PCT*100:.1f}% (activates at +{self.TRAIL_ACTIVATE_PCT*100:.0f}%)")
         logger.info(f"   Take Profit: {self.TAKE_PROFIT_PCT*100:.0f}% | Max Hold: {self.MAX_HOLD_DAYS}d")
-        logger.info(f"   Risk/Trade: {self.MAX_RISK_PER_TRADE*100:.1f}% | Pos Floor: {self.MIN_POSITION_PCT*100:.0f}%")
-        logger.info(f"   Uncle Point: {self.UNCLE_POINT_DD*100:.0f}% DD | Cooldown: {self.COOLDOWN_DAYS}d")
-        logger.info(f"   Pre-execution Data Check: {self.PRE_EXECUTION_DATA_CHECK}")
+        logger.info(f"   Risk/Trade: {self.MAX_RISK_PER_TRADE*100:.1f}% | Base Pos: {self.BASE_POSITION_PCT*100:.0f}%")
+        logger.info(f"   Uncle Point: DISABLED | Shorts: DISABLED | Max Positions: {self.MAX_POSITIONS}")
+        logger.info(f"   Rebalance: Weekly (Monday) | Regime Thresholds: BULL={self.BULL_THRESHOLD} BEAR={self.BEAR_THRESHOLD}")
     
     def pre_execution_data_validation(self) -> bool:
         """
@@ -157,11 +160,11 @@ class TradingStrategy:
     def check_exit(self, data: pd.DataFrame, entry_price: float = None, entry_atr: float = None,
                    stop_loss_pct: float = None, peak_price: float = None, hold_days: int = 0) -> dict:
         """
-        Exit condition check implementing Phase 12 v5 exit hierarchy:
-        1. ATR-based stop-loss (8-20%)
-        2. Trailing stop (12% from peak, activates once >=5% profit)
-        3. Take-profit (40%)
-        4. Timeout (25 days)
+        Exit condition check implementing Phase 16 exit hierarchy:
+        1. Fixed 4% stop-loss (cut losers fast)
+        2. Trailing stop (1.2% from peak, activates once >=2% profit)
+        3. Take-profit (20% — effectively disabled, trail handles exits)
+        4. Timeout (5 days — fast churn of non-performers)
         
         Returns:
             dict: {'should_exit': bool, 'reason': str or None}
@@ -173,15 +176,15 @@ class TradingStrategy:
             current_price = data['close'].iloc[-1]
             pnl_pct = (current_price - entry_price) / entry_price
 
-            # Use provided stop or calculate ATR stop
-            _stop_pct = stop_loss_pct if stop_loss_pct is not None else self.calc_atr_stop_pct(data)
+            # Phase 16: Use fixed 4% stop loss (not ATR-based)
+            _stop_pct = stop_loss_pct if stop_loss_pct is not None else self.STOP_LOSS_PCT
 
-            # 1. ATR-based stop-loss
+            # 1. Fixed stop-loss (4%)
             if pnl_pct <= -_stop_pct:
-                logger.info(f"[STOP] ATR stop-loss: pnl={pnl_pct:.1%} <= -{_stop_pct:.1%}")
+                logger.info(f"[STOP] Fixed stop-loss: pnl={pnl_pct:.1%} <= -{_stop_pct:.1%}")
                 return {'should_exit': True, 'reason': 'STOP_LOSS'}
 
-            # 2. Trailing stop (only activates once position is >=5% in profit)
+            # 2. Trailing stop (activates once position is >=2% in profit, trails 1.2% from peak)
             _peak = peak_price if peak_price is not None else current_price
             if _peak > entry_price * (1 + self.TRAIL_ACTIVATE_PCT):
                 trail_pct = (_peak - current_price) / _peak
@@ -189,12 +192,12 @@ class TradingStrategy:
                     logger.info(f"[TRAIL] Trailing stop: {trail_pct:.1%} from peak ${_peak:.2f}")
                     return {'should_exit': True, 'reason': 'TRAIL_STOP'}
 
-            # 3. Take-profit
+            # 3. Take-profit (20% — effectively disabled since trail handles it)
             if pnl_pct >= self.TAKE_PROFIT_PCT:
                 logger.info(f"[TP] Take-profit: pnl={pnl_pct:.1%} >= {self.TAKE_PROFIT_PCT:.0%}")
                 return {'should_exit': True, 'reason': 'TAKE_PROFIT'}
 
-            # 4. Timeout
+            # 4. Timeout (5 days — fast churn)
             if hold_days >= self.MAX_HOLD_DAYS:
                 logger.info(f"[TIMEOUT] Hold days {hold_days} >= {self.MAX_HOLD_DAYS}")
                 return {'should_exit': True, 'reason': 'TIMEOUT'}

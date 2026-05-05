@@ -40,6 +40,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# Load .env file (TIINGO_API_KEY, EMAIL credentials, etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+except ImportError:
+    pass  # dotenv not installed — rely on OS environment variables
+
 # Import EmailNotifier for guaranteed notifications
 from core.utils.notifier import EmailNotifier
 
@@ -204,7 +211,7 @@ class MockVirtualEngine:
         self.portfolio_file = os.path.join(self.project_root, rel_path)
         self.logger.info(f"[PORTFOLIO] mode={mode} -> {self.portfolio_file}")
 
-        self.MAX_POSITIONS = 10
+        self.MAX_POSITIONS = 20  # Phase 16: 20 concurrent long positions
 
         # IBKR engine not used in paper mode (AI-only trading with Tiingo data)
         self.ibkr_engine = None  # Disabled for paper trading
@@ -516,7 +523,9 @@ class MockVirtualEngine:
                 self.portfolio['positions'][ticker] = {
                     'shares': total_shares,
                     'cost_basis': new_cost_basis,
-                    'current_price': price
+                    'current_price': price,
+                    'peak_price': max(price, existing.get('peak_price', price)),
+                    'entry_date': existing.get('entry_date', datetime.now().strftime('%Y-%m-%d'))
                 }
                 
                 self.logger.info(f"[MOCK] Updated {ticker} position: {existing_shares} -> {total_shares} shares @ ${new_cost_basis:.2f} avg")
@@ -525,7 +534,9 @@ class MockVirtualEngine:
                 self.portfolio['positions'][ticker] = {
                     'shares': quantity,
                     'cost_basis': price,
-                    'current_price': price
+                    'current_price': price,
+                    'peak_price': price,
+                    'entry_date': datetime.now().strftime('%Y-%m-%d')
                 }
                 
                 self.logger.info(f"[MOCK] Added new {ticker} position: {quantity} shares @ ${price:.2f}")
@@ -666,6 +677,99 @@ class MockVirtualEngine:
                 'price': price
             }
     
+    def check_and_execute_exits(self, trading_strategy):
+        """
+        Phase 16 Exit Management: Check all positions for exit conditions daily.
+        Exit hierarchy: Stop-Loss (4%) > Trailing Stop (1.2%) > Take-Profit (20%) > Timeout (5d)
+        """
+        import pandas as pd
+        from datetime import datetime
+        
+        if not self.portfolio['positions']:
+            self.logger.info("[EXITS] No positions to check")
+            return []
+        
+        exits_executed = []
+        positions_to_close = []
+        
+        for ticker, pos_data in list(self.portfolio['positions'].items()):
+            try:
+                shares = pos_data.get('shares', 0)
+                if shares <= 0:
+                    continue
+                
+                entry_price = pos_data.get('cost_basis', 0)
+                peak_price = pos_data.get('peak_price', pos_data.get('current_price', entry_price))
+                entry_date_str = pos_data.get('entry_date', None)
+                
+                # Calculate hold days
+                hold_days = 0
+                if entry_date_str:
+                    try:
+                        entry_dt = datetime.strptime(entry_date_str, '%Y-%m-%d')
+                        hold_days = (datetime.now() - entry_dt).days
+                    except Exception:
+                        hold_days = 0
+                
+                # Load current price from parquet
+                parquet_path = os.path.join(self.project_root, 'data', 'raw', f'{ticker}.parquet')
+                if not os.path.exists(parquet_path):
+                    self.logger.warning(f"[EXITS] No parquet for {ticker} — skipping exit check")
+                    continue
+                
+                df = pd.read_parquet(parquet_path)
+                if df.empty:
+                    continue
+                
+                current_price = float(df['close'].iloc[-1]) if 'close' in df.columns else float(df['adjClose'].iloc[-1])
+                
+                # Update peak price tracking
+                if current_price > peak_price:
+                    peak_price = current_price
+                    pos_data['peak_price'] = peak_price
+                
+                # Update current price
+                pos_data['current_price'] = current_price
+                
+                # Check exit conditions using strategy
+                exit_result = trading_strategy.check_exit(
+                    data=df.tail(30),
+                    entry_price=entry_price,
+                    stop_loss_pct=trading_strategy.STOP_LOSS_PCT,
+                    peak_price=peak_price,
+                    hold_days=hold_days
+                )
+                
+                if exit_result.get('should_exit', False):
+                    reason = exit_result.get('reason', 'UNKNOWN')
+                    pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0
+                    self.logger.info(f"[EXIT] {ticker}: {reason} | Entry: ${entry_price:.2f} -> ${current_price:.2f} | PnL: {pnl_pct:.1%} | Days: {hold_days}")
+                    positions_to_close.append((ticker, shares, current_price, reason))
+                else:
+                    pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0
+                    self.logger.info(f"[HOLD] {ticker}: ${current_price:.2f} | PnL: {pnl_pct:.1%} | Days: {hold_days}")
+                    
+            except Exception as e:
+                self.logger.error(f"[EXITS] Error checking {ticker}: {e}")
+                import traceback as tb
+                self.logger.error(tb.format_exc())
+        
+        # Execute all exit trades
+        for ticker, shares, price, reason in positions_to_close:
+            result = self.execute_trade(ticker, 'sell', shares, price, f'EXIT: {reason}')
+            if result.get('success'):
+                exits_executed.append({'ticker': ticker, 'shares': shares, 'price': price, 'reason': reason})
+                self.logger.info(f"[EXIT] Sold {shares} {ticker} @ ${price:.2f} ({reason})")
+            else:
+                self.logger.error(f"[EXIT] Failed to sell {ticker}: {result.get('error')}")
+        
+        if exits_executed:
+            self.logger.info(f"[EXITS] Executed {len(exits_executed)} exits")
+        else:
+            self.logger.info(f"[EXITS] No exits triggered for {len(self.portfolio['positions'])} positions")
+        
+        return exits_executed
+
     def get_account_info(self):
         """Return current account information"""
         total_value = self.portfolio['cash']
@@ -920,9 +1024,35 @@ class MockVirtualEngine:
             from core.regime_detector import RegimeDetector
             regime_detector = RegimeDetector()
             
-            # Load SPY and VXX data for regime detection
-            spy_data = data_manager._load_ticker_data('SPY')
-            vxx_data = data_manager._load_ticker_data('VXX')
+            # Load SPY and VXX data for regime detection (from fresh parquets)
+            def _load_parquet(ticker_name):
+                """Load ticker data from data/raw/*.parquet (kept fresh by daily fetch)"""
+                ppath = Path(self.project_root) / 'data' / 'raw' / f'{ticker_name}.parquet'
+                if not ppath.exists():
+                    # Try uppercase/lowercase variants
+                    ppath = Path(self.project_root) / 'data' / 'raw' / f'{ticker_name.upper()}.parquet'
+                if not ppath.exists():
+                    ppath = Path(self.project_root) / 'data' / 'raw' / f'{ticker_name.lower()}.parquet'
+                if not ppath.exists():
+                    return None
+                df = pd.read_parquet(ppath)
+                if df.empty:
+                    return None
+                # Use adjusted prices for consistency with price sync
+                if 'adjClose' in df.columns:
+                    df['close'] = df['adjClose']
+                if 'adjOpen' in df.columns:
+                    df['open'] = df['adjOpen']
+                if 'adjHigh' in df.columns:
+                    df['high'] = df['adjHigh']
+                if 'adjLow' in df.columns:
+                    df['low'] = df['adjLow']
+                if 'adjVolume' in df.columns:
+                    df['volume'] = df['adjVolume']
+                return df
+            
+            spy_data = _load_parquet('SPY')
+            vxx_data = _load_parquet('VXX')
             
             if spy_data is not None and len(spy_data) > 200:
                 regime_code, regime_name, regime_threshold = regime_detector.detect_regime(spy_data, vxx_data)
@@ -970,8 +1100,8 @@ class MockVirtualEngine:
             # Process each ticker through AI model (held positions first)
             for ticker in ordered_universe:
                 try:
-                    # Fetch latest market data for this ticker
-                    ticker_data = data_manager._load_ticker_data(ticker)
+                    # Fetch latest market data from fresh parquet (not stale CSV cache)
+                    ticker_data = _load_parquet(ticker)
                     
                     if ticker_data is None or len(ticker_data) < 50:
                         self.logger.debug(f"[SIGNALS] Insufficient data for {ticker}, skipping")
@@ -987,10 +1117,12 @@ class MockVirtualEngine:
                     
                     # Filter BUY signals based on regime threshold
                     if signal == 'BUY' and regime_threshold is not None and confidence < regime_threshold:
-                        # Signal doesn't meet regime threshold - skip
                         continue
                     elif signal == 'BUY' and regime_threshold is None:
-                        # CRISIS regime - block all new entries
+                        # CRISIS regime - block all new long entries
+                        continue
+                    # Phase 16: SHORTS DISABLED — 49.8% WR = net negative P&L
+                    if signal == 'SELL_SHORT':
                         continue
                     
                     if signal == 'BUY':
@@ -1072,13 +1204,10 @@ class MockVirtualEngine:
                         self.logger.info(f"[SIGNALS] BUY {ticker}: {position_size} shares @ ${current_price:.2f} (AI: {confidence:.3f})")
                 
                 elif action == 'sell':
-                    # For sells, we need to check if we actually hold this position
-                    # This would be handled by the risk manager later
-                    
                     signal_dict = {
                         'ticker': ticker,
                         'action': 'sell',
-                        'quantity': 0,  # Will be determined by portfolio state
+                        'quantity': 0,
                         'price': current_price,
                         'reason': f'AI Signal: {confidence:.3f} confidence',
                         'ai_score': confidence,
@@ -1189,52 +1318,43 @@ class MockVirtualEngine:
     
     def _calculate_position_size(self, ticker: str, current_price: float, confidence: float, sector_auth) -> int:
         """
-        Calculate position size using Real Volatility Inverse Sizing Law (ARCHITECTURE.md Section 3 & 7)
+        Phase 16 Position Sizing: 5% base allocation per position, confidence-weighted.
         
-        Mathematical position allocation using real market data (20-day returns, annualized volatility)
-        1% risk per trade with real volatility-weighted allocations (1/σ weighting)
-        Data Source: Real volatility calculated from data/raw/{ticker}.parquet files
+        Base allocation = 5% of total portfolio value
+        Confidence multiplier: scale by (confidence / threshold)
+        Floor: 3% of portfolio | Cap: 8% of portfolio
         """
         try:
-            # Paper mode: Use portfolio cash (AI-managed, no broker needed)
+            # Use total portfolio value (not just cash) for sizing
+            account_info = self.get_account_info()
+            portfolio_value = account_info.get('portfolio_value', 100000.0)
             available_cash = self.portfolio.get('cash', 100000.0)
-            self.logger.info(f"[RISK] Available cash (AI portfolio): ${available_cash:,.2f}")
             
-            # Calculate real volatility from parquet data (ARCHITECTURE.md requirement)
-            volatility = self._calculate_real_volatility(ticker)
-            if volatility is None or volatility <= 0:
-                self.logger.error(f"[RISK] Failed to calculate real volatility for {ticker}")
+            # Phase 16 base allocation: 5% of portfolio per position
+            base_pct = 0.05
+            min_pct = 0.03   # Floor: 3%
+            max_pct = 0.08   # Cap: 8%
+            
+            # Confidence-weighted sizing: higher confidence = larger position
+            threshold = 0.35  # Phase 16 v11 threshold
+            conf_mult = min(1.5, max(0.7, confidence / threshold))
+            
+            position_pct = base_pct * conf_mult
+            position_pct = max(min_pct, min(max_pct, position_pct))
+            
+            position_value = portfolio_value * position_pct
+            
+            # Don't exceed available cash
+            position_value = min(position_value, available_cash * 0.95)
+            
+            # Calculate shares
+            if current_price <= 0:
                 return 0
-            
-            # Real Volatility Inverse Sizing Law: 1% risk per trade
-            risk_per_trade = 0.01  # 1% risk per trade (ARCHITECTURE.md Section 3)
-            risk_amount = available_cash * risk_per_trade
-            
-            # Mathematical allocation using 1/σ weighting (ARCHITECTURE.md Section 7)
-            # Low volatility stocks get MORE capital, high volatility get LESS
-            inverse_volatility_weight = 1.0 / volatility
-            
-            # Normalize weight (if multiple positions, this would be part of portfolio allocation)
-            # For single position, use the inverse volatility directly
-            position_value = risk_amount * inverse_volatility_weight
-            
-            # Apply confidence filter (only for entry decision, not sizing per ARCHITECTURE.md)
-            # The ARCHITECTURE.md states "Risk Per Trade Law: Maximum 1% portfolio risk per trade enforced automatically"
-            # Confidence affects whether to trade, not how much to risk
-            
-            # Calculate number of shares
             shares = int(position_value / current_price)
+            shares = max(1, shares)  # At least 1 share
             
-            # Minimum position size
-            min_shares = 1
-            shares = max(shares, min_shares)
-            
-            # Maximum position size (20% of portfolio - safety constraint)
-            max_shares = int((available_cash * 0.20) / current_price)
-            shares = min(shares, max_shares)
-            
-            self.logger.info(f"[RISK] {ticker}: Vol={volatility:.2%}, 1/σ={inverse_volatility_weight:.2f}, "
-                           f"Risk=${risk_amount:,.2f}, Position=${position_value:,.2f}, Shares={shares}")
+            self.logger.info(f"[P16 SIZE] {ticker}: Conf={confidence:.3f}, Mult={conf_mult:.2f}, "
+                           f"Alloc={position_pct:.1%}, Value=${position_value:,.0f}, Shares={shares}")
             
             return shares
             
@@ -1808,8 +1928,10 @@ This is an automated message from NeuralTrader Paper Trading System.
             # Load API key
             tiingo_token = os.getenv('TIINGO_API_KEY')
             if not tiingo_token:
-                self.logger.error("[FATAL] TIINGO_API_KEY not set in environment — cannot fetch data")
+                self.logger.error("[FATAL] TIINGO_API_KEY not set in environment — check .env file")
+                self.logger.error("[FATAL] Ensure python-dotenv is installed: pip install python-dotenv")
                 return False
+            self.logger.info(f"[FETCH] Tiingo API key loaded: {tiingo_token[:8]}...")
 
             raw_dir = Path(PROJECT_ROOT) / 'data' / 'raw'
             parquet_files = sorted(raw_dir.glob('*.parquet'))
@@ -1827,6 +1949,8 @@ This is an automated message from NeuralTrader Paper Trading System.
 
             for i, pfile in enumerate(parquet_files):
                 ticker = pfile.stem
+                if i % 100 == 0:
+                    self.logger.info(f"[FETCH] Progress: {i}/{total} ({i*100//total}%) | Updated: {updated} | Skipped: {skipped} | Failed: {failed}")
                 try:
                     df = pd.read_parquet(pfile)
 
@@ -1930,38 +2054,19 @@ This is an automated message from NeuralTrader Paper Trading System.
                 if not sync_ok:
                     self.logger.warning("[IBKR SYNC] Sync skipped or failed - proceeding with last saved state")
 
-            # Check Portfolio Circuit Breaker (Uncle Point)
+            # Phase 16: Uncle Point DISABLED — was #1 performance killer in backtest
+            # Log portfolio status but do NOT halt trading
             try:
                 portfolio = self.virtual_engine.portfolio
                 current_val = self.virtual_engine.get_account_info()['portfolio_value']
                 peak_val = portfolio.get('peak_portfolio_value', 100000.0)
-                cooldown_str = portfolio.get('circuit_breaker_cooldown_until')
-                
-                # Initialize risk manager
-                risk_manager = RiskManager()
-                
-                is_halted, new_cooldown = risk_manager.check_portfolio_circuit_breaker(
-                    current_val, peak_val, datetime.now(), cooldown_str
-                )
-                
-                if is_halted:
-                    self.logger.error("[SHIELD] PORTFOLIO CIRCUIT BREAKER ACTIVE. Drawdown > 12% or in cooldown.")
-                    self.logger.error(f"[SHIELD] Trading HALTED. Current: ${current_val:,.2f}, Peak: ${peak_val:,.2f}")
-                    
-                    # Update cooldown if changed
-                    if new_cooldown and new_cooldown != cooldown_str:
-                        portfolio['circuit_breaker_cooldown_until'] = new_cooldown
-                        self.virtual_engine.save_portfolio()
-                        self.logger.error(f"[SHIELD] Cooldown updated until: {new_cooldown}")
-                    
-                    return False
-                else:
-                    self.logger.info("[SHIELD] Circuit breaker SAFE - trading allowed")
-                    
+                dd_pct = (peak_val - current_val) / peak_val if peak_val > 0 else 0
+                self.logger.info(f"[P16] Portfolio: ${current_val:,.2f} | Peak: ${peak_val:,.2f} | DD: {dd_pct:.1%}")
+                self.logger.info("[P16] Uncle Point DISABLED — trading always allowed (Phase 16 finding)")
+                # Clear any stale cooldown
+                portfolio['circuit_breaker_cooldown_until'] = None
             except Exception as e:
-                self.logger.error(f"[ERROR] Circuit breaker check failed: {e}")
-                # Be conservative and halt trading on error
-                return False
+                self.logger.warning(f"[WARN] Portfolio status check failed: {e} — continuing anyway")
             
             # Check if market is open (bypass for paper trading)
             if not PAPER_TRADING:
@@ -1972,25 +2077,52 @@ This is an automated message from NeuralTrader Paper Trading System.
             else:
                 self.logger.info("[PAPER] Bypassing market hours check - paper trading mode")
             
+            # Phase 16: Check exits for all existing positions FIRST (daily)
+            self.logger.info("[P16] Checking exit conditions for existing positions...")
+            try:
+                exits = self.virtual_engine.check_and_execute_exits(self.trading_strategy)
+                if exits:
+                    self.logger.info(f"[P16] Exited {len(exits)} positions: {[e['ticker'] for e in exits]}")
+                else:
+                    self.logger.info("[P16] No exits triggered today")
+            except Exception as e:
+                self.logger.error(f"[P16] Exit check failed: {e}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+            
+            # Phase 16: Weekly rebalance gate — new entries only on Monday
+            from datetime import date
+            today_weekday = date.today().weekday()  # 0=Monday
+            rebalance_day = getattr(self.trading_strategy, 'REBALANCE_DAY', 0)
+            if today_weekday != rebalance_day:
+                self.logger.info(f"[P16] Not rebalance day (today={today_weekday}, rebalance={rebalance_day}) — exits done, skipping new entries")
+                # Still save portfolio after exits
+                self.virtual_engine.save_portfolio()
+                session_end = datetime.now()
+                duration = session_end - session_start
+                self.logger.info(f"[OK] TRADE MODE completed in {duration.total_seconds():.2f} seconds (exit-only day)")
+                return True
+            
+            self.logger.info("[P16] REBALANCE DAY — scanning for new entry opportunities...")
+            
             # Generate trading signals using new AI-driven method with held position evaluation
             self.logger.info("[TRADING] Generating AI trading signals with held position evaluation...")
             
             try:
-                # Import DataManager for signal generation
-                import sys
-                sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                from scripts.data_manager import DataManager
-                
-                data_manager = DataManager()
+                # Signal generation now loads directly from fresh parquets (not stale CSV cache)
+                data_manager = None  # No longer needed — _generate_trading_signals uses _load_parquet()
                 
                 # 🚀 PHASE 13: Detect market regime for adaptive thresholds
                 try:
                     from core.regime_detector import RegimeDetector
                     regime_detector = RegimeDetector()
                     
-                    # Load SPY and VXX data for regime detection
-                    spy_data = data_manager._load_ticker_data('SPY')
-                    vxx_data = data_manager._load_ticker_data('VXX')
+                    # Load SPY and VXX data from fresh parquets
+                    raw_dir = Path(PROJECT_ROOT) / 'data' / 'raw'
+                    spy_pq = raw_dir / 'SPY.parquet'
+                    vxx_pq = raw_dir / 'VXX.parquet'
+                    spy_data = pd.read_parquet(spy_pq) if spy_pq.exists() else None
+                    vxx_data = pd.read_parquet(vxx_pq) if vxx_pq.exists() else None
                     
                     if spy_data is not None and len(spy_data) > 200:
                         regime_code, regime_name, regime_threshold = regime_detector.detect_regime(spy_data, vxx_data)
@@ -2064,18 +2196,31 @@ This is an automated message from NeuralTrader Paper Trading System.
                     if len(active_positions) > 0:
                         # Convert PortfolioManager positions to VirtualEngine format
                         synced_positions = {}
+                        total_invested = 0.0
                         for _, row in active_positions.iterrows():
                             ticker = row['Ticker'].upper()
+                            shares = int(row['Quantity'])
+                            entry_price = float(row['EntryPrice'])
+                            current_price = float(row['CurrentPrice'])
+                            entry_date = str(row.get('EntryDate', datetime.now().strftime('%Y-%m-%d')))
+                            
                             synced_positions[ticker] = {
-                                'shares': int(row['Quantity']),
-                                'cost_basis': float(row['EntryPrice']),
-                                'current_price': float(row['CurrentPrice'])
+                                'shares': shares,
+                                'cost_basis': entry_price,
+                                'current_price': current_price,
+                                'peak_price': max(entry_price, current_price),
+                                'entry_date': entry_date
                             }
+                            total_invested += shares * entry_price
                         
-                        # Update VirtualEngine portfolio with synced positions
+                        # Phase 16: Properly deduct cash for invested positions
+                        initial_cash = self.virtual_engine.portfolio.get('peak_portfolio_value', 100000.0)
+                        remaining_cash = max(0, initial_cash - total_invested)
+                        
                         self.virtual_engine.portfolio['positions'] = synced_positions
+                        self.virtual_engine.portfolio['cash'] = remaining_cash
                         self.virtual_engine.save_portfolio()
-                        self.logger.info(f"[SYNC] Synced {len(synced_positions)} positions from PortfolioManager to VirtualEngine")
+                        self.logger.info(f"[SYNC] Synced {len(synced_positions)} positions | Invested: ${total_invested:,.2f} | Cash: ${remaining_cash:,.2f}")
                     
                     # Count trades by comparing before/after
                     buy_signals = [s for s in signals if s['action'] == 'buy']
@@ -2413,11 +2558,11 @@ NeuralTrader Automated Trading System v5.3 - Phase 10 Economic Data Integration 
             self.logger.info("[RETRAIN] Starting Saturday model retraining...")
             start_time = time.time()
             
-            # Execute the Phase 12 Brain-Gate protected retraining script
-            self.logger.info("[RETRAIN] Executing: python scripts/retrain_phase12.py")
+            # Execute the Phase 15 TB 3-class Brain-Gate protected retraining script
+            self.logger.info("[RETRAIN] Executing: python scripts/retrain_phase14_tb_batch.py")
             
             result = subprocess.run(
-                [sys.executable, "scripts/retrain_phase12.py"],
+                [sys.executable, "scripts/retrain_phase14_tb_batch.py"],
                 capture_output=True,
                 text=True,
                 cwd="."  # Run from project root

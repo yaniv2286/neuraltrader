@@ -365,7 +365,8 @@ class EnsemblePredictor:
     
     def generate_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
-        Generate features from OHLCV data
+        Generate features from OHLCV data, matching training pipeline exactly.
+        Drops raw OHLCV columns (non-stationary) to match Phase 15 training.
         
         Args:
             data: DataFrame with OHLCV columns
@@ -384,6 +385,17 @@ class EnsemblePredictor:
             
             # Select only numeric features
             numeric_features = features.select_dtypes(include=[np.number])
+            
+            # Drop raw OHLCV columns (non-stationary, must match training)
+            raw_ohlcv = {
+                'Price', 'high', 'low', 'open', 'close', 'volume',
+                'Adj Close', 'Adj High', 'Adj Low', 'Adj Open', 'Adj Volume',
+                'adjClose', 'adjHigh', 'adjLow', 'adjOpen', 'adjVolume',
+                'Dividend', 'Split Factor', 'divCash', 'splitFactor',
+            }
+            cols_to_drop = [c for c in numeric_features.columns if c in raw_ohlcv]
+            if cols_to_drop:
+                numeric_features = numeric_features.drop(columns=cols_to_drop)
             
             # Ensure we have all required features
             missing_features = set(self.feature_names) - set(numeric_features.columns)
@@ -502,77 +514,118 @@ class EnsemblePredictor:
             
             for model_name, model in self.models.items():
                 try:
-                    # Get probability of UP (class 1)
+                    # Get probability of each class
                     probs = model.predict_proba(features_scaled)[0]
-                    prob_up = probs[1]
+                    n_classes = len(probs)
                     
-                    model_probs[model_name] = prob_up
+                    if n_classes >= 3:
+                        # 3-class: NEUTRAL=0, LONG=1, SHORT=2
+                        prob_neutral = probs[0]
+                        prob_long = probs[1]
+                        prob_short = probs[2]
+                    elif n_classes == 2:
+                        # 2-class (binary): class 0 = not-buy, class 1 = buy
+                        prob_neutral = probs[0]
+                        prob_long = probs[1]
+                        prob_short = 0.0
+                    else:
+                        prob_neutral = 1.0
+                        prob_long = 0.0
+                        prob_short = 0.0
+                    
+                    model_probs[model_name] = {
+                        'neutral': prob_neutral,
+                        'long': prob_long,
+                        'short': prob_short
+                    }
                     model_votes[model_name] = {
-                        'prob_up': float(prob_up),
-                        'prob_down': float(probs[0]),
+                        'prob_neutral': float(prob_neutral),
+                        'prob_long': float(prob_long),
+                        'prob_short': float(prob_short),
                         'weight': self.weights[model_name]
                     }
                     
                 except Exception as e:
                     self.logger.error(f"[ERROR] {model_name} prediction failed: {e}")
-                    model_probs[model_name] = 0.5  # Neutral if model fails
+                    model_probs[model_name] = {'neutral': 1.0, 'long': 0.0, 'short': 0.0}  # Neutral if model fails
                     model_votes[model_name] = {
-                        'prob_up': 0.5,
-                        'prob_down': 0.5,
+                        'prob_neutral': 1.0,
+                        'prob_long': 0.0,
+                        'prob_short': 0.0,
                         'weight': self.weights[model_name],
                         'error': str(e)
                     }
             
-            # Calculate weighted average
-            weighted_prob_up = sum(
-                model_probs[name] * self.weights[name]
+            # Calculate weighted averages
+            weighted_prob_neutral = sum(
+                model_probs[name]['neutral'] * self.weights[name]
+                for name in model_probs
+            )
+            weighted_prob_long = sum(
+                model_probs[name]['long'] * self.weights[name]
+                for name in model_probs
+            )
+            weighted_prob_short = sum(
+                model_probs[name]['short'] * self.weights[name]
                 for name in model_probs
             )
             
             # Normalize by total weight (in case some models failed)
             total_weight = sum(self.weights[name] for name in model_probs)
             if total_weight > 0:
-                weighted_prob_up /= total_weight
+                weighted_prob_neutral /= total_weight
+                weighted_prob_long /= total_weight
+                weighted_prob_short /= total_weight
             
             # PURE AI - No human thresholds, AI decides everything
             if threshold is None:
-                # Pure AI decision based on probability comparison
-                if weighted_prob_up > 0.5:
+                # Pure AI decision based on highest probability
+                if weighted_prob_long > weighted_prob_short and weighted_prob_long > weighted_prob_neutral:
                     signal = 'BUY'
+                    confidence = weighted_prob_long
+                elif weighted_prob_short > weighted_prob_long and weighted_prob_short > weighted_prob_neutral:
+                    signal = 'SELL_SHORT'
+                    confidence = weighted_prob_short
                 else:
-                    signal = 'SELL'
-                confidence = weighted_prob_up if weighted_prob_up > 0.5 else (1.0 - weighted_prob_up)
+                    signal = 'HOLD'
+                    confidence = weighted_prob_neutral
                 threshold_used = None
             else:
                 # Threshold provided (for backtesting compatibility)
-                if weighted_prob_up > threshold:
+                # Use threshold for LONG/SHORT, ignore NEUTRAL
+                if weighted_prob_long > threshold:
                     signal = 'BUY'
-                    confidence = weighted_prob_up
+                    confidence = weighted_prob_long
+                    threshold_used = threshold
+                elif weighted_prob_short > threshold:
+                    signal = 'SELL_SHORT'
+                    confidence = weighted_prob_short
                     threshold_used = threshold
                 else:
                     signal = 'HOLD'
-                    confidence = weighted_prob_up
+                    confidence = max(weighted_prob_long, weighted_prob_short, weighted_prob_neutral)
                     threshold_used = threshold
             
             # Prepare details
             details = {
-                'ensemble_prob_up': float(weighted_prob_up),
-                'ensemble_prob_down': float(1.0 - weighted_prob_up),
+                'ensemble_prob_neutral': float(weighted_prob_neutral),
+                'ensemble_prob_long': float(weighted_prob_long),
+                'ensemble_prob_short': float(weighted_prob_short),
                 'model_votes': model_votes,
                 'n_models': len(self.models),
                 'ensemble_accuracy': self.metadata.get('ensemble', {}).get('test_acc', 0) if self.metadata else 0,
                 'threshold_used': threshold_used
             }
             
-            # Log ensemble vote - show raw score
+            # Log ensemble vote - show raw scores
             vote_str = " | ".join([
-                f"{name.upper()}:{model_probs[name]:.2f}"
+                f"{name.upper()}:N={model_probs[name]['neutral']:.2f} L={model_probs[name]['long']:.2f} S={model_probs[name]['short']:.2f}"
                 for name in sorted(model_probs.keys())
             ])
             if threshold is None:
-                self.logger.info(f"[AI] Ensemble Raw Score: {weighted_prob_up:.3f} | {vote_str}")
+                self.logger.info(f"[AI] Ensemble Scores: N={weighted_prob_neutral:.3f} L={weighted_prob_long:.3f} S={weighted_prob_short:.3f} ({signal}) | {vote_str}")
             else:
-                self.logger.info(f"[AI] Ensemble Vote: {weighted_prob_up:.2f} ({signal}) | {vote_str} | Threshold: {threshold}")
+                self.logger.info(f"[AI] Ensemble Vote: {weighted_prob_long:.2f} ({signal}) | {vote_str} | Threshold: {threshold}")
             
             return signal, confidence, details
             
@@ -580,12 +633,13 @@ class EnsemblePredictor:
             self.logger.error(f"[ERROR] Ensemble prediction failed: {e}")
             return 'HOLD', 0.0, {'error': str(e)}
     
-    def predict_from_ohlcv(self, data: pd.DataFrame) -> Tuple[str, float, Dict]:
+    def predict_from_ohlcv(self, data: pd.DataFrame, threshold: float = 0.30) -> Tuple[str, float, Dict]:
         """
         Generate trading signal directly from OHLCV data
         
         Args:
             data: DataFrame with OHLCV columns (open, high, low, close, volume)
+            threshold: Base confidence threshold for BUY/SELL_SHORT signals (default 0.30)
             
         Returns:
             Tuple of (signal, confidence, details)
@@ -594,8 +648,8 @@ class EnsemblePredictor:
             # Generate features
             features = self.generate_features(data)
             
-            # Make prediction (PURE AI - no threshold)
-            signal, confidence, details = self.predict(features, threshold=None)
+            # Use threshold mode to generate actionable signals
+            signal, confidence, details = self.predict(features, threshold=threshold)
             
             return signal, confidence, details
             

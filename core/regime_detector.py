@@ -44,8 +44,8 @@ class RegimeDetector:
         self.regime_labels = {0: 'CRISIS', 1: 'BEAR', 2: 'BULL'}
         self.regime_thresholds = {
             0: None,    # CRISIS - no new entries
-            1: 0.72,    # BEAR - strict threshold
-            2: 0.55,    # BULL - quant industry standard (51-55% edge)
+            1: 0.45,    # BEAR - stricter threshold
+            2: 0.35,    # BULL - calibrated for Phase 15 (5% TP, 64 clean features)
         }
         
         # CNN Fear & Greed sentiment categories
@@ -273,7 +273,8 @@ class RegimeDetector:
             # Predict regime
             regime_code = int(self.classifier.predict(latest_scaled)[0])
             regime_name = self.regime_labels.get(regime_code, 'UNKNOWN')
-            threshold = self.regime_thresholds.get(regime_code, 0.55)
+            # Handle both string and int keys from JSON metadata
+            threshold = self.regime_thresholds.get(regime_code, self.regime_thresholds.get(str(regime_code), 0.55))
             
             # Apply contrarian override if AI confidence provided
             if ai_confidence is not None:

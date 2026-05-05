@@ -108,6 +108,10 @@ class PortfolioManager:
                 elif current_action == 'SELL' and new_signal == 'BUY':
                     positions_to_close.append(position)
                     self.logger.info(f"[PORTFOLIO] Will close {ticker}: AI changed from SELL to BUY")
+                # Close SELL_SHORT positions only if we get explicit BUY signal
+                elif current_action == 'SELL_SHORT' and new_signal == 'BUY':
+                    positions_to_close.append(position)
+                    self.logger.info(f"[PORTFOLIO] Will close {ticker}: AI changed from SELL_SHORT to BUY")
             # If ticker NOT in signals, that means HOLD - do nothing
         
         # Close positions
@@ -159,11 +163,11 @@ class PortfolioManager:
             action_col = 'action' if 'action' in signals_df.columns else 'Action'
             price_col = 'price' if 'price' in signals_df.columns else 'Price'
             
-            # CRITICAL FIX: Only add BUY signals as new positions
+            # CRITICAL FIX: Only add BUY and SELL_SHORT signals as new positions
             # SELL signals should only close existing positions, never create new ones
             new_signals = signals_df[
                 (~signals_df[ticker_col].isin(existing_tickers)) & 
-                (signals_df[action_col].str.upper() == 'BUY')
+                (signals_df[action_col].str.upper().isin(['BUY', 'SELL_SHORT']))
             ]
             
             # Add top N new BUY positions
@@ -171,12 +175,18 @@ class PortfolioManager:
             
             for _, signal in new_positions.iterrows():
                 entry_price = signal[price_col]
-                quantity = int(self.position_size_usd / entry_price)
+                action = signal[action_col].upper()
+                
+                # For short positions, quantity is negative (shares sold)
+                if action == 'SELL_SHORT':
+                    quantity = -int(self.position_size_usd / entry_price)
+                else:
+                    quantity = int(self.position_size_usd / entry_price)
                 
                 new_position = pd.DataFrame({
                     'Date': [current_date],
                     'Ticker': [signal[ticker_col].upper()],  # Normalize to uppercase
-                    'Action': [signal[action_col].upper()],  # Normalize to uppercase
+                    'Action': [action],  # Normalize to uppercase
                     'EntryPrice': [entry_price],
                     'CurrentPrice': [entry_price],
                     'Quantity': [quantity],
@@ -270,8 +280,12 @@ class PortfolioManager:
     def _calculate_pnl_pct(self, action: str, entry_price: float, current_price: float) -> float:
         """Calculate P&L percentage"""
         if action == 'BUY':
+            # Long position: profit when price goes up
             return ((current_price - entry_price) / entry_price) * 100
-        else:  # SELL (short position)
+        elif action == 'SELL_SHORT':
+            # Short position: profit when price goes down
+            return ((entry_price - current_price) / entry_price) * 100
+        else:  # Legacy SELL (close position)
             return ((entry_price - current_price) / entry_price) * 100
     
     def _calculate_pnl_usd(self, action: str, entry_price: float, current_price: float, quantity: int) -> float:

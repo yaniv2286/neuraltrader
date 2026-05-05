@@ -318,6 +318,9 @@ class IBKRExecutionEngine:
             return {'success': False, 'reason': f'Invalid quantity: {quantity}'}
 
         action = side.upper()
+        # Map SELL_SHORT to SELL for IBKR (IBKR uses SELL for both)
+        if action == 'SELL_SHORT':
+            action = 'SELL'
         if action not in ('BUY', 'SELL'):
             return {'success': False, 'reason': f'Invalid side: {side}'}
 
@@ -363,6 +366,9 @@ class IBKRExecutionEngine:
             return {'success': False, 'reason': f'Invalid quantity: {quantity}'}
 
         action = side.upper()
+        # Map SELL_SHORT to SELL for IBKR (IBKR uses SELL for both)
+        if action == 'SELL_SHORT':
+            action = 'SELL'
         if action not in ('BUY', 'SELL'):
             return {'success': False, 'reason': f'Invalid side: {side}'}
 
