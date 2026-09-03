@@ -213,6 +213,14 @@ class MockVirtualEngine:
 
         self.MAX_POSITIONS = 20  # Phase 16: 20 concurrent long positions
 
+        # Phase 18: Realistic trading friction (paper fills now match live economics)
+        self.SLIPPAGE_PCT         = 0.0005   # 5 bps adverse fill per side
+        self.COMMISSION_PER_SHARE = 0.0035   # IBKR tiered pricing
+        self.COMMISSION_MIN       = 0.35     # IBKR minimum per order
+
+        # Phase 18: TIMEOUT exits deferred until AI signals are known (churn fix)
+        self.pending_timeout_exits = []
+
         # IBKR engine not used in paper mode (AI-only trading with Tiingo data)
         self.ibkr_engine = None  # Disabled for paper trading
 
@@ -255,18 +263,22 @@ class MockVirtualEngine:
                         for ticker, pos_data in portfolio_data['positions'].items():
                             # Handle both old and new formats
                             if 'shares' in pos_data:
-                                # New format - already correct
+                                # New format - preserve ALL fields including entry_date and peak_price
                                 converted_positions[ticker] = {
                                     'shares': pos_data.get('shares', 0),
                                     'cost_basis': pos_data.get('cost_basis', 0),
-                                    'current_price': pos_data.get('current_price', 0)
+                                    'current_price': pos_data.get('current_price', 0),
+                                    'peak_price': pos_data.get('peak_price', pos_data.get('current_price', 0)),
+                                    'entry_date': pos_data.get('entry_date', None)
                                 }
                             else:
                                 # Old format - convert from quantity/avg_cost/last_price
                                 converted_positions[ticker] = {
                                     'shares': pos_data.get('quantity', 0),
                                     'cost_basis': pos_data.get('avg_cost', 0),
-                                    'current_price': pos_data.get('last_price', 0)
+                                    'current_price': pos_data.get('last_price', 0),
+                                    'peak_price': pos_data.get('last_price', 0),
+                                    'entry_date': None
                                 }
                         
                         self.portfolio['positions'] = converted_positions
@@ -290,8 +302,23 @@ class MockVirtualEngine:
                         self.portfolio['circuit_breaker_cooldown_until'] = None
                         
         except Exception as e:
-            self.logger.warning(f"[MOCK] Could not load portfolio data: {e}")
-            self.logger.info("[MOCK] Using default portfolio structure")
+            self.logger.critical(f"[MOCK] [CRITICAL] Portfolio file corrupted or missing: {e}")
+            import traceback
+            self.logger.critical(traceback.format_exc())
+            # DRAWDOWN AMNESIA PROTECTION: Try to recover peak from trade history
+            recovered_peak = 100000.0
+            try:
+                history = self.portfolio.get('history', [])
+                if history:
+                    for trade in history:
+                        pv = trade.get('portfolio_value', 0)
+                        if pv > recovered_peak:
+                            recovered_peak = pv
+                    self.logger.warning(f"[MOCK] Recovered peak from history: ${recovered_peak:,.2f}")
+            except Exception:
+                pass
+            self.portfolio['peak_portfolio_value'] = recovered_peak
+            self.logger.warning(f"[MOCK] Using recovered peak: ${recovered_peak:,.2f} (NOT default $100K blindly)")
     
     def save_portfolio(self):
         """Save portfolio data to the mode-specific file."""
@@ -299,6 +326,14 @@ class MockVirtualEngine:
             os.makedirs(os.path.dirname(self.portfolio_file), exist_ok=True)
             self.portfolio['mode'] = self.mode
             self.portfolio['last_saved'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # Phase 18 fix: keep peak_portfolio_value current on every save (Rule 2.1 depends on it)
+            total_value = self.portfolio.get('cash', 0.0)
+            for _pos in self.portfolio.get('positions', {}).values():
+                total_value += _pos.get('shares', 0) * _pos.get('current_price', 0)
+            prev_peak = self.portfolio.get('peak_portfolio_value', 100000.0)
+            if total_value > prev_peak:
+                self.portfolio['peak_portfolio_value'] = total_value
+                self.logger.info(f"[PORTFOLIO] New peak portfolio value: ${total_value:,.2f}")
             with open(self.portfolio_file, 'w') as f:
                 json.dump(self.portfolio, f, indent=2, default=str)
             self.logger.info(f"[PORTFOLIO] Saved | mode={self.mode} | {self.portfolio_file}")
@@ -429,11 +464,13 @@ class MockVirtualEngine:
                     failed_tickers.append(ticker)
                     continue
                 
-                # Update position with REAL market price
+                # Update position with REAL market price (preserve all fields)
                 updated_positions[ticker] = {
                     'shares': pos_data.get('shares', 0),
                     'cost_basis': pos_data.get('cost_basis', 0),
-                    'current_price': current_price
+                    'current_price': current_price,
+                    'peak_price': max(current_price, pos_data.get('peak_price', current_price)),
+                    'entry_date': pos_data.get('entry_date', None)
                 }
                 self.logger.info(f"[PRICE SYNC] [OK] {ticker}: ${current_price:.2f} (real Tiingo data)")
                 
@@ -487,9 +524,11 @@ class MockVirtualEngine:
             }
     
     def _execute_buy(self, ticker, quantity, price, reason, timestamp):
-        """Execute a buy trade"""
+        """Execute a buy trade (Phase 18: fills include slippage + commission)"""
         try:
-            cost = quantity * price
+            fill_price = round(price * (1 + self.SLIPPAGE_PCT), 4)
+            commission = round(max(self.COMMISSION_MIN, self.COMMISSION_PER_SHARE * quantity), 2)
+            cost = quantity * fill_price + commission
             current_cash = self.portfolio.get('cash', 0)
             
             # Check if enough cash
@@ -515,7 +554,7 @@ class MockVirtualEngine:
                 existing_shares = existing.get('shares', 0)
                 existing_cost = existing.get('cost_basis', 0)
                 
-                # Calculate new average cost basis
+                # Calculate new average cost basis (all-in: fill price + commission)
                 total_shares = existing_shares + quantity
                 total_cost = (existing_cost * existing_shares) + cost
                 new_cost_basis = total_cost / total_shares
@@ -523,23 +562,23 @@ class MockVirtualEngine:
                 self.portfolio['positions'][ticker] = {
                     'shares': total_shares,
                     'cost_basis': new_cost_basis,
-                    'current_price': price,
-                    'peak_price': max(price, existing.get('peak_price', price)),
+                    'current_price': fill_price,
+                    'peak_price': max(fill_price, existing.get('peak_price', fill_price)),
                     'entry_date': existing.get('entry_date', datetime.now().strftime('%Y-%m-%d'))
                 }
                 
                 self.logger.info(f"[MOCK] Updated {ticker} position: {existing_shares} -> {total_shares} shares @ ${new_cost_basis:.2f} avg")
             else:
-                # New position
+                # New position (cost basis is all-in: fill price + commission per share)
                 self.portfolio['positions'][ticker] = {
                     'shares': quantity,
-                    'cost_basis': price,
-                    'current_price': price,
-                    'peak_price': price,
+                    'cost_basis': cost / quantity,
+                    'current_price': fill_price,
+                    'peak_price': fill_price,
                     'entry_date': datetime.now().strftime('%Y-%m-%d')
                 }
                 
-                self.logger.info(f"[MOCK] Added new {ticker} position: {quantity} shares @ ${price:.2f}")
+                self.logger.info(f"[MOCK] Added new {ticker} position: {quantity} shares @ ${fill_price:.2f} (fill incl. slippage)")
             
             # Add to history
             trade_record = {
@@ -547,7 +586,9 @@ class MockVirtualEngine:
                 'ticker': ticker,
                 'action': 'buy',
                 'quantity': quantity,
-                'price': price,
+                'price': fill_price,
+                'quote_price': price,
+                'commission': commission,
                 'cost': cost,
                 'reason': reason,
                 'cash_before': current_cash,
@@ -558,7 +599,7 @@ class MockVirtualEngine:
             # Save portfolio
             self.save_portfolio()
             
-            self.logger.info(f"[MOCK] BUY executed: {quantity} shares of {ticker} @ ${price:.2f} (${cost:.2f})")
+            self.logger.info(f"[MOCK] BUY executed: {quantity} shares of {ticker} @ ${fill_price:.2f} fill (${cost:.2f} incl. ${commission:.2f} comm)")
             
             return {
                 'success': True,
@@ -613,8 +654,10 @@ class MockVirtualEngine:
                     'price': price
                 }
             
-            # Calculate proceeds
-            proceeds = quantity * price
+            # Calculate proceeds (Phase 18: fills include slippage + commission)
+            fill_price = round(price * (1 - self.SLIPPAGE_PCT), 4)
+            commission = round(max(self.COMMISSION_MIN, self.COMMISSION_PER_SHARE * quantity), 2)
+            proceeds = quantity * fill_price - commission
             current_cash = self.portfolio.get('cash', 0)
             
             # Add cash
@@ -623,11 +666,13 @@ class MockVirtualEngine:
             # Update or remove position
             remaining_shares = current_shares - quantity
             if remaining_shares > 0:
-                # Update position with remaining shares
+                # Update position with remaining shares (preserve peak_price / entry_date)
                 self.portfolio['positions'][ticker] = {
                     'shares': remaining_shares,
                     'cost_basis': position.get('cost_basis', price),
-                    'current_price': price
+                    'current_price': fill_price,
+                    'peak_price': position.get('peak_price', fill_price),
+                    'entry_date': position.get('entry_date', None)
                 }
                 
                 self.logger.info(f"[MOCK] Updated {ticker} position: {current_shares} -> {remaining_shares} shares")
@@ -642,7 +687,9 @@ class MockVirtualEngine:
                 'ticker': ticker,
                 'action': 'sell',
                 'quantity': quantity,
-                'price': price,
+                'price': fill_price,
+                'quote_price': price,
+                'commission': commission,
                 'proceeds': proceeds,
                 'reason': reason,
                 'cash_before': current_cash,
@@ -653,7 +700,7 @@ class MockVirtualEngine:
             # Save portfolio
             self.save_portfolio()
             
-            self.logger.info(f"[MOCK] SELL executed: {quantity} shares of {ticker} @ ${price:.2f} (${proceeds:.2f})")
+            self.logger.info(f"[MOCK] SELL executed: {quantity} shares of {ticker} @ ${fill_price:.2f} fill (${proceeds:.2f} net of ${commission:.2f} comm)")
             
             return {
                 'success': True,
@@ -677,13 +724,21 @@ class MockVirtualEngine:
                 'price': price
             }
     
-    def check_and_execute_exits(self, trading_strategy):
+    def check_and_execute_exits(self, trading_strategy, defer_timeout=False):
         """
         Phase 16 Exit Management: Check all positions for exit conditions daily.
         Exit hierarchy: Stop-Loss (4%) > Trailing Stop (1.2%) > Take-Profit (20%) > Timeout (5d)
+
+        Phase 18 (churn fix): when defer_timeout=True, TIMEOUT exits are NOT sold
+        immediately. They are queued in self.pending_timeout_exits and resolved by
+        resolve_deferred_timeouts() once today's AI buy list is known — a position
+        the AI still ranks as a buy is held instead of being sold and re-bought
+        (which burned commissions + slippage on 148 zero-PnL round-trips).
         """
         import pandas as pd
         from datetime import datetime
+        
+        self.pending_timeout_exits = []
         
         if not self.portfolio['positions']:
             self.logger.info("[EXITS] No positions to check")
@@ -743,6 +798,10 @@ class MockVirtualEngine:
                 if exit_result.get('should_exit', False):
                     reason = exit_result.get('reason', 'UNKNOWN')
                     pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0
+                    if defer_timeout and reason == 'TIMEOUT':
+                        self.logger.info(f"[TIMEOUT-DEFER] {ticker}: decision deferred until AI signals known | PnL: {pnl_pct:.1%} | Days: {hold_days}")
+                        self.pending_timeout_exits.append((ticker, shares, current_price))
+                        continue
                     self.logger.info(f"[EXIT] {ticker}: {reason} | Entry: ${entry_price:.2f} -> ${current_price:.2f} | PnL: {pnl_pct:.1%} | Days: {hold_days}")
                     positions_to_close.append((ticker, shares, current_price, reason))
                 else:
@@ -768,6 +827,38 @@ class MockVirtualEngine:
         else:
             self.logger.info(f"[EXITS] No exits triggered for {len(self.portfolio['positions'])} positions")
         
+        return exits_executed
+
+    def resolve_deferred_timeouts(self, wanted_tickers):
+        """
+        Phase 18 (churn fix): resolve TIMEOUT exits deferred by check_and_execute_exits.
+
+        wanted_tickers: set of tickers the AI ranks as buys TODAY (post regime filter).
+        A timed-out position still on that list is HELD (no sell-and-rebuy churn);
+        everything else is sold with the normal 'EXIT: TIMEOUT' reason.
+        Stop-loss / trailing-stop / take-profit still fire first in
+        check_and_execute_exits — this only affects the TIMEOUT rule.
+        """
+        exits_executed = []
+        pending = getattr(self, 'pending_timeout_exits', [])
+        if not pending:
+            return exits_executed
+        
+        wanted = {str(t).upper() for t in (wanted_tickers or set())}
+        for ticker, shares, price in pending:
+            if ticker.upper() in wanted:
+                self.logger.info(f"[HOLD-THRU] {ticker}: timed out but AI still ranks it as a buy — holding (churn fix)")
+                continue
+            result = self.execute_trade(ticker, 'sell', shares, price, 'EXIT: TIMEOUT')
+            if result.get('success'):
+                exits_executed.append({'ticker': ticker, 'shares': shares, 'price': price, 'reason': 'TIMEOUT'})
+                self.logger.info(f"[EXIT] Sold {shares} {ticker} @ ${price:.2f} (TIMEOUT — no longer AI-ranked)")
+            else:
+                self.logger.error(f"[EXIT] Failed to sell {ticker}: {result.get('error')}")
+        
+        self.pending_timeout_exits = []
+        if exits_executed:
+            self.logger.info(f"[EXITS] Resolved deferred timeouts: {len(exits_executed)} sold, {len(pending) - len(exits_executed)} held")
         return exits_executed
 
     def get_account_info(self):
@@ -952,12 +1043,33 @@ class MockVirtualEngine:
                         current_avg_score = sum(current_scores) / len(current_scores)
                         self.logger.info(f"[HYSTERESIS] Current holdings avg score: {current_avg_score:.3f}")
                 
+                # Build cooldown set: tickers stopped out recently cannot be re-entered
+                COOLDOWN_DAYS = 0  # Phase 16 v11: Cooldown DISABLED (matches backtest)
+                from datetime import datetime as _dt, timedelta
+                cooldown_cutoff = _dt.now() - timedelta(days=COOLDOWN_DAYS)
+                cooled_tickers = set()
+                for hist_trade in self.portfolio.get('history', []):
+                    if 'STOP_LOSS' in hist_trade.get('reason', ''):
+                        try:
+                            trade_time = _dt.fromisoformat(hist_trade['timestamp'])
+                            if trade_time > cooldown_cutoff:
+                                cooled_tickers.add(hist_trade['ticker'])
+                        except (ValueError, KeyError):
+                            pass
+                if cooled_tickers:
+                    self.logger.info(f"[COOLDOWN] Blocked tickers (stopped out <{COOLDOWN_DAYS}d ago): {sorted(cooled_tickers)}")
+                
                 # Execute buy signals with inverse volatility sizing
                 for signal in buy_signals:
                     ticker = signal['ticker']
                     price = signal['price']
                     reason = signal['reason']
                     ai_score = signal.get('ai_score', 0.5)  # Default score if not provided
+                    
+                    # Cooldown Rule: Skip tickers recently stopped out
+                    if ticker in cooled_tickers:
+                        self.logger.info(f"[COOLDOWN] Skipping {ticker} — stopped out within {COOLDOWN_DAYS} days")
+                        continue
                     
                     # Hysteresis Rule: Check if we need to swap positions
                     if current_positions >= max_positions:
@@ -1020,6 +1132,9 @@ class MockVirtualEngine:
         self.logger.info(f"[SIGNALS] Starting signal generation process...")
         
         try:
+            import pandas as pd
+            import numpy as np
+            
             # 🚀 PHASE 13: Detect market regime for adaptive thresholds
             from core.regime_detector import RegimeDetector
             regime_detector = RegimeDetector()
@@ -1097,8 +1212,23 @@ class MockVirtualEngine:
             all_signals = []
             held_position_signals = []  # Track signals for held positions separately
             
+            # Suppress sklearn feature-name warnings during scan (saves 4,368 string-format calls)
+            import warnings
+            warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')
+            
             # Process each ticker through AI model (held positions first)
-            for ticker in ordered_universe:
+            try:
+                import psutil
+                _process = psutil.Process()
+            except ImportError:
+                _process = None
+            
+            for _ticker_idx, ticker in enumerate(ordered_universe):
+                # HEARTBEAT: Log progress + RSS every 100 tickers
+                if _ticker_idx > 0 and _ticker_idx % 100 == 0:
+                    rss_mb = _process.memory_info().rss / (1024 * 1024) if _process else 0
+                    self.logger.info(f"[HEARTBEAT] Processed {_ticker_idx}/{len(ordered_universe)} | Memory Usage: {rss_mb:.0f}MB")
+                
                 try:
                     # Fetch latest market data from fresh parquet (not stale CSV cache)
                     ticker_data = _load_parquet(ticker)
@@ -1107,9 +1237,12 @@ class MockVirtualEngine:
                         self.logger.debug(f"[SIGNALS] Insufficient data for {ticker}, skipping")
                         continue
                     
-                    # Generate AI signal using the real trading strategy
-                    from core.ai_models import get_ensemble_signal
-                    signal, confidence, details = get_ensemble_signal(ticker_data)
+                    # Truncate to last 300 bars — feature engineering only needs ~252 (200d SMA + buffer)
+                    if len(ticker_data) > 300:
+                        ticker_data = ticker_data.iloc[-300:]
+                    
+                    # Generate AI signal using pre-loaded ensemble (RAM-cached, no per-ticker disk I/O)
+                    signal, confidence, details = self.ai_model.predict_from_ohlcv(ticker_data)
                     
                     # Phase 13: Apply regime-based threshold filtering
                     current_price = float(ticker_data['close'].iloc[-1])
@@ -1885,6 +2018,8 @@ This is an automated message from NeuralTrader Paper Trading System.
                     ibkr_engine=self.ibkr_engine,
                     mode=engine_mode,
                 )
+                # RAM-Cache: inject pre-loaded AI model to avoid per-ticker disk I/O
+                self.virtual_engine.ai_model = self.ai_model
                 self.logger.info(f"[PORTFOLIO] VirtualEngine using portfolio file for mode={engine_mode}")
             
             # Initialize IST Scheduler
@@ -2078,9 +2213,10 @@ This is an automated message from NeuralTrader Paper Trading System.
                 self.logger.info("[PAPER] Bypassing market hours check - paper trading mode")
             
             # Phase 16: Check exits for all existing positions FIRST (daily)
+            # Phase 18: TIMEOUT exits are deferred until AI signals are known (churn fix)
             self.logger.info("[P16] Checking exit conditions for existing positions...")
             try:
-                exits = self.virtual_engine.check_and_execute_exits(self.trading_strategy)
+                exits = self.virtual_engine.check_and_execute_exits(self.trading_strategy, defer_timeout=True)
                 if exits:
                     self.logger.info(f"[P16] Exited {len(exits)} positions: {[e['ticker'] for e in exits]}")
                 else:
@@ -2090,20 +2226,31 @@ This is an automated message from NeuralTrader Paper Trading System.
                 import traceback
                 self.logger.error(traceback.format_exc())
             
-            # Phase 16: Weekly rebalance gate — new entries only on Monday
-            from datetime import date
-            today_weekday = date.today().weekday()  # 0=Monday
-            rebalance_day = getattr(self.trading_strategy, 'REBALANCE_DAY', 0)
-            if today_weekday != rebalance_day:
-                self.logger.info(f"[P16] Not rebalance day (today={today_weekday}, rebalance={rebalance_day}) — exits done, skipping new entries")
-                # Still save portfolio after exits
-                self.virtual_engine.save_portfolio()
-                session_end = datetime.now()
-                duration = session_end - session_start
-                self.logger.info(f"[OK] TRADE MODE completed in {duration.total_seconds():.2f} seconds (exit-only day)")
-                return True
+            # Phase 16: AI-Driven Trading — rebalance day restriction DISABLED
+            # AI decides entries/exits every trading day
+            rebalance_day = getattr(self.trading_strategy, 'REBALANCE_DAY', None)
+            force_scan = getattr(self, 'force_scan', False)
             
-            self.logger.info("[P16] REBALANCE DAY — scanning for new entry opportunities...")
+            if rebalance_day is not None:
+                # Legacy mode - only for backward compatibility
+                from datetime import date
+                today_weekday = date.today().weekday()  # 0=Monday
+                if today_weekday != rebalance_day and not force_scan:
+                    self.logger.info(f"[P16] Not rebalance day (today={today_weekday}, rebalance={rebalance_day}) — exits done, skipping new entries")
+                    # No AI scan today — resolve deferred timeouts as normal sells
+                    self.virtual_engine.resolve_deferred_timeouts(set())
+                    # Still save portfolio after exits
+                    self.virtual_engine.save_portfolio()
+                    session_end = datetime.now()
+                    duration = session_end - session_start
+                    self.logger.info(f"[OK] TRADE MODE completed in {duration.total_seconds():.2f} seconds (exit-only day)")
+                    return True
+                if force_scan and today_weekday != rebalance_day:
+                    self.logger.info(f"[FORCE-SCAN] Overriding rebalance day gate (today={today_weekday}) — full signal scan requested")
+            else:
+                self.logger.info("[P16] AI-DRIVEN TRADING — rebalance day restriction DISABLED")
+            
+            self.logger.info("[P16] AI-DRIVEN TRADING — scanning for new entry opportunities...")
             
             # Generate trading signals using new AI-driven method with held position evaluation
             self.logger.info("[TRADING] Generating AI trading signals with held position evaluation...")
@@ -2118,6 +2265,7 @@ This is an automated message from NeuralTrader Paper Trading System.
                     regime_detector = RegimeDetector()
                     
                     # Load SPY and VXX data from fresh parquets
+                    import pandas as pd
                     raw_dir = Path(PROJECT_ROOT) / 'data' / 'raw'
                     spy_pq = raw_dir / 'SPY.parquet'
                     vxx_pq = raw_dir / 'VXX.parquet'
@@ -2165,95 +2313,143 @@ This is an automated message from NeuralTrader Paper Trading System.
                         self.logger.warning(f"[REGIME] CRISIS regime - blocked {filtered_count} BUY signals")
                 
                 self.logger.info(f"[SIGNALS] {len(signals)} AI signals after regime filtering")
-                
-                # Convert signals to DataFrame for portfolio manager
+
+                # Phase 18 (churn fix): resolve deferred TIMEOUT exits using AI signal set
+                # A timeout position the AI still ranks above threshold is HELD, not churned.
+                wanted_tickers = {s['ticker'].upper() for s in signals if s.get('action') == 'buy'}
+                resolved = self.virtual_engine.resolve_deferred_timeouts(wanted_tickers)
+                if resolved:
+                    self.logger.info(f"[P18] Resolved deferred timeouts: {len(resolved)} sold, {len(wanted_tickers)} AI buy candidates used for hold-through filter")
+
+                # Re-sync positions in case any timeouts were sold
+                current_positions = set(self.virtual_engine.portfolio.get('positions', {}).keys())
+
+                # PHASE 17: Direct VirtualEngine entry execution (single source of truth)
+                # PortfolioManager CSV sync REMOVED — it was resurrecting stopped-out positions
+                # and resetting cash to $100K every rebalance, erasing all realized losses.
+                # Now entries go through execute_trade() → portfolio_paper.json (same as exits).
                 import pandas as pd
-                if signals:
-                    signals_df = pd.DataFrame(signals)
+                buy_signals = [s for s in signals if s.get('action') == 'buy']
+                sell_signals = [s for s in signals if s.get('action') != 'buy']
+                
+                if buy_signals:
+                    # Current portfolio state (from portfolio_paper.json — the ONLY source of truth)
+                    max_positions = getattr(self.trading_strategy, 'MAX_POSITIONS', 20)
+                    available_slots = max_positions - len(current_positions)
+                    available_cash = self.virtual_engine.portfolio.get('cash', 0)
+                    position_size = getattr(self.trading_strategy, 'BASE_POSITION_PCT', 0.05)
+                    portfolio_value = self.virtual_engine.get_account_info().get('portfolio_value', 100000)
+                    target_alloc = portfolio_value * position_size  # ~$5K per position
                     
-                    # Rename columns to match portfolio_manager expectations (uppercase)
-                    signals_df = signals_df.rename(columns={
-                        'ticker': 'Ticker',
-                        'action': 'Action',
-                        'price': 'Price'
-                    })
+                    self.logger.info(f"[ENTRIES] Slots: {available_slots} open | Cash: ${available_cash:,.2f} | Target alloc: ${target_alloc:,.0f}")
                     
-                    # Use portfolio_manager to handle signal execution
-                    # This will properly evaluate held positions and execute trades
-                    from core.portfolio_manager import PortfolioManager
-                    project_root = Path(__file__).resolve().parent
-                    portfolio_manager = PortfolioManager(project_root)
+                    # Phase 18 (churn fix): recalc available_slots AFTER deferred timeouts resolved
+                    available_slots = max_positions - len(current_positions)
+
+                    # Build cooldown set: tickers stopped out recently cannot be re-entered
+                    COOLDOWN_DAYS = 0  # Phase 16 v11: Cooldown DISABLED (matches backtest)
+                    from datetime import timedelta
+                    cooldown_cutoff = datetime.now() - timedelta(days=COOLDOWN_DAYS)
+                    cooled_tickers = set()
+                    for hist_trade in self.virtual_engine.portfolio.get('history', []):
+                        if 'STOP_LOSS' in hist_trade.get('reason', ''):
+                            try:
+                                trade_time = datetime.fromisoformat(hist_trade['timestamp'])
+                                if trade_time > cooldown_cutoff:
+                                    cooled_tickers.add(hist_trade['ticker'])
+                            except (ValueError, KeyError):
+                                pass
+                    if cooled_tickers:
+                        self.logger.info(f"[COOLDOWN] Blocked tickers (stopped out <{COOLDOWN_DAYS}d ago): {sorted(cooled_tickers)}")
                     
-                    # Update portfolio with signals (handles BUY/SELL logic correctly)
-                    updated_portfolio = portfolio_manager.update_portfolio(signals_df)
+                    # Filter: only new tickers, not on cooldown, sorted by AI score
+                    eligible = [
+                        s for s in buy_signals
+                        if s['ticker'].upper() not in current_positions
+                        and s['ticker'].upper() not in cooled_tickers
+                    ]
+                    eligible.sort(key=lambda s: s.get('ai_score', s.get('confidence', 0)), reverse=True)
                     
-                    self.logger.info(f"[PORTFOLIO] Portfolio updated with {len(updated_portfolio)} positions")
+                    skipped_held = len([s for s in buy_signals if s['ticker'].upper() in current_positions])
+                    skipped_cool = len([s for s in buy_signals if s['ticker'].upper() in cooled_tickers and s['ticker'].upper() not in current_positions])
+                    self.logger.info(f"[ENTRIES] {len(buy_signals)} BUY signals | {skipped_held} already held | {skipped_cool} on cooldown | {len(eligible)} eligible")
                     
-                    # CRITICAL: Sync PortfolioManager positions to VirtualEngine portfolio_paper.json
-                    # PortfolioManager saves to portfolio.csv, but VirtualEngine uses portfolio_paper.json
-                    # We need to sync them so positions persist across runs
-                    active_positions = updated_portfolio[updated_portfolio['Status'] == 'ACTIVE']
-                    if len(active_positions) > 0:
-                        # Convert PortfolioManager positions to VirtualEngine format
-                        synced_positions = {}
-                        total_invested = 0.0
-                        for _, row in active_positions.iterrows():
-                            ticker = row['Ticker'].upper()
-                            shares = int(row['Quantity'])
-                            entry_price = float(row['EntryPrice'])
-                            current_price = float(row['CurrentPrice'])
-                            entry_date = str(row.get('EntryDate', datetime.now().strftime('%Y-%m-%d')))
-                            
-                            synced_positions[ticker] = {
-                                'shares': shares,
-                                'cost_basis': entry_price,
-                                'current_price': current_price,
-                                'peak_price': max(entry_price, current_price),
-                                'entry_date': entry_date
-                            }
-                            total_invested += shares * entry_price
+                    # Execute entries up to available slots and cash
+                    entries_executed = 0
+                    for signal in eligible[:available_slots]:
+                        ticker = signal['ticker'].upper()
+                        price = signal['price']
+                        ai_score = signal.get('ai_score', signal.get('confidence', 0))
                         
-                        # Phase 16: Properly deduct cash for invested positions
-                        initial_cash = self.virtual_engine.portfolio.get('peak_portfolio_value', 100000.0)
-                        remaining_cash = max(0, initial_cash - total_invested)
+                        if available_cash < target_alloc * 0.5:
+                            self.logger.info(f"[ENTRIES] Insufficient cash (${available_cash:,.2f}) — stopping entries")
+                            break
                         
-                        self.virtual_engine.portfolio['positions'] = synced_positions
-                        self.virtual_engine.portfolio['cash'] = remaining_cash
-                        self.virtual_engine.save_portfolio()
-                        self.logger.info(f"[SYNC] Synced {len(synced_positions)} positions | Invested: ${total_invested:,.2f} | Cash: ${remaining_cash:,.2f}")
+                        # Phase 18: size needs to cover fill slippage + commission
+                        alloc = min(target_alloc, available_cash)
+                        slip_alloc = alloc / (1 + self.virtual_engine.SLIPPAGE_PCT)
+                        quantity = int(slip_alloc / price)
+                        if quantity < 1:
+                            continue
+                        
+                        result = self.virtual_engine.execute_trade(
+                            ticker, 'buy', quantity, price,
+                            f'ENTRY: AI score {ai_score:.3f} (regime: {regime_name})'
+                        )
+                        
+                        if result.get('success'):
+                            entries_executed += 1
+                            available_cash = self.virtual_engine.portfolio.get('cash', 0)
+                            self.logger.info(f"[ENTRY] BUY {quantity} {ticker} @ ${price:.2f} | AI: {ai_score:.3f} | Cash left: ${available_cash:,.2f}")
+                        else:
+                            self.logger.warning(f"[ENTRY] Failed {ticker}: {result.get('error')}")
                     
-                    # Count trades by comparing before/after
-                    buy_signals = [s for s in signals if s['action'] == 'buy']
-                    sell_signals = [s for s in signals if s['action'] == 'sell']
+                    self.logger.info(f"[ENTRIES] Executed {entries_executed} new entries")
                     
-                    # Store signals and portfolio data for email report
-                    global EMAIL_BUY_SIGNALS, EMAIL_SELL_SIGNALS, EMAIL_PORTFOLIO_DATA
-                    EMAIL_BUY_SIGNALS = buy_signals
-                    EMAIL_SELL_SIGNALS = sell_signals
-                    EMAIL_PORTFOLIO_DATA = {
-                        'active_positions': active_positions,
-                        'portfolio_value': self.virtual_engine.get_account_info().get('portfolio_value', 0),
-                        'cash': self.virtual_engine.portfolio.get('cash', 0),
-                        'total_pnl': sum(active_positions['PnL_USD']) if len(active_positions) > 0 else 0
-                    }
-                    
-                    self.logger.info(f"[OK] Signal processing completed")
-                    self.logger.info(f"[SUMMARY] Session Results:")
-                    self.logger.info(f"  Total Signals: {len(signals)}")
-                    self.logger.info(f"  Buy Signals: {len(buy_signals)}")
-                    self.logger.info(f"  Sell Signals: {len(sell_signals)}")
-                    self.logger.info(f"  Portfolio Positions: {len(updated_portfolio[updated_portfolio['Status'] == 'ACTIVE'])}")
-                else:
-                    self.logger.info("[SIGNALS] No signals generated")
-                    self.logger.info(f"[SUMMARY] Session Results:")
-                    self.logger.info(f"  Total Signals: 0")
-                    self.logger.info(f"  Buy Signals: 0")
-                    self.logger.info(f"  Sell Signals: 0")
+                    # Export TradingView CSV for monitoring
+                    try:
+                        positions = self.virtual_engine.portfolio.get('positions', {})
+                        tv_rows = []
+                        for t, p in positions.items():
+                            pnl_pct = (p['current_price'] / p['cost_basis'] - 1) * 100 if p['cost_basis'] > 0 else 0
+                            tv_rows.append({'Ticker': t, 'Action': 'BUY', 'Price': p['current_price'], 'PnL_Pct': round(pnl_pct, 2), 'Status': 'HOLDING'})
+                        tv_df = pd.DataFrame(tv_rows).sort_values('PnL_Pct', ascending=False) if tv_rows else pd.DataFrame()
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        tv_file = Path(PROJECT_ROOT) / 'reports' / f'portfolio_tradingview_{timestamp}.csv'
+                        tv_df.to_csv(tv_file, index=False)
+                        self.logger.info(f"[PORTFOLIO] Exported {len(tv_rows)} positions to TradingView: {tv_file}")
+                    except Exception as tv_err:
+                        self.logger.warning(f"[PORTFOLIO] TradingView export failed: {tv_err}")
+                
+                # Save portfolio (single source of truth)
+                self.virtual_engine.save_portfolio()
+                
+                # Store signals for email report
+                global EMAIL_BUY_SIGNALS, EMAIL_SELL_SIGNALS, EMAIL_PORTFOLIO_DATA
+                EMAIL_BUY_SIGNALS = buy_signals
+                EMAIL_SELL_SIGNALS = sell_signals
+                acct = self.virtual_engine.get_account_info()
+                EMAIL_PORTFOLIO_DATA = {
+                    'portfolio_value': acct.get('portfolio_value', 0),
+                    'cash': self.virtual_engine.portfolio.get('cash', 0),
+                    'positions_count': len(self.virtual_engine.portfolio.get('positions', {}))
+                }
+                
+                n_pos = len(self.virtual_engine.portfolio.get('positions', {}))
+                self.logger.info(f"[OK] Signal processing completed")
+                self.logger.info(f"[SUMMARY] Session Results:")
+                self.logger.info(f"  Total Signals: {len(signals)}")
+                self.logger.info(f"  Buy Signals: {len(buy_signals)}")
+                self.logger.info(f"  Sell Signals: {len(sell_signals)}")
+                self.logger.info(f"  Portfolio Positions: {n_pos}")
                     
             except Exception as e:
                 self.logger.error(f"[ERROR] Signal generation failed: {e}")
                 import traceback
                 self.logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
+                # If signals fail, sell all deferred timeouts rather than leave them in limbo
+                self.virtual_engine.resolve_deferred_timeouts(set())
+                self.virtual_engine.save_portfolio()
                 return False
             
             # CRITICAL FIX: Do NOT call update_portfolio_values() here
@@ -2778,12 +2974,14 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
         parser.add_argument('--data-fetch', action='store_true', help='Fetch market data (legacy)')
         parser.add_argument('--trading', action='store_true', help='Run trading session (legacy)')
         parser.add_argument('--report', action='store_true', help='Send daily report (legacy)')
+        parser.add_argument('--force-scan', action='store_true', help='Override rebalance day gate — run full signal scan regardless of weekday')
         
         args = parser.parse_args()
         
         # Initialize orchestrator with REAL AI and strategy objects
         # These objects have already passed integrity validation
         orchestrator = TradingOrchestrator(ai_model=real_ai, trading_strategy=real_strategy, mode=args.mode)
+        orchestrator.force_scan = getattr(args, 'force_scan', False)
         logger.info("[STARTUP] Orchestrator initialized with validated AI and strategy components")
         
         # ===== DAILY EXECUTION SEQUENCE =====

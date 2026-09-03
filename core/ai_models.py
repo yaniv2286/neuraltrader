@@ -4,8 +4,10 @@ Protected module containing all ML inference engines for trading signals
 """
 
 import os
+import sys
 import pickle
 import json
+import traceback
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -112,8 +114,8 @@ class XGBoostInference:
                 for feat in missing_features:
                     numeric_features[feat] = 0
             
-            # Select features in correct order
-            ordered_features = numeric_features[self.feature_names]
+            # Select features in correct order + float32 (OOM protection)
+            ordered_features = numeric_features[self.feature_names].astype(np.float32)
             
             return ordered_features
             
@@ -264,11 +266,11 @@ class EnsemblePredictor:
     def _load_ensemble(self):
         """Load all ensemble models and metadata - prefers 76-feature sentiment models"""
         try:
-            # Default weights
+            # Phase 13 calibrated weights (sum=1.0)
             default_weights = {
-                'xgboost': 0.35,
-                'lightgbm': 0.35,
-                'randomforest': 0.30
+                'xgboost': 0.356,
+                'lightgbm': 0.366,
+                'randomforest': 0.278
             }
 
             # --- PRIORITY 1: sentiment models (paper/live only, use_sentiment=True) ---
@@ -405,8 +407,8 @@ class EnsemblePredictor:
                 for feat in missing_features:
                     numeric_features[feat] = 0
             
-            # Select features in correct order
-            ordered_features = numeric_features[self.feature_names]
+            # Select features in correct order + float32 (OOM protection)
+            ordered_features = numeric_features[self.feature_names].astype(np.float32)
             
             return ordered_features
             
@@ -439,19 +441,22 @@ class EnsemblePredictor:
             else:
                 features_scaled = features
             
-            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Ensure features have correct column order for LightGBM\n            if self.feature_names is not None:\n                features_scaled = features_scaled[self.feature_names]\n            \n            # Get predictions from each model for all rows
+            # Cast to float32 for memory efficiency
+            features_f32 = features_scaled.astype(np.float32)
+            
+            # Get predictions from each model for all rows
             all_probs = []
             
             for model_name, model in self.models.items():
-                try:
-                    # Get probability of UP (class 1) for all rows
-                    probs = model.predict_proba(features_scaled)[:, 1]  # All rows, class 1
-                    all_probs.append(probs)
-                    
-                except Exception as e:
-                    self.logger.error(f"[ERROR] {model_name} batch prediction failed: {e}")
-                    # Add zeros for failed model
-                    all_probs.append(np.zeros(len(features)))
+                # STRICT MODEL INTEGRITY: crash if any model fails
+                probs = model.predict_proba(features_f32)[:, 1]  # All rows, class 1
+                
+                # NaN guard
+                if np.any(np.isnan(probs)):
+                    self.logger.critical(f"[FATAL] {model_name} returned NaN in batch. Aborting.")
+                    sys.exit(1)
+                
+                all_probs.append(probs)
             
             if not all_probs:
                 return np.array([])
@@ -513,48 +518,41 @@ class EnsemblePredictor:
             model_probs = {}
             
             for model_name, model in self.models.items():
-                try:
-                    # Get probability of each class
-                    probs = model.predict_proba(features_scaled)[0]
-                    n_classes = len(probs)
-                    
-                    if n_classes >= 3:
-                        # 3-class: NEUTRAL=0, LONG=1, SHORT=2
-                        prob_neutral = probs[0]
-                        prob_long = probs[1]
-                        prob_short = probs[2]
-                    elif n_classes == 2:
-                        # 2-class (binary): class 0 = not-buy, class 1 = buy
-                        prob_neutral = probs[0]
-                        prob_long = probs[1]
-                        prob_short = 0.0
-                    else:
-                        prob_neutral = 1.0
-                        prob_long = 0.0
-                        prob_short = 0.0
-                    
-                    model_probs[model_name] = {
-                        'neutral': prob_neutral,
-                        'long': prob_long,
-                        'short': prob_short
-                    }
-                    model_votes[model_name] = {
-                        'prob_neutral': float(prob_neutral),
-                        'prob_long': float(prob_long),
-                        'prob_short': float(prob_short),
-                        'weight': self.weights[model_name]
-                    }
-                    
-                except Exception as e:
-                    self.logger.error(f"[ERROR] {model_name} prediction failed: {e}")
-                    model_probs[model_name] = {'neutral': 1.0, 'long': 0.0, 'short': 0.0}  # Neutral if model fails
-                    model_votes[model_name] = {
-                        'prob_neutral': 1.0,
-                        'prob_long': 0.0,
-                        'prob_short': 0.0,
-                        'weight': self.weights[model_name],
-                        'error': str(e)
-                    }
+                # STRICT MODEL INTEGRITY: No try/except — if any model fails, we crash
+                probs = model.predict_proba(features_scaled.astype(np.float32))[0]
+                
+                # NaN guard — FATAL if model returns garbage
+                if np.any(np.isnan(probs)):
+                    self.logger.critical(f"[FATAL] {model_name} returned NaN probabilities. Aborting.")
+                    sys.exit(1)
+                
+                n_classes = len(probs)
+                
+                if n_classes >= 3:
+                    # 3-class: NEUTRAL=0, LONG=1, SHORT=2
+                    prob_neutral = float(probs[0])
+                    prob_long = float(probs[1])
+                    prob_short = float(probs[2])
+                elif n_classes == 2:
+                    # 2-class (binary): class 0 = not-buy, class 1 = buy
+                    prob_neutral = float(probs[0])
+                    prob_long = float(probs[1])
+                    prob_short = 0.0
+                else:
+                    self.logger.critical(f"[FATAL] {model_name} has {n_classes} classes (expected 2 or 3). Aborting.")
+                    sys.exit(1)
+                
+                model_probs[model_name] = {
+                    'neutral': prob_neutral,
+                    'long': prob_long,
+                    'short': prob_short
+                }
+                model_votes[model_name] = {
+                    'prob_neutral': prob_neutral,
+                    'prob_long': prob_long,
+                    'prob_short': prob_short,
+                    'weight': self.weights[model_name]
+                }
             
             # Calculate weighted averages
             weighted_prob_neutral = sum(

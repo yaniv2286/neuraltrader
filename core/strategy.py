@@ -43,8 +43,8 @@ class TradingStrategy:
         self.STOP_LOSS_MIN_PCT    = 0.04   # Fixed at 4%
         self.TRAIL_STOP_PCT       = 0.012  # 1.2% trailing stop from peak
         self.TRAIL_ACTIVATE_PCT   = 0.02   # Trailing stop activates at +2% profit
-        self.TAKE_PROFIT_PCT      = 0.20   # 20% take-profit (effectively disabled — trail handles exits)
-        self.MAX_HOLD_DAYS        = 5      # 5-day timeout — fast churn of non-performers
+        self.TAKE_PROFIT_PCT      = 0.08   # 8% take-profit — harvest winners before they reverse
+        self.MAX_HOLD_DAYS        = 5      # 5-day timeout — high-turnover weekly rotation (Phase 16 v11 backtest)
         self.MAX_RISK_PER_TRADE   = 0.008  # 0.8% portfolio risk per trade
         self.BASE_POSITION_PCT    = 0.05   # 5% base allocation per position
         self.MIN_POSITION_PCT     = 0.03   # 3% portfolio floor per position
@@ -55,7 +55,7 @@ class TradingStrategy:
         self.MIN_PRICE            = 10.0   # $10 minimum price filter
         self.MIN_AVG_VOLUME       = 500_000 # 500k minimum average volume
         self.SHORTS_ENABLED       = False  # Shorts DISABLED — 49.8% WR = net negative
-        self.REBALANCE_DAY        = 0      # Monday = 0 (weekly entry on Monday only)
+        self.REBALANCE_DAY        = None   # DISABLED - AI decides entries/exits every day
         
         # Phase 16 Regime-Adaptive Thresholds
         self.CRISIS_THRESHOLD     = None   # CRISIS: No entries allowed

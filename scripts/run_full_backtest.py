@@ -143,6 +143,12 @@ SPY_REGIME_SMA       = 100     # SPY SMA fallback threshold
 RE_ENTRY_COOLDOWN    = 5       # days to wait before re-entering a stopped-out ticker
 CONF_SIZE_POWER      = 2.0     # confidence^N multiplier on position size
 
+# Phase 18: realistic friction (overridable via CLI)
+SLIPPAGE_PCT         = 0.0005   # 5 bps adverse fill per side
+COMMISSION_PER_SHARE = 0.0035   # IBKR tiered
+COMMISSION_MIN       = 0.35     # IBKR minimum per order
+HOLD_THROUGH_TIMEOUT = True     # hold TIMEOUT positions still ranked as buys
+
 
 # ===========================================================================
 # Data loader: pre-load all parquet files into memory at startup
@@ -228,13 +234,17 @@ class UnifiedBacktest:
                  end_date: Optional[str] = None,
                  initial_cash: float = 100_000.0,
                  ticker_filter: Optional[List[str]] = None,
-                 use_cache: bool = True):
+                 use_cache: bool = True,
+                 friction: bool = True,
+                 hold_through_timeout: bool = True):
 
         self.start_date    = pd.to_datetime(start_date)
         self.end_date      = pd.to_datetime(end_date) if end_date else pd.Timestamp.today().normalize()
         self.initial_cash  = initial_cash
         self.ticker_filter = ticker_filter
         self.use_cache     = use_cache
+        self.friction      = friction
+        self.hold_through_timeout = hold_through_timeout
 
         # Portfolio state
         self.cash             = initial_cash
@@ -585,38 +595,46 @@ class UnifiedBacktest:
 
     def _buy(self, ticker: str, date: pd.Timestamp, price: float, conf: float):
         shares = self._calc_position_size(ticker, price, date, conf)
-        cost   = shares * price
-        if shares <= 0 or cost > self.cash:
+        if shares <= 0:
+            return
+        fill_price = price * (1 + SLIPPAGE_PCT) if self.friction else price
+        commission = max(COMMISSION_MIN, COMMISSION_PER_SHARE * shares) if self.friction else 0.0
+        cost = shares * fill_price + commission
+        if cost > self.cash:
             return
         atr_stop = self._calc_atr_stop(ticker, date)
         self.cash -= cost
         self.positions[ticker] = {
-            'shares': shares, 'entry_price': price,
+            'shares': shares, 'entry_price': cost / shares,
             'entry_date': date, 'entry_confidence': conf,
             'stop_loss_pct': atr_stop,
-            'peak_price': price
+            'peak_price': fill_price
         }
         self.trades.append({
             'date': date, 'ticker': ticker, 'action': 'BUY',
-            'shares': shares, 'price': price, 'value': cost,
+            'shares': shares, 'price': fill_price, 'quote_price': price,
+            'commission': commission, 'value': cost,
             'confidence': conf, 'pnl': None, 'reason': None
         })
-        logger.info(f'[BUY]  {ticker} x{shares} @ ${price:.2f} conf={conf:.3f}')
+        logger.info(f'[BUY]  {ticker} x{shares} @ ${fill_price:.2f} conf={conf:.3f}' + (f' (friction ${commission:.2f})' if self.friction else ''))
 
     def _sell(self, ticker: str, date: pd.Timestamp, price: float, reason: str):
         pos = self.positions.pop(ticker, None)
         if pos is None:
             return
-        proceeds = pos['shares'] * price
+        fill_price = price * (1 - SLIPPAGE_PCT) if self.friction else price
+        commission = max(COMMISSION_MIN, COMMISSION_PER_SHARE * pos['shares']) if self.friction else 0.0
+        proceeds = pos['shares'] * fill_price - commission
         pnl      = proceeds - pos['shares'] * pos['entry_price']
         pnl_pct  = pnl / (pos['shares'] * pos['entry_price'])
         self.cash += proceeds
         self.trades.append({
             'date': date, 'ticker': ticker, 'action': 'SELL',
-            'shares': pos['shares'], 'price': price, 'value': proceeds,
+            'shares': pos['shares'], 'price': fill_price, 'quote_price': price,
+            'commission': commission, 'value': proceeds,
             'confidence': pos['entry_confidence'], 'pnl': pnl, 'reason': reason
         })
-        logger.info(f'[SELL] {ticker} x{pos["shares"]} @ ${price:.2f} pnl={pnl_pct:+.1%} [{reason}]')
+        logger.info(f'[SELL] {ticker} x{pos["shares"]} @ ${fill_price:.2f} pnl={pnl_pct:+.1%} [{reason}]' + (f' (friction ${commission:.2f})' if self.friction else ''))
 
     # -----------------------------------------------------------------------
     # Main loop
@@ -661,6 +679,7 @@ class UnifiedBacktest:
                 continue
 
             # ---- Exit existing positions ------------------------------------
+            pending_timeouts = {}  # ticker -> (date, price, pos_snapshot)
             for ticker in list(self.positions.keys()):
                 pos   = self.positions[ticker]
                 price = self._get_price(ticker, date)
@@ -685,39 +704,34 @@ class UnifiedBacktest:
                 elif pnl_pct >= TAKE_PROFIT_PCT:
                     self._sell(ticker, date, price, 'TAKE_PROFIT')
                 elif hold_days >= MAX_HOLD_DAYS:
-                    self._sell(ticker, date, price, 'TIMEOUT')
+                    if self.hold_through_timeout:
+                        pending_timeouts[ticker] = (date, price)
+                    else:
+                        self._sell(ticker, date, price, 'TIMEOUT')
 
             # ---- Scan for entries ------------------------------------------
             # Regime filter: CRISIS = no entries; BEAR = stricter threshold
             regime = self._get_regime(date)
             if regime == 0:  # CRISIS
+                # Resolve any pending timeouts in crisis before continuing
+                for t, (d, p) in (pending_timeouts or {}).items():
+                    self._sell(t, d, p, 'TIMEOUT')
                 continue
             regime_thr = self._regime_threshold(date)
 
+            # Phase 18: Build ranked candidate list (confidence-descending) for entry selection
+            candidate_list = []
             for ticker in self.universe:
                 if ticker in self.positions:
                     continue
-
-                # Hard position cap
-                if len(self.positions) >= MAX_POSITIONS:
-                    break
-
-                if self.cash < self.portfolio_value * 0.02:
-                    break   # effectively out of cash
-
-                # Per-ticker re-entry cooldown after stop-loss
                 if ticker in self._stopped_out and date < self._stopped_out[ticker]:
                     continue
-
                 conf = self._get_confidence(ticker, date)
                 if conf < regime_thr:
                     continue
-
                 price = self._get_price(ticker, date)
                 if not price or price < MIN_PRICE:
                     continue
-
-                # Volume liquidity filter (Rule: no illiquid stocks)
                 df = self.market_data.get(ticker)
                 if df is not None:
                     past = df.loc[:date]
@@ -725,7 +739,35 @@ class UnifiedBacktest:
                         avg_vol = past['volume'].iloc[-20:].mean()
                         if avg_vol < MIN_AVG_VOLUME:
                             continue
+                candidate_list.append((ticker, conf, price))
+            candidate_list.sort(key=lambda x: x[1], reverse=True)
 
+            # Phase 18 (churn fix): only hold a TIMEOUT if it is still in the top MAX_POSITIONS
+            # by AI score among current positions + candidates. This prevents stale tickers from
+            # crowding out higher-conviction opportunities.
+            if self.hold_through_timeout and pending_timeouts:
+                current_rank = [(t, self._get_confidence(t, date)) for t in self.positions if t not in pending_timeouts]
+                current_rank += [(ticker, conf) for ticker, conf, _ in candidate_list]
+                current_rank.sort(key=lambda x: x[1], reverse=True)
+                top_tickers = {t for t, _ in current_rank[:MAX_POSITIONS]}
+
+                for t, (d, p) in list(pending_timeouts.items()):
+                    if t in top_tickers:
+                        logger.info(f'[HOLD-THRU] {t}: TIMEOUT deferred, still top-{MAX_POSITIONS} AI score — holding')
+                    else:
+                        self._sell(t, d, p, 'TIMEOUT')
+            elif pending_timeouts:
+                for t, (d, p) in list(pending_timeouts.items()):
+                    self._sell(t, d, p, 'TIMEOUT')
+
+            # Execute entries from ranked candidate list
+            for ticker, conf, price in candidate_list:
+                if len(self.positions) >= MAX_POSITIONS:
+                    break
+                if self.cash < self.portfolio_value * 0.02:
+                    break
+                if ticker in self.positions:
+                    continue
                 self._buy(ticker, date, price, conf)
 
         # ---- Final liquidation at last bar ---------------------------------
@@ -831,6 +873,10 @@ def main():
     parser.add_argument('--tickers',  nargs='*', default=None)
     parser.add_argument('--no-cache', action='store_true',
                         help='Force full recompute, ignore disk cache')
+    parser.add_argument('--no-friction', action='store_true',
+                        help='Disable slippage + commission (for A/B comparison)')
+    parser.add_argument('--no-hold-timeout', action='store_true',
+                        help='Disable churn fix: sell all TIMEOUT positions without AI hold-through')
     args = parser.parse_args()
 
     logger.info('[START] NeuralTrader Unified Backtest Engine')
@@ -840,6 +886,8 @@ def main():
         initial_cash=args.cash,
         ticker_filter=args.tickers,
         use_cache=not args.no_cache,
+        friction=not args.no_friction,
+        hold_through_timeout=not args.no_hold_timeout,
     )
     bt.run()
     bt.report()

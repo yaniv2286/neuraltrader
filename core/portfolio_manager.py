@@ -201,7 +201,7 @@ class PortfolioManager:
                 })
                 
                 portfolio = pd.concat([portfolio, new_position], ignore_index=True)
-                self.logger.info(f"[PORTFOLIO] Added {signal['Ticker']} {signal['Action']} position: {quantity} shares @ ${entry_price:.2f}")
+                self.logger.info(f"[PORTFOLIO] Added {signal[ticker_col].upper()} {action} position: {quantity} shares @ ${entry_price:.2f}")
         
         # Step 4: Save updated portfolio
         self.save_portfolio(portfolio)

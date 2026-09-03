@@ -1,5 +1,5 @@
 NEURALTRADER OPERATIONAL PROTOCOL
-STATUS: ACTIVE | VERSION: 8.0 (Phase 12 Active - Pure AI Entry/Exit) | TYPE: ML Quant Fund
+STATUS: ACTIVE | VERSION: 8.1 (Phase 18 Live - Friction + Churn Fix) | TYPE: ML Quant Fund
 
 0. GLOBAL DIRECTIVES
 DOCUMENTATION FIRST: ALWAYS read docs/ARCHITECTURE.md and docs/ROADMAP.md BEFORE writing or modifying any trading logic.
@@ -24,6 +24,12 @@ Current Version: v8.0 (Phase 12 Active - Pure AI Entry/Exit, 68-Feature Models, 
 
 Core Execution Laws (Immutable):
 The core logic resides in main_orchestrator_ist.py, core/, and scripts/. Modification to the ML logic or Risk Machine requires an explicit [UNLOCK] command from the Architect.
+
+PHASE 18 AMENDMENT (Architect [DO IT] 2026-09-02):
+- Paper/sim fills now include 5 bps slippage + IBKR tiered commission ($0.0035/share, $0.35 min).
+- TIMEOUT exits are deferred until the AI signal list is known. If a timed-out ticker is still
+  an AI-ranked buy candidate, the position is HELD (not churned) to eliminate zero-PnL round-trips.
+- peak_portfolio_value is recalculated and persisted on every portfolio save.
 
 LEAN PIPELINE - SINGLE ENTRY POINT:
   main_orchestrator_ist.py  <-- ALL modes run through here
@@ -53,8 +59,9 @@ Rule 2.3: Anti-Whipsaw (Hysteresis) & Duplication
 Do not replace an active position unless the new candidate's AI score is > 15% higher than the current holding.
 Always check current_positions before generating a buy order (no duplicate buys).
 
-Rule 2.4: Exit Priority
-Stop-Loss (10%) > Take-Profit (30%) > Timeout (20 days) > Uncle Point liquidation.
+Rule 2.4: Exit Priority (Phase 16 Live values supersede stale 10%/30%/20d figures)
+Stop-Loss (4%) > Trailing Stop (1.2% trail, activates after +2% profit) > Take-Profit (8%) > Timeout (5 days).
+Phase 18: TIMEOUT exits are deferred until AI signals are known; if the ticker is still an AI buy candidate, it is held through the timeout.
 
 Rule 2.5: AI Regime Gate (Phase 12 - replaces SPY SMA100 rule)
 regime_classifier.pkl outputs: 0=CRISIS (no entries), 1=BEAR (threshold=0.72), 2=BULL (threshold=0.65)

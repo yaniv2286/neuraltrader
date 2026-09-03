@@ -1,7 +1,7 @@
 # NEURALTRADER: INSTITUTIONAL ARCHITECTURE (v16.0)
-**Status:** Phase 16 COMPLETE ✅ | Optimized Backtest: +15.88% CAGR (v11) / +11.22% CAGR -13.93% DD (v12)
-**Last Updated:** May 4, 2026
-**Version:** v16.0 — Phase 16 (High-Turnover AI Strategy, 100 Tickers, Weekly Rebalancing, Trailing Stop Exits)
+**Status:** Phase 13 Optimized ACTIVE ✅ | RAM-Cache Engine | 193s Full Scan
+**Last Updated:** May 6, 2026
+**Version:** v13.0_optimized — Phase 13 (76-Feature Ensemble, RAM-Injected Engine, 300-Bar Truncation)
 
 ---
 
@@ -56,12 +56,12 @@ Backtest period: 2020-01-01 to 2025-12-31 | Universe: 100 liquid large-caps | Ca
 - **100 Tickers Optimal:** 50 too few (poor selection), 200 too slow (>1hr runtime)
 - **Lower Threshold = More Trades = More CAGR:** 0.35-0.40 threshold with top-N ranking works better than 0.45+
 
-### Model Precision (training: 14.7M rows, 64 clean features, TB 3-class)
-| Model       | Accuracy | LONG Prec@0.65 | SHORT Prec@0.65 | Weight |
-|-------------|----------|----------------|-----------------|--------|
-| XGBoost     | 58.6%    | **98.2%**      | 53.4%           | 0.40   |
-| LightGBM    | 58.3%    | **98.1%**      | 53.2%           | 0.40   |
-| HGB         | 70.2%    | **90.0%**      | 54.6%           | 0.20   |
+### Model Precision (training: 14.7M rows, 76 features, TB 3-class)
+| Model       | Accuracy | LONG Prec@0.65 | SHORT Prec@0.65 | Weight (Phase 13) |
+|-------------|----------|----------------|-----------------|--------------------|
+| XGBoost     | 58.6%    | **98.2%**      | 53.4%           | **0.356**          |
+| LightGBM    | 58.3%    | **98.1%**      | 53.2%           | **0.366**          |
+| HGB         | 70.2%    | **90.0%**      | 54.6%           | **0.278**          |
 
 **Training (May 1, 2026):**
 - **Training Data:** 14,722,185 rows across 2,184 tickers
@@ -71,8 +71,8 @@ Backtest period: 2020-01-01 to 2025-12-31 | Universe: 100 liquid large-caps | Ca
 - **Brain-Gate:** PASSED ✅
 - **Training Time:** 59 minutes
 
-**Model:** Tri-Model Ensemble (XGBoost 0.40 + LightGBM 0.40 + HGB 0.20)
-**Features:** 64 clean derived indicators (raw OHLCV excluded for stationarity)
+**Model:** Tri-Model Ensemble (XGBoost 0.356 + LightGBM 0.366 + HGB 0.278)
+**Features:** 76 clean derived indicators (64 base + 8 Phase 13 derivatives + 4 momentum)
   - Technical: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, OBV, VWAP
   - Momentum: rs_vs_spy, high_52w_prox, volume_breakout, roc_63, roc_5/10/20
   - Volatility: rolling_volatility, vol_regime, atr_ratio, vol_acceleration
@@ -166,8 +166,8 @@ TIME: 18:00 IST  ->  REPORT
  │  core/feature_engineer.py  (FeatureEngineer)                │
  │  core/indicators.py                                         │
  │                                                             │
- │  Input : AAPL.parquet  (last 252 rows of OHLCV)             │
- │  Output: 64-feature row vector (one row per ticker/day)     │
+ │  Input : AAPL.parquet  (last 300 rows — truncated for perf) │
+ │  Output: 76-feature row vector (one row per ticker/day)     │
  │                                                             │
  │  64 technical features:                                     │
  │    Price_SMA_Ratio   (close / SMA50)   <- #1 predictor      │
@@ -206,29 +206,31 @@ TIME: 18:00 IST  ->  REPORT
  └──────────────────────────┬──────────────────────────────────┘
                             |
                             v
- STAGE 4: AI ENSEMBLE SCORING  (Council Decision)
+ STAGE 4: AI ENSEMBLE SCORING  (RAM-Injected Council Decision)
  ┌─────────────────────────────────────────────────────────────┐
- │  core/ai_models.py  (EnsemblePredictor)                     │
+ │  core/ai_models.py  (EnsemblePredictor — RAM-CACHED)        │
  │                                                             │
- │  Models loaded from  models/                                │
- │    xgboost_model.pkl    weight = 0.40  (200 trees, hist)    │
- │    lightgbm_model.pkl   weight = 0.40  (200 trees)          │
- │    rf_model.pkl         weight = 0.20  (HGB, 30 iter batch) │
+ │  Models loaded ONCE at startup into self.ai_model:          │
+ │    xgboost_model.pkl    weight = 0.356 (200 trees, hist)    │
+ │    lightgbm_model.pkl   weight = 0.366 (200 trees)          │
+ │    rf_model.pkl         weight = 0.278 (HGB, 100 iter)      │
  │                                                             │
  │  Scaler: feature_scaler.pkl  (StandardScaler)               │
+ │  Strict Integrity: NO try/except — [FATAL] crash on fail   │
  │                                                             │
- │  For each ticker (vectorized batch):                        │
- │    X_scaled = scaler.transform(X_68features)                │
+ │  For each ticker (RAM-cached, ~80ms/call):                  │
+ │    X_scaled = scaler.transform(X_76features.float32)        │
  │    p_xgb  = xgb.predict_proba(X_scaled)[:, 1]  = 0.47      │
  │    p_lgb  = lgb.predict_proba(X_scaled)[:, 1]  = 0.45      │
  │    p_hgb  = hgb.predict_proba(X_scaled)[:, 1]  = 0.44      │
  │                                                             │
- │    confidence = (0.47*0.40 + 0.45*0.40 + 0.44*0.20)        │
- │               = 0.458  <- COUNCIL VERDICT: BUY SIGNAL       │
+ │    confidence = (0.47*0.356 + 0.45*0.366 + 0.44*0.278)     │
+ │               = 0.454  <- COUNCIL VERDICT: BUY SIGNAL       │
  │                                                             │
- │  BULL regime:   confidence >= 0.44  -> CANDIDATE            │
- │  BEAR regime:   confidence >= 0.46  -> CANDIDATE            │
- │  CRISIS regime: ALL entries blocked                         │
+ │  BULL regime:   confidence >= 0.65  -> CANDIDATE            │
+ │  BEAR regime:   confidence >= 0.72  -> CANDIDATE            │
+ │  CRISIS regime: confidence >= 0.80  (or ALL blocked)        │
+ │  CONTRARIAN:    CNN < 20 + conf > 0.60 -> force BUY         │
  └──────────────────────────┬──────────────────────────────────┘
                             |
                             v
@@ -432,42 +434,54 @@ All modes run through `python main_orchestrator_ist.py --mode=<MODE>`
 
 ---
 
-## 6. AI ENSEMBLE (Phase 12 — Council Decision Architecture)
+## 6. AI ENSEMBLE (Phase 13 Optimized — RAM-Injected Council)
 
 ```
-            SPY + VXX (20 regime features)
+            SPY + VXX + CNN Fear & Greed (21 regime features)
                       |
           regime_classifier.pkl
                       |
-          0=CRISIS  1=BEAR    2=BULL
-          (block)   (thr=0.46) (thr=0.44)
+          0=CRISIS  1=BEAR       2=BULL
+          (0.80)    (thr=0.72)   (thr=0.65)
                       |
                       v
-             68 features (technical + momentum)
+             76 features (64 base + 8 derivatives + 4 momentum)
+             Input truncated to last 300 bars (perf optimization)
                               |
               +---------------+---------------+
               |               |               |
-      XGBoost (0.40)  LightGBM (0.40)  HGB (0.20)
-      prec@0.65=89.6% prec@0.65=89.5%
+      XGBoost (0.356) LightGBM (0.366) HGB (0.278)
               |               |               |
           p = 0.47        p = 0.45        p = 0.44
               |               |               |
               +---------------+---------------+
                               |
-              weighted_avg = (0.47*0.40 + 0.45*0.40 + 0.44*0.20)
-                           = 0.458
+              weighted_avg = (0.47*0.356 + 0.45*0.366 + 0.44*0.278)
+                           = 0.454
                               |
-                   BULL:   >= 0.44  -> CANDIDATE
-                   BEAR:   >= 0.46  -> CANDIDATE
-                   CRISIS: blocked
+                   BULL:    >= 0.65  -> CANDIDATE
+                   BEAR:    >= 0.72  -> CANDIDATE
+                   CRISIS:  >= 0.80  (effectively blocked)
+                   CONTRARIAN: CNN < 20 + conf > 0.60 -> BUY
 
-  Note: probability range 0.30-0.52 due to 31.9% base rate label
+  STRICT INTEGRITY: NO try/except around predict_proba()
+  If any model fails or returns NaN -> [FATAL] sys.exit(1)
+  Models loaded ONCE at startup -> injected into MockVirtualEngine
 ```
 
 **Models location:** `models/` (flat, no subfolders)
 **Load logic:** `EnsemblePredictor._load_ensemble()` in `core/ai_models.py`
+**RAM-Cache:** `self.ai_model` injected into `self.virtual_engine.ai_model` at line 1925
 **Training:** `scripts/retrain_phase12.py` | `scripts/train_regime_classifier.py`
 **Training data:** 14,678,159 rows | 2,184 tickers | float32 numpy cache (24h TTL)
+
+### Performance (May 6, 2026 Audit)
+| Metric | Pre-Optimization | Post-Optimization |
+|--------|-----------------|-------------------|
+| Scan Duration | 503.78s | **193.27s** |
+| Model Disk Loads | 6,552/scan | **3/scan** |
+| Memory (RSS) | Unbounded | **242MB stable** |
+| Per-ticker latency | ~230ms | **~80ms** |
 
 ---
 
@@ -518,8 +532,9 @@ Protects Monday trading from degraded models:
 | Position cap               | **10% of portfolio**         | `strategy.py`                        |
 | Position sizing method     | Inverse volatility (1/σ)     | `strategy.py`                        |
 | Volatility window          | 20-day returns, √252 ann.    | `strategy.py`                        |
-| Confidence threshold (BULL)| **0.44**                     | `run_full_backtest.py`, `strategy.py`|
-| Confidence threshold (BEAR)| **0.46**                     | `run_full_backtest.py`, `strategy.py`|
+| Confidence threshold (BULL)| **0.65**                     | `run_full_backtest.py`, `strategy.py`|
+| Confidence threshold (BEAR)| **0.72**                     | `run_full_backtest.py`, `strategy.py`|
+| Confidence threshold (CRISIS)| **0.80**                   | `run_full_backtest.py`, `strategy.py`|
 | Regime gate                | AI 3-class classifier        | `run_full_backtest.py`               |
 | Stop-loss                  | **ATR 2.5x, clamped 8-20%** | `run_full_backtest.py`, `strategy.py`|
 | Trailing stop              | **12% from peak (+5% gate)** | `run_full_backtest.py`, `strategy.py`|
@@ -555,5 +570,40 @@ All log tags are ASCII-only:
 
 ---
 
+---
+
+## 11. PHASE 13 OPTIMIZATIONS (May 6, 2026)
+
+### RAM-Injected Model Engine
+- `EnsemblePredictor` instantiated ONCE at startup in `TradingOrchestrator.__init__()`
+- Injected into `MockVirtualEngine` via `self.virtual_engine.ai_model = self.ai_model`
+- Signal loop calls `self.ai_model.predict_from_ohlcv(ticker_data)` directly
+- Eliminates 6,552 pickle loads per scan (3 models × 2,184 tickers)
+- Location: `main_orchestrator_ist.py` line 1925 (injection), line 1144 (usage)
+
+### 300-Bar Data Truncation
+- Feature engineering only needs ~252 bars (200d SMA + buffer)
+- All ticker DataFrames truncated to `.iloc[-300:]` before prediction
+- Reduces pandas rolling computation by ~80% for tickers with long history
+- Location: `main_orchestrator_ist.py` line 1140-1141
+
+### Strict Model Integrity (No Silent Failures)
+- `predict_proba()` is NOT wrapped in try/except
+- Any model failure or NaN probability triggers `[FATAL]` + `sys.exit(1)`
+- Silent "neutral" dilution is permanently prohibited
+- Location: `core/ai_models.py` `EnsemblePredictor.predict()` and `predict_batch()`
+
+### sklearn Warning Suppression
+- `warnings.filterwarnings('ignore', category=UserWarning, module='sklearn')`
+- Applied before scan loop to eliminate 4,368 string-format overhead calls
+- Location: `main_orchestrator_ist.py` line 1118-1120
+
+### Heartbeat Monitoring
+- Logs RSS memory usage every 100 tickers: `[HEARTBEAT] Processed N/2184 | Memory: XMB`
+- Uses `psutil.Process().memory_info().rss`
+- Location: `main_orchestrator_ist.py` line 1130-1133
+
+---
+
 *"The AI is the Pilot. The Constitution is the Law. The Alpha is the Mission."*
-**Last Updated: March 1, 2026 | v8.0 | Phase 12 v5 COMPLETE — Live Engine Synced**
+**Last Updated: May 6, 2026 | v13.0_optimized | Phase 13 — RAM-Cache Engine ACTIVE**
