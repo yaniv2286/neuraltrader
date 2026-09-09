@@ -107,13 +107,15 @@ class PreFlightChecklist:
             # Import ib_async
             import ib_async
             
-            self.logger.info("  Connecting to IBKR (127.0.0.1:7497)...")
+            ibkr_host = os.getenv('IBKR_HOST', '127.0.0.1')
+            ibkr_port = int(os.getenv('IBKR_PORT', '7497'))
+            self.logger.info(f"  Connecting to IBKR ({ibkr_host}:{ibkr_port})...")
             
             # Create IBKR connection
             self.ib_connection = ib_async.IB()
             
             # Connect to TWS Paper Trading
-            connect_task = self.ib_connection.connect('127.0.0.1', 7497, clientId=999)
+            connect_task = self.ib_connection.connect(ibkr_host, ibkr_port, clientId=999)
             
             # Wait for connection
             import time

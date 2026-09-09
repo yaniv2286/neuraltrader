@@ -124,23 +124,26 @@ def _cache_save(ticker: str, cache_key: str,
 # ---------------------------------------------------------------------------
 # Constants  (ARCHITECTURE.md / Rule 2.1-2.4)
 # ---------------------------------------------------------------------------
-CONFIDENCE_THRESHOLD = 0.44    # AI entry gate — Phase 12: p98 of score dist (base rate 31.9%)
-STOP_LOSS_ATR_MULT   = 2.5     # ATR-based stop: 2.5x ATR20 — give trades more breathing room
-STOP_LOSS_MAX_PCT    = 0.20    # hard cap: ATR stop max 20% (25% DD budget allows this)
-STOP_LOSS_MIN_PCT    = 0.08    # hard floor: ATR stop never tighter than 8%
-TAKE_PROFIT_PCT      = 0.40    # 40% take-profit — let winners run
-TRAIL_STOP_PCT       = 0.12    # 12% trailing stop from peak — locks in gains on reversals
-MAX_HOLD_DAYS        = 25      # 25-day timeout — give more time for the 5-day edge to pay off
-MAX_RISK_PER_TRADE   = 0.020   # 2.0% portfolio risk per trade (25% DD budget = can double risk)
-MIN_POSITION_PCT     = 0.05    # 5% portfolio floor per position — winners must compound meaningfully
-UNCLE_POINT_DD       = 0.20    # 20% drawdown circuit breaker (25% DD budget)
-COOLDOWN_DAYS        = 10      # cooldown days after uncle point
+CONFIDENCE_THRESHOLD = 0.30    # Phase 19: align to live BULL threshold (was 0.44 -> 0.35)
+BEAR_CONFIDENCE_THRESHOLD = 0.72 # Phase 19: align to live BEAR fallback threshold
+STOP_LOSS_ATR_MULT   = 0.0     # 0 = fixed % stop (Phase 16 live); >0 = ATR-aware with floor
+STOP_LOSS_MAX_PCT    = 0.12    # ATR stop hard cap (12%)
+STOP_LOSS_MIN_PCT    = 0.04    # Phase 16 live fixed 4% stop (also ATR floor)
+TAKE_PROFIT_PCT      = 0.08    # Phase 16 live 8% take-profit
+TRAIL_STOP_PCT       = 0.04    # Phase 19: 4.0% trailing stop — backtest validated sweet spot
+TRAIL_ACTIVATE_PCT   = 0.02    # Phase 16 live: trail activates once +2% profit
+MAX_HOLD_DAYS        = 5       # Phase 16 live 5-day timeout
+MAX_RISK_PER_TRADE   = 0.020   # position sizing budget per ticker (kept at 2% for ~5% target alloc)
+MIN_POSITION_PCT     = 0.03    # Phase 16 live 3% position floor
+UNCLE_POINT_DD       = 0.20    # Phase 19: 20% maximum drawdown circuit breaker
+COOLDOWN_DAYS        = 8       # Phase 19: 8-day cooldown after Uncle Point trigger
 MIN_HISTORY_ROWS     = 60      # minimum rows to generate valid features
-MIN_PRICE            = 10.0    # raised from $5 — eliminates high-vol micro-caps
-MIN_AVG_VOLUME       = 500_000 # raised from 100k — liquid, lower-vol universe only
-MAX_POSITIONS        = 15      # reduced from 20 — concentrate into fewer, higher-quality positions
+MIN_PRICE            = 10.0    # $10 minimum price filter
+MIN_AVG_VOLUME       = 500_000 # 500k minimum average volume
+MAX_POSITIONS        = 20      # Phase 16 live 20 concurrent positions
+MAX_SECTOR_EXPOSURE  = 0.30    # Phase 19: max 30% portfolio in any one sector
 SPY_REGIME_SMA       = 100     # SPY SMA fallback threshold
-RE_ENTRY_COOLDOWN    = 5       # days to wait before re-entering a stopped-out ticker
+RE_ENTRY_COOLDOWN    = 0       # Phase 16 live: re-entry cooldown DISABLED
 CONF_SIZE_POWER      = 2.0     # confidence^N multiplier on position size
 
 # Phase 18: realistic friction (overridable via CLI)
@@ -295,6 +298,20 @@ class UnifiedBacktest:
         else:
             logger.info('[INIT] No regime_classifier.pkl found — using SPY SMA100 rule')
 
+        # Phase 19: load sector map for concentration cap
+        self._sector_map: Dict[str, str] = {}
+        _sector_file = PROJECT_ROOT / 'config' / 'sector_map.json'
+        try:
+            if _sector_file.exists():
+                import json as _json
+                _sm = _json.loads(_sector_file.read_text())
+                for _sector, _tickers in _sm.items():
+                    for _t in _tickers:
+                        self._sector_map[_t.upper()] = _sector.upper()
+                logger.info(f'[INIT] Sector map loaded: {len(_sm)} sectors, {len(self._sector_map)} tickers')
+        except Exception as _e:
+            logger.warning(f'[INIT] Could not load sector map: {_e}')
+
         # Data
         logger.info('[INIT] Pre-loading all parquet data...')
         self.market_data = load_all_parquet(RAW_DATA_DIR, ticker_filter)
@@ -372,8 +389,13 @@ class UnifiedBacktest:
         df = self.market_data.get(ticker)
         if df is None:
             return None
-        hist = df.loc[:as_of, 'close'].dropna()
-        return float(hist.iloc[-1]) if not hist.empty else None
+        # Phase 19: prefer adjClose (same as live) to avoid split/dividend drift
+        for col in ['adjClose', 'adjclose', 'Close', 'close']:
+            if col in df.columns:
+                hist = df.loc[:as_of, col].dropna()
+                if not hist.empty:
+                    return float(hist.iloc[-1])
+        return None
 
     def _calc_portfolio_value(self, as_of: pd.Timestamp) -> float:
         total = self.cash
@@ -394,8 +416,31 @@ class UnifiedBacktest:
         })
         return dd
 
+    def _get_sector(self, ticker: str) -> Optional[str]:
+        """Return sector ETF for a ticker, or None if unmapped."""
+        return self._sector_map.get(ticker.upper())
+
+    def _calc_sector_exposure(self, as_of: pd.Timestamp, exclude_ticker: str = None) -> Dict[str, float]:
+        """Return current sector exposures as fraction of total portfolio value."""
+        total = self._calc_portfolio_value(as_of)
+        if total <= 0:
+            return {}
+        exposure: Dict[str, float] = {}
+        for t, pos in self.positions.items():
+            if exclude_ticker and t.upper() == exclude_ticker.upper():
+                continue
+            sec = self._get_sector(t)
+            if not sec:
+                continue
+            price = self._get_price(t, as_of) or pos['entry_price']
+            exposure[sec] = exposure.get(sec, 0.0) + pos['shares'] * price / total
+        return exposure
+
     def _calc_atr_stop(self, ticker: str, as_of: pd.Timestamp) -> float:
-        """Returns ATR-based stop-loss pct: 2x ATR20 / price, clamped to [8%, 18%]."""
+        """Returns stop-loss pct. Phase 16 live uses fixed STOP_LOSS_MIN_PCT.
+        If STOP_LOSS_ATR_MULT > 0, it becomes ATR-aware with STOP_LOSS_MIN_PCT floor."""
+        if STOP_LOSS_ATR_MULT <= 0:
+            return STOP_LOSS_MIN_PCT
         try:
             df = self.market_data.get(ticker)
             if df is None:
@@ -577,8 +622,13 @@ class UnifiedBacktest:
             if thr is None:  # CRISIS
                 return 999.0  # effectively blocks all entries
             return float(thr)
-        # SMA fallback: BEAR -> 0.46, BULL -> CONFIDENCE_THRESHOLD
-        return 0.46 if regime == 1 else CONFIDENCE_THRESHOLD
+        # SMA fallback aligned to Phase 16 live thresholds
+        if regime == 1:
+            return BEAR_CONFIDENCE_THRESHOLD
+        elif regime == 2:
+            return CONFIDENCE_THRESHOLD
+        else:
+            return 999.0
 
     def _get_confidence(self, ticker: str, as_of: pd.Timestamp) -> float:
         scores = self.confidence_cache.get(ticker)
@@ -667,7 +717,7 @@ class UnifiedBacktest:
 
             dd = self._record_equity(date)
 
-            if dd > UNCLE_POINT_DD:
+            if UNCLE_POINT_DD is not None and dd > UNCLE_POINT_DD:
                 logger.warning(f'[SHIELD] Uncle Point: {dd:.1%} DD. Cooldown {COOLDOWN_DAYS}d.')
                 self.cooldown_until = date + pd.Timedelta(days=COOLDOWN_DAYS)
                 for t in list(self.positions.keys()):
@@ -698,8 +748,8 @@ class UnifiedBacktest:
                 if pnl_pct <= -stop_pct:
                     self._sell(ticker, date, price, 'STOP_LOSS')
                     self._stopped_out[ticker] = date + pd.Timedelta(days=RE_ENTRY_COOLDOWN)
-                elif trail_pct >= TRAIL_STOP_PCT and pos['peak_price'] > pos['entry_price'] * 1.05:
-                    # Trailing stop only activates once position is at least 5% in profit
+                elif trail_pct >= TRAIL_STOP_PCT and pos['peak_price'] > pos['entry_price'] * (1 + TRAIL_ACTIVATE_PCT):
+                    # Trailing stop activates once position is at least TRAIL_ACTIVATE_PCT in profit
                     self._sell(ticker, date, price, 'TRAIL_STOP')
                 elif pnl_pct >= TAKE_PROFIT_PCT:
                     self._sell(ticker, date, price, 'TAKE_PROFIT')
@@ -760,7 +810,8 @@ class UnifiedBacktest:
                 for t, (d, p) in list(pending_timeouts.items()):
                     self._sell(t, d, p, 'TIMEOUT')
 
-            # Execute entries from ranked candidate list
+            # Phase 19: enforce sector concentration cap during entry
+            sector_exposure = self._calc_sector_exposure(date)
             for ticker, conf, price in candidate_list:
                 if len(self.positions) >= MAX_POSITIONS:
                     break
@@ -768,6 +819,18 @@ class UnifiedBacktest:
                     break
                 if ticker in self.positions:
                     continue
+
+                # Sizing estimate for sector cap check
+                shares = self._calc_position_size(ticker, price, date, conf)
+                if shares <= 0:
+                    continue
+                sec = self._get_sector(ticker)
+                if sec:
+                    pos_value = shares * price
+                    new_exp = sector_exposure.get(sec, 0.0) + pos_value / self.portfolio_value
+                    if new_exp > MAX_SECTOR_EXPOSURE:
+                        logger.info(f'[SECTOR-CAP] Skipping {ticker}: {sec} would reach {new_exp:.1%}')
+                        continue
                 self._buy(ticker, date, price, conf)
 
         # ---- Final liquidation at last bar ---------------------------------
@@ -866,6 +929,7 @@ class UnifiedBacktest:
 # ===========================================================================
 
 def main():
+    global STOP_LOSS_ATR_MULT, TRAIL_STOP_PCT, TRAIL_ACTIVATE_PCT, MAX_HOLD_DAYS, CONFIDENCE_THRESHOLD, BEAR_CONFIDENCE_THRESHOLD
     parser = argparse.ArgumentParser(description='NeuralTrader Unified Backtest')
     parser.add_argument('--start',    default='2000-01-01')
     parser.add_argument('--end',      default=None)
@@ -877,9 +941,33 @@ def main():
                         help='Disable slippage + commission (for A/B comparison)')
     parser.add_argument('--no-hold-timeout', action='store_true',
                         help='Disable churn fix: sell all TIMEOUT positions without AI hold-through')
+    parser.add_argument('--atr-mult', type=float, default=None,
+                        help='Override STOP_LOSS_ATR_MULT (0=fixed 4%%, >0=ATR floor)')
+    parser.add_argument('--trail-stop-pct', type=float, default=None,
+                        help='Override TRAIL_STOP_PCT (e.g. 0.012 or 0.04)')
+    parser.add_argument('--trail-activate-pct', type=float, default=None,
+                        help='Override TRAIL_ACTIVATE_PCT (e.g. 0.02)')
+    parser.add_argument('--max-hold', type=int, default=None,
+                        help='Override MAX_HOLD_DAYS (e.g. 5 or 15)')
+    parser.add_argument('--threshold', type=float, default=None,
+                        help='Override AI confidence entry threshold (e.g. 0.35 or 0.44)')
     args = parser.parse_args()
 
+    # Apply CLI overrides to module-level constants
+    if args.atr_mult is not None:
+        STOP_LOSS_ATR_MULT = args.atr_mult
+    if args.trail_stop_pct is not None:
+        TRAIL_STOP_PCT = args.trail_stop_pct
+    if args.trail_activate_pct is not None:
+        TRAIL_ACTIVATE_PCT = args.trail_activate_pct
+    if args.max_hold is not None:
+        MAX_HOLD_DAYS = args.max_hold
+    if args.threshold is not None:
+        CONFIDENCE_THRESHOLD = args.threshold
+        BEAR_CONFIDENCE_THRESHOLD = args.threshold
+
     logger.info('[START] NeuralTrader Unified Backtest Engine')
+    logger.info(f'[PARAMS] SL_ATR_MULT={STOP_LOSS_ATR_MULT} | Trail={TRAIL_STOP_PCT*100:.1f}% | Activate={TRAIL_ACTIVATE_PCT*100:.0f}% | Hold={MAX_HOLD_DAYS}d')
     bt = UnifiedBacktest(
         start_date=args.start,
         end_date=args.end,

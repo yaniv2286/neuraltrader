@@ -100,18 +100,18 @@ class IBKRExecutionEngine:
 
     def __init__(
         self,
-        host:      str = "127.0.0.1",
-        port:      int = 7497,
+        host:      str = None,
+        port:      int = None,
         client_id: int = None,
     ):
-        self.host      = host
-        self.port      = port
+        self.host      = host or os.getenv("IBKR_HOST", "127.0.0.1")
+        self.port      = int(port) if port is not None else int(os.getenv("IBKR_PORT", "7497"))
         self.client_id = client_id or random.randint(100, 999)
         self.ib:       Optional[IB] = None
         self.connected = False
         self.logger    = logging.getLogger(__name__)
         self.logger.info(
-            f"[IBKR] Engine init | host={host} port={port} clientId={self.client_id}"
+            f"[IBKR] Engine init | host={self.host} port={self.port} clientId={self.client_id}"
         )
 
     # ------------------------------------------------------------------

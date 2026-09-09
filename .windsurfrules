@@ -49,7 +49,8 @@ FORBIDDEN PATHS (Rule 4.1):
 You must NEVER bypass these hardcoded execution laws:
 
 Rule 2.1: The Uncle Point
-If portfolio drawdown > 10%, trigger an 8-day cooldown. No entries allowed.
+Phase 19: Re-enabled as a 20% maximum portfolio drawdown circuit breaker with an 8-day cooldown.
+If portfolio drawdown > 20%, liquidate and pause new entries for 8 days.
 
 Rule 2.2: Inverse Volatility Sizing
 All position sizing MUST be calculated dynamically using 1/Volatility based on 20-day historical returns.
@@ -59,9 +60,10 @@ Rule 2.3: Anti-Whipsaw (Hysteresis) & Duplication
 Do not replace an active position unless the new candidate's AI score is > 15% higher than the current holding.
 Always check current_positions before generating a buy order (no duplicate buys).
 
-Rule 2.4: Exit Priority (Phase 16 Live values supersede stale 10%/30%/20d figures)
-Stop-Loss (4%) > Trailing Stop (1.2% trail, activates after +2% profit) > Take-Profit (8%) > Timeout (5 days).
+Rule 2.4: Exit Priority (Phase 19 Live values supersede stale 10%/30%/20d figures)
+Stop-Loss (4%) > Trailing Stop (4.0% trail, activates after +2% profit) > Take-Profit (8%) > Timeout (5 days).
 Phase 18: TIMEOUT exits are deferred until AI signals are known; if the ticker is still an AI buy candidate, it is held through the timeout.
+Phase 19: widen trailing stop from 1.2% to 4.0% to capture bigger winners, validated by backtest A/B.
 
 Rule 2.5: AI Regime Gate (Phase 12 - replaces SPY SMA100 rule)
 regime_classifier.pkl outputs: 0=CRISIS (no entries), 1=BEAR (threshold=0.72), 2=BULL (threshold=0.65)
@@ -130,3 +132,25 @@ Before reporting a task as complete, you MUST:
 3. Verify that portfolio.json safely updated without wiping existing positions.
 
 PUSH PROTOCOL: Ask the Architect: "Architect, validation passed. Ready to commit to GitHub?"
+
+7. AUTOMATED VPS DEPLOYMENT RULE (Architect [DO IT] 2026-09-03)
+TRIGGER: Any implementation or code change in this repository is finished.
+ACTION: You MUST deploy NeuralTrader to the VPS immediately after validation passes.
+
+Required steps:
+1. Verify the change with at minimum:
+     python -m py_compile <edited_files>
+   If trading logic or orchestrator paths were touched, also run:
+     python scripts/run_full_backtest.py --tickers AAPL --start 2024-01-01 --end 2024-03-01 --no-cache
+2. If validation fails, STOP, fix the issue, and rerun until Exit Code 0.
+3. From the family-agent-platform repository root, run the unified deploy script:
+     .\deploy.bat
+   This pre-approved deployment replaces the prior manual confirmation step.
+4. Monitor the terminal output. If the deploy command returns a non-zero exit code,
+   treat it as a [FAIL] and apply the Terminal Auto-Recovery Loop until the container
+   is rebuilt and healthy on the VPS.
+5. Do NOT report the task as complete until `docker compose -p neuraltrader ps` shows
+   the neuraltrader container as Up.
+
+EXCEPTION: Updates that are purely documentation (docs/*.md, README.md, AGENTS.md)
+or updates to this rule itself do not require a deployment.

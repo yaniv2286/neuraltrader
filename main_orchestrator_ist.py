@@ -786,11 +786,14 @@ class MockVirtualEngine:
                 # Update current price
                 pos_data['current_price'] = current_price
                 
+                # Phase 19: dynamic stop-loss (fixed 4% floor, ATR-aware if STOP_LOSS_ATR_MULT > 0)
+                dynamic_stop_pct = trading_strategy.calc_atr_stop_pct(df.tail(30)) if hasattr(trading_strategy, 'calc_atr_stop_pct') else trading_strategy.STOP_LOSS_PCT
+
                 # Check exit conditions using strategy
                 exit_result = trading_strategy.check_exit(
                     data=df.tail(30),
                     entry_price=entry_price,
-                    stop_loss_pct=trading_strategy.STOP_LOSS_PCT,
+                    stop_loss_pct=dynamic_stop_pct,
                     peak_price=peak_price,
                     hold_days=hold_days
                 )
@@ -2189,17 +2192,33 @@ This is an automated message from NeuralTrader Paper Trading System.
                 if not sync_ok:
                     self.logger.warning("[IBKR SYNC] Sync skipped or failed - proceeding with last saved state")
 
-            # Phase 16: Uncle Point DISABLED — was #1 performance killer in backtest
-            # Log portfolio status but do NOT halt trading
+            # Phase 19: 20% maximum drawdown circuit breaker with 8-day cooldown
             try:
                 portfolio = self.virtual_engine.portfolio
                 current_val = self.virtual_engine.get_account_info()['portfolio_value']
                 peak_val = portfolio.get('peak_portfolio_value', 100000.0)
                 dd_pct = (peak_val - current_val) / peak_val if peak_val > 0 else 0
-                self.logger.info(f"[P16] Portfolio: ${current_val:,.2f} | Peak: ${peak_val:,.2f} | DD: {dd_pct:.1%}")
-                self.logger.info("[P16] Uncle Point DISABLED — trading always allowed (Phase 16 finding)")
-                # Clear any stale cooldown
-                portfolio['circuit_breaker_cooldown_until'] = None
+                self.logger.info(f"[P19] Portfolio: ${current_val:,.2f} | Peak: ${peak_val:,.2f} | DD: {dd_pct:.1%}")
+
+                uncle_threshold = getattr(self.trading_strategy, 'UNCLE_POINT_DD', 0.20) or 0.20
+                cooldown_days = getattr(self.trading_strategy, 'COOLDOWN_DAYS', 8) or 8
+                cool_until_str = portfolio.get('circuit_breaker_cooldown_until')
+                now = datetime.now()
+                in_cooldown = False
+                if cool_until_str:
+                    try:
+                        in_cooldown = datetime.fromisoformat(cool_until_str) > now
+                    except Exception:
+                        pass
+
+                if in_cooldown:
+                    self.logger.info(f"[P19] Circuit breaker cooldown active until {cool_until_str} — new entries blocked")
+                elif dd_pct > uncle_threshold:
+                    cool_until = (now + timedelta(days=cooldown_days)).isoformat()
+                    portfolio['circuit_breaker_cooldown_until'] = cool_until
+                    self.logger.warning(f"[P19] UNCLE POINT TRIPPED: {dd_pct:.1%} DD > {uncle_threshold:.0%}. New entries blocked for {cooldown_days}d until {cool_until}")
+                else:
+                    self.logger.info("[P19] Uncle Point within limits — new entries allowed")
             except Exception as e:
                 self.logger.warning(f"[WARN] Portfolio status check failed: {e} — continuing anyway")
             
@@ -2331,7 +2350,19 @@ This is an automated message from NeuralTrader Paper Trading System.
                 import pandas as pd
                 buy_signals = [s for s in signals if s.get('action') == 'buy']
                 sell_signals = [s for s in signals if s.get('action') != 'buy']
-                
+
+                # Phase 19: block new entries if circuit breaker cooldown is active
+                cool_until_str = self.virtual_engine.portfolio.get('circuit_breaker_cooldown_until')
+                in_cooldown = False
+                if cool_until_str:
+                    try:
+                        in_cooldown = datetime.fromisoformat(cool_until_str) > datetime.now()
+                    except Exception:
+                        pass
+                if in_cooldown:
+                    self.logger.warning(f"[P19] New entries blocked by Uncle Point cooldown until {cool_until_str}")
+                    buy_signals = []
+
                 if buy_signals:
                     # Current portfolio state (from portfolio_paper.json — the ONLY source of truth)
                     max_positions = getattr(self.trading_strategy, 'MAX_POSITIONS', 20)
@@ -2374,6 +2405,20 @@ This is an automated message from NeuralTrader Paper Trading System.
                     skipped_cool = len([s for s in buy_signals if s['ticker'].upper() in cooled_tickers and s['ticker'].upper() not in current_positions])
                     self.logger.info(f"[ENTRIES] {len(buy_signals)} BUY signals | {skipped_held} already held | {skipped_cool} on cooldown | {len(eligible)} eligible")
                     
+                    # Phase 19: sector concentration cap (30% max per GICS sector)
+                    max_sector_exposure = getattr(self.trading_strategy, 'MAX_SECTOR_EXPOSURE', 0.30)
+                    sector_exposures = {}
+                    if self.sector_auth:
+                        try:
+                            total_value = self.virtual_engine.get_account_info().get('portfolio_value', portfolio_value)
+                            for _t, _p in self.virtual_engine.portfolio.get('positions', {}).items():
+                                _sec = self.sector_auth.get_sector_for_ticker(_t)
+                                if _sec:
+                                    sector_exposures[_sec] = sector_exposures.get(_sec, 0.0) + _p['shares'] * _p['current_price']
+                            sector_exposures = {k: v / total_value for k, v in sector_exposures.items()}
+                        except Exception as _sec_err:
+                            self.logger.warning(f"[SECTOR] Could not compute exposures: {_sec_err}")
+
                     # Execute entries up to available slots and cash
                     entries_executed = 0
                     for signal in eligible[:available_slots]:
@@ -2391,6 +2436,15 @@ This is an automated message from NeuralTrader Paper Trading System.
                         quantity = int(slip_alloc / price)
                         if quantity < 1:
                             continue
+
+                        # Phase 19: enforce sector cap before allocating
+                        if self.sector_auth:
+                            sec = self.sector_auth.get_sector_for_ticker(ticker)
+                            if sec:
+                                new_exp = sector_exposures.get(sec, 0.0) + (quantity * price) / total_value
+                                if new_exp > max_sector_exposure:
+                                    self.logger.info(f"[SECTOR-CAP] Skipping {ticker}: {sec} exposure would reach {new_exp:.1%} (cap {max_sector_exposure:.0%})")
+                                    continue
                         
                         result = self.virtual_engine.execute_trade(
                             ticker, 'buy', quantity, price,
@@ -2400,6 +2454,8 @@ This is an automated message from NeuralTrader Paper Trading System.
                         if result.get('success'):
                             entries_executed += 1
                             available_cash = self.virtual_engine.portfolio.get('cash', 0)
+                            if self.sector_auth and sec:
+                                sector_exposures[sec] = sector_exposures.get(sec, 0.0) + (quantity * price) / total_value
                             self.logger.info(f"[ENTRY] BUY {quantity} {ticker} @ ${price:.2f} | AI: {ai_score:.3f} | Cash left: ${available_cash:,.2f}")
                         else:
                             self.logger.warning(f"[ENTRY] Failed {ticker}: {result.get('error')}")

@@ -76,6 +76,14 @@ class EmailNotifier:
         self.eastern = pytz.timezone('US/Eastern')
         self.israel = pytz.timezone('Asia/Jerusalem')
         
+        # Initialize optional Telegram notifier
+        self.telegram_notifier = None
+        try:
+            from core.utils.telegram_notifier import TelegramNotifier
+            self.telegram_notifier = TelegramNotifier()
+        except Exception as e:
+            logger.warning(f"[TELEGRAM] Could not initialize Telegram notifier: {e}")
+        
         # Initialize IBKR engine for live data
         self.ibkr_engine = None
         self._init_ibkr_engine()
@@ -241,11 +249,29 @@ class EmailNotifier:
             
             logger.info("[OK] Message accepted by Gmail server")
             logger.info(f"[OK] Email sent successfully to {to_email}")
+            self._mirror_to_telegram(subject, body, is_error=False)
             return True
             
         except Exception as e:
             logger.error(f"[FAIL] Full error details: {type(e).__name__}: {e}")
+            self._mirror_to_telegram(f"[EMAIL FAIL] {subject}", str(e), is_error=True)
             return False
+    
+    def _mirror_to_telegram(self, subject: str, body: str, is_error: bool = False):
+        """Mirror email subject/body to Telegram if configured."""
+        if self.telegram_notifier is None:
+            return
+        try:
+            if is_error:
+                self.telegram_notifier.send_error_alert(
+                    mode="email",
+                    error_summary=subject,
+                    traceback_text=body,
+                )
+            else:
+                self.telegram_notifier.send_html_email_fallback(subject, body)
+        except Exception as te:
+            logger.warning(f"[TELEGRAM] Mirror failed: {te}")
     
     def send_html_email_with_attachment(self, subject: str, html_content: str, 
                                        attachment_path: str = None) -> bool:
@@ -833,10 +859,12 @@ Please check the logging system and file system integrity.
                 server.send_message(msg)
             
             logger.info(f"Email sent successfully: {subject}")
+            self._mirror_to_telegram(subject, html_content, is_error=False)
             return True
             
         except Exception as e:
             logger.error(f"[FAIL] Full error details: {type(e).__name__}: {e}")
+            self._mirror_to_telegram(f"[EMAIL FAIL] {subject}", str(e), is_error=True)
             return False
     
     def send_alert(self, subject: str, message: str) -> bool:

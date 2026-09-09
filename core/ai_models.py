@@ -388,16 +388,9 @@ class EnsemblePredictor:
             # Select only numeric features
             numeric_features = features.select_dtypes(include=[np.number])
             
-            # Drop raw OHLCV columns (non-stationary, must match training)
-            raw_ohlcv = {
-                'Price', 'high', 'low', 'open', 'close', 'volume',
-                'Adj Close', 'Adj High', 'Adj Low', 'Adj Open', 'Adj Volume',
-                'adjClose', 'adjHigh', 'adjLow', 'adjOpen', 'adjVolume',
-                'Dividend', 'Split Factor', 'divCash', 'splitFactor',
-            }
-            cols_to_drop = [c for c in numeric_features.columns if c in raw_ohlcv]
-            if cols_to_drop:
-                numeric_features = numeric_features.drop(columns=cols_to_drop)
+            # Phase 19: keep raw OHLCV columns. feature_names.pkl includes
+            # Price/high/low/open/volume, so models were trained with them.
+            # Dropping them here zeroed those features and degraded predictions.
             
             # Ensure we have all required features
             missing_features = set(self.feature_names) - set(numeric_features.columns)
