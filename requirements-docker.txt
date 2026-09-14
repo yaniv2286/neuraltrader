@@ -1,0 +1,55 @@
+# NeuralTrader Docker-optimized requirements
+# Same behaviour as requirements.txt but excludes the heavy torch / pytorch-forecasting
+# stack which is not imported by the live trading path. This keeps the container image
+# small while preserving 100%% of backtest / paper / live trading functionality.
+
+# Core Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=15.0.0
+fastparquet>=2024.2.0
+
+# Machine Learning
+scikit-learn==1.6.1
+xgboost>=2.0.0
+lightgbm>=4.6.0
+
+# Technical Analysis
+ta>=0.10.2
+
+# Data Sources
+tiingo>=0.14.0
+requests>=2.32.5
+yfinance>=0.2.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Configuration & Utilities
+PyYAML>=6.0.2
+openpyxl>=3.1.5
+schedule>=1.2.2
+python-dotenv>=1.0.0
+pytz>=2024.1
+
+# Interactive Brokers Integration
+ib_async>=1.13.0
+ib_insync>=0.9.86
+
+# Family Agent Platform adapter
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# CNN Fear & Greed regime feature
+fear-and-greed==0.4
+
+# Optional: Telegram alerting (enable when Telegram notifier is wired in)
+python-telegram-bot>=20.0.0
+
+# Development & Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
