@@ -441,21 +441,26 @@ def _alert_lines(limit: int = 20) -> List[Dict[str, Any]]:
 def _workflow_summary() -> Dict[str, Any]:
     jobs = {}
     failure_markers = ("[ERROR]", "[CRITICAL]", "[FATAL]", "Traceback")
-    success_markers = ("[OK]", "completed", "finished", "sent")
     for mode in ("fetch", "paper", "report"):
         path = LOGS_DIR / f"cron_{mode}.log"
         lines = []
         if path.exists():
             try:
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+                starts = [index for index, line in enumerate(lines) if "Automation Session Started" in line]
+                lines = lines[starts[-1]:] if starts else lines[-300:]
             except Exception as exc:
                 logger.error(f"[CONTROL] Failed to inspect workflow log {path}: {exc}", exc_info=True)
-        failed = any(marker in line for line in lines for marker in failure_markers)
-        succeeded = any(marker.lower() in line.lower() for line in lines for marker in success_markers)
+        result_true = any("[RESULT] Execution result: True" in line for line in lines)
+        result_false = any("[RESULT] Execution result: False" in line for line in lines)
+        failed = result_false or (not result_true and any(marker in line for line in lines for marker in failure_markers))
+        running = bool(lines) and not result_true and not result_false and not failed
         jobs[mode] = {
-            "status": "failed" if failed else "success" if succeeded else "never_run",
+            "status": "success" if result_true else "failed" if failed else "running" if running else "never_run",
             "last_run": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat() if path.exists() else None,
             "last_error": next((line for line in reversed(lines) if any(marker in line for marker in failure_markers)), None),
+            "telegram_sent": any("[TELEGRAM] Message sent successfully" in line for line in lines),
+            "email_sent": any("Email sent successfully" in line for line in lines),
         }
     data_files = list((DATA_DIR / "raw").glob("*.parquet"))
     newest = max(data_files, key=lambda path: path.stat().st_mtime) if data_files else None
