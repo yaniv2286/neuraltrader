@@ -1,0 +1,127 @@
+version: "3.8"
+
+services:
+  neuraltrader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: neuraltrader
+    hostname: neuraltrader
+    restart: always
+
+    # Attach to the same internal network used by family-agent-platform so other
+    # agents can reach NeuralTrader if needed (e.g. for status/RPC hooks).
+    networks:
+      - family-agents-net
+
+    # All runtime state lives on the host next to the compose file. On the VPS
+    # this is /root/neuraltrader, so it survives image rebuilds and restarts.
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      # Optional: persist retrained models across image rebuilds.
+      # The entrypoint seeds an empty mount from the image's bootstrap copy.
+      - ./models:/app/models
+
+    env_file:
+      - .env
+
+    environment:
+      # Ensure Python output is visible immediately in `docker compose logs`.
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # US-market-relative schedule used by cron inside the container.
+      - TZ=America/New_York
+      # IBKR connection point. Use `host.docker.internal` if TWS/IB Gateway
+      # runs on the VPS host (requires Docker 20.10+ or `extra_hosts` below).
+      - IBKR_HOST=${IBKR_HOST:-host.docker.internal}
+      - IBKR_PORT=${IBKR_PORT:-7497}
+
+    # If IB Gateway runs directly on the VPS host, uncomment this line to map
+    # 127.0.0.1:7497 inside the container to the host's TWS socket.
+    # network_mode: host
+
+    # On Docker for Linux, host.docker.internal is not automatic; this adds the
+    # gateway alias so IBKR_HOST=host.docker.internal resolves to the VPS host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Restart quickly if the orchestrator exits, but back off on repeated failures.
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 60s
+
+    # Minimal healthcheck: verify the Python process / cron daemon is alive.
+    # A real healthcheck can be expanded to hit a lightweight status endpoint.
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep cron || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # -------------------------------------------------------------------------
+  # Signed monitoring/control adapter for family-agent-platform integration.
+  # Runs as a separate container so the live trading loop is isolated from
+  # the API surface.  It shares the same image/volumes and is reachable on
+  # the shared family-agents-net network (host port 8000 by default).
+  # -------------------------------------------------------------------------
+  neuraltrader-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: neuraltrader-control
+    hostname: neuraltrader-control
+    restart: always
+
+    networks:
+      - family-agents-net
+
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./models:/app/models
+
+    env_file:
+      - .env
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - TZ=America/New_York
+      # The shared secret must be supplied in .env as AGENT_SHARED_SECRET.
+      # The HMAC auth dependency will reject all requests if it is missing.
+      - CONTROL_API_HOST=0.0.0.0
+      - CONTROL_API_PORT=8000
+
+    ports:
+      - "${CONTROL_API_PORT:-8000}:8000"
+
+    command:
+      - "python"
+      - "-m"
+      - "uvicorn"
+      - "core.control_api:app"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--app-dir"
+      - "/app"
+
+    healthcheck:
+      test: ["CMD-SHELL", "python /app/scripts/control_healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  family-agents-net:
+    external: true
+    name: family-agents-net

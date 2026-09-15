@@ -75,7 +75,7 @@ class TradingStrategy:
         logger.info(f"   Stop Loss: {self.STOP_LOSS_PCT*100:.0f}% fixed | Trail: {self.TRAIL_STOP_PCT*100:.1f}% (activates at +{self.TRAIL_ACTIVATE_PCT*100:.0f}%)")
         logger.info(f"   Take Profit: {self.TAKE_PROFIT_PCT*100:.0f}% | Max Hold: {self.MAX_HOLD_DAYS}d")
         logger.info(f"   Risk/Trade: {self.MAX_RISK_PER_TRADE*100:.1f}% | Base Pos: {self.BASE_POSITION_PCT*100:.0f}%")
-        logger.info(f"   Uncle Point: DISABLED | Shorts: DISABLED | Max Positions: {self.MAX_POSITIONS}")
+        logger.info(f"   Uncle Point: ENABLED {self.UNCLE_POINT_DD*100:.0f}% / {self.COOLDOWN_DAYS}d cooldown | Shorts: DISABLED | Max Positions: {self.MAX_POSITIONS}")
         logger.info(f"   Rebalance: Weekly (Monday) | Regime Thresholds: BULL={self.BULL_THRESHOLD} BEAR={self.BEAR_THRESHOLD}")
     
     def pre_execution_data_validation(self) -> bool:
@@ -161,12 +161,12 @@ class TradingStrategy:
     def check_exit(self, data: pd.DataFrame, entry_price: float = None, entry_atr: float = None,
                    stop_loss_pct: float = None, peak_price: float = None, hold_days: int = 0) -> dict:
         """
-        Exit condition check implementing Phase 16 exit hierarchy:
+        Exit condition check implementing Phase 19 exit hierarchy:
         1. Fixed 4% stop-loss (cut losers fast)
-        2. Trailing stop (1.2% from peak, activates once >=2% profit)
-        3. Take-profit (20% — effectively disabled, trail handles exits)
+        2. Trailing stop (4.0% from peak, activates once >=2% profit)
+        3. Take-profit (8%)
         4. Timeout (5 days — fast churn of non-performers)
-        
+
         Returns:
             dict: {'should_exit': bool, 'reason': str or None}
         """
@@ -185,7 +185,7 @@ class TradingStrategy:
                 logger.info(f"[STOP] Fixed stop-loss: pnl={pnl_pct:.1%} <= -{_stop_pct:.1%}")
                 return {'should_exit': True, 'reason': 'STOP_LOSS'}
 
-            # 2. Trailing stop (activates once position is >=2% in profit, trails 1.2% from peak)
+            # 2. Trailing stop (activates once position is >=2% in profit, trails 4.0% from peak)
             _peak = peak_price if peak_price is not None else current_price
             if _peak > entry_price * (1 + self.TRAIL_ACTIVATE_PCT):
                 trail_pct = (_peak - current_price) / _peak
@@ -193,7 +193,7 @@ class TradingStrategy:
                     logger.info(f"[TRAIL] Trailing stop: {trail_pct:.1%} from peak ${_peak:.2f}")
                     return {'should_exit': True, 'reason': 'TRAIL_STOP'}
 
-            # 3. Take-profit (20% — effectively disabled since trail handles it)
+            # 3. Take-profit (8%)
             if pnl_pct >= self.TAKE_PROFIT_PCT:
                 logger.info(f"[TP] Take-profit: pnl={pnl_pct:.1%} >= {self.TAKE_PROFIT_PCT:.0%}")
                 return {'should_exit': True, 'reason': 'TAKE_PROFIT'}

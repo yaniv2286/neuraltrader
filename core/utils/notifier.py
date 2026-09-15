@@ -249,12 +249,10 @@ class EmailNotifier:
             
             logger.info("[OK] Message accepted by Gmail server")
             logger.info(f"[OK] Email sent successfully to {to_email}")
-            self._mirror_to_telegram(subject, body, is_error=False)
             return True
             
         except Exception as e:
             logger.error(f"[FAIL] Full error details: {type(e).__name__}: {e}")
-            self._mirror_to_telegram(f"[EMAIL FAIL] {subject}", str(e), is_error=True)
             return False
     
     def _mirror_to_telegram(self, subject: str, body: str, is_error: bool = False):
@@ -859,12 +857,10 @@ Please check the logging system and file system integrity.
                 server.send_message(msg)
             
             logger.info(f"Email sent successfully: {subject}")
-            self._mirror_to_telegram(subject, html_content, is_error=False)
             return True
             
         except Exception as e:
             logger.error(f"[FAIL] Full error details: {type(e).__name__}: {e}")
-            self._mirror_to_telegram(f"[EMAIL FAIL] {subject}", str(e), is_error=True)
             return False
     
     def send_alert(self, subject: str, message: str) -> bool:

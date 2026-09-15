@@ -8,11 +8,11 @@ Data source : data/raw/*.parquet  (2,183 tickers, pre-loaded at startup)
 AI models   : 64-feature base ensemble (XGBoost + LightGBM + RF)
 Risk laws   : ARCHITECTURE.md / Rule 2.1-2.4 enforced
 
-Entry : AI confidence > 0.60
-Exit  : 10% stop-loss | 30% take-profit | 20-day timeout (Phase 11.1)
-Size  : 1% portfolio risk / annualized-vol * conf^2  (confidence-weighted)
-CB    : 12% drawdown -> 8-day cooldown (Uncle Point)
-Regime: SPY > 50-day SMA required for new entries
+Entry : AI confidence > 0.65 (BULL) / 0.72 (BEAR)
+Exit  : 4% stop-loss | 8% take-profit | 4.0% trailing stop (+2% activate) | 5-day timeout
+Size  : 0.8% portfolio risk / annualized-vol
+CB    : 20% drawdown -> 8-day cooldown (Uncle Point)
+Regime: AI 3-class classifier (CRISIS/BEAR/BULL), SPY SMA100 fallback
 
 PERFORMANCE CACHE (data/cache/backtest/):
     - Confidence scores cached per ticker as .npz files

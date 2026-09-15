@@ -1,0 +1,36 @@
+# Keep the Docker build context small and free of secrets / local state.
+
+# Version control
+.git
+.gitignore
+
+# Python virtual environments and caches
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# Runtime state (mounted as volumes on the host)
+data/
+logs/
+reports/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS and editor artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+*.code-workspace
+
+# Note: models/, core/, scripts/, docs/, and source code are intentionally
+# included in the image so the container can run without additional mounts.

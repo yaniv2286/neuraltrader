@@ -11,11 +11,13 @@ This module is intentionally dependency-light (only stdlib + requests) so it
 can be imported from core/utils/notifier.py without bloating the runtime.
 """
 
+import json
 import os
 import logging
 import re
 import requests
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
@@ -165,10 +167,83 @@ class TelegramNotifier:
         )
         return self._post(f"{header}\n\n{body}")
 
+    def send_run_summary(self, summary: dict) -> bool:
+        """Send one compact, informative summary at the end of a run.
+
+        This replaces the old pattern of mirroring every email to Telegram,
+        which produced duplicate, stripped-HTML noise.
+        """
+        if not self.enabled:
+            return False
+
+        # Deduplicate accidental rapid re-runs of the same mode+status.
+        mode = str(summary.get("mode", "UNKNOWN")).upper()
+        status = summary.get("status", "UNKNOWN")
+        portfolio_value = float(summary.get("portfolio_value", 0) or 0)
+        total_pnl = float(summary.get("total_pnl", 0) or 0)
+        timestamp = summary.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Round to the nearest $100 for deduplication so tiny market wiggles
+        # do not cause repeated messages.
+        sig = f"{mode}:{status}:{round(portfolio_value / 100):.0f}:{round(total_pnl / 100):.0f}"
+        last_path = Path("logs/last_telegram.json")
+        now = datetime.now()
+        try:
+            if last_path.exists():
+                last = json.loads(last_path.read_text(encoding="utf-8"))
+                if (last.get("signature") == sig and
+                        (now - datetime.fromisoformat(last["sent_at"])).total_seconds() < 300):
+                    logger.info("[TELEGRAM] Skipping duplicate summary within 5-minute window")
+                    return False
+        except Exception:
+            logger.exception("[TELEGRAM] Could not read last_telegram dedup file")
+
+        if status == "OK":
+            header = f"[OK] NeuralTrader {mode} completed - {timestamp}"
+        elif status == "WARN":
+            header = f"[WARN] NeuralTrader {mode} completed with issues - {timestamp}"
+        else:
+            header = f"[CRASH] NeuralTrader {mode} FAILED - {timestamp}"
+
+        lines = [
+            header,
+            f"",
+            f"Portfolio: ${portfolio_value:,.2f}",
+            f"Cash: ${float(summary.get('cash', 0) or 0):,.2f}",
+            f"P&L: ${total_pnl:,.2f}",
+            f"Active Positions: {int(summary.get('active_positions', 0) or 0)}",
+            f"Buy Signals: {int(summary.get('buy_signals', 0) or 0)}",
+            f"Sell Signals: {int(summary.get('sell_signals', 0) or 0)}",
+        ]
+
+        email_sent = bool(summary.get("email_sent"))
+        if email_sent:
+            lines.append("Email: sent")
+        else:
+            lines.append("Email: failed (see log file)")
+
+        exception_text = summary.get("exception_text") or ""
+        if exception_text:
+            # Show the first exception line, not a full traceback dump.
+            first_line = exception_text.strip().splitlines()[0]
+            if len(first_line) > 200:
+                first_line = first_line[:200]
+            lines.append(f"Error: {first_line}")
+
+        text = "\n".join(lines)
+
+        sent = self._post(text)
+        if sent and last_path.parent.exists():
+            try:
+                last_path.write_text(json.dumps({"signature": sig, "sent_at": now.isoformat()}), encoding="utf-8")
+            except Exception:
+                logger.exception("[TELEGRAM] Could not write last_telegram dedup file")
+        return sent
+
     def send_html_email_fallback(self, subject: str, html_body: str) -> bool:
         """
         Strip tags from an HTML email and send a short Telegram summary.
-        Used by the email notifier to keep Telegram and email in sync.
+        Kept for backwards compatibility; new code should use send_run_summary.
         """
         text = _strip_html(html_body)
         return self._post(f"{subject}\n\n{text[:MAX_TEXT_LENGTH]}")

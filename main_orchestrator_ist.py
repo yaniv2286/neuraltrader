@@ -726,14 +726,14 @@ class MockVirtualEngine:
     
     def check_and_execute_exits(self, trading_strategy, defer_timeout=False):
         """
-        Phase 16 Exit Management: Check all positions for exit conditions daily.
-        Exit hierarchy: Stop-Loss (4%) > Trailing Stop (1.2%) > Take-Profit (20%) > Timeout (5d)
+        Phase 19 Exit Management: Check all positions for exit conditions daily.
+        Exit hierarchy: Stop-Loss (4%) > Trailing Stop (4.0% after +2%) > Take-Profit (8%) > Timeout (5d)
 
-        Phase 18 (churn fix): when defer_timeout=True, TIMEOUT exits are NOT sold
+        Phase 18/19 (churn fix): when defer_timeout=True, TIMEOUT exits are NOT sold
         immediately. They are queued in self.pending_timeout_exits and resolved by
-        resolve_deferred_timeouts() once today's AI buy list is known — a position
-        the AI still ranks as a buy is held instead of being sold and re-bought
-        (which burned commissions + slippage on 148 zero-PnL round-trips).
+        resolve_deferred_timeouts() once today's AI ranking is known — a timed-out
+        position is held only if it ranks in the top MAX_POSITIONS AI BUY candidates;
+        otherwise it is sold (preventing zero-PnL round-trips).
         """
         import pandas as pd
         from datetime import datetime
@@ -832,13 +832,13 @@ class MockVirtualEngine:
         
         return exits_executed
 
-    def resolve_deferred_timeouts(self, wanted_tickers):
+    def resolve_deferred_timeouts(self, signals, max_positions=None):
         """
-        Phase 18 (churn fix): resolve TIMEOUT exits deferred by check_and_execute_exits.
+        Phase 18/19 (churn fix): resolve TIMEOUT exits deferred by check_and_execute_exits.
 
-        wanted_tickers: set of tickers the AI ranks as buys TODAY (post regime filter).
-        A timed-out position still on that list is HELD (no sell-and-rebuy churn);
-        everything else is sold with the normal 'EXIT: TIMEOUT' reason.
+        A timed-out position is HELD only if it ranks in the top `max_positions`
+        AI BUY candidates (current non-timeout positions + new buy signals);
+        otherwise it is sold as 'EXIT: TIMEOUT'.
         Stop-loss / trailing-stop / take-profit still fire first in
         check_and_execute_exits — this only affects the TIMEOUT rule.
         """
@@ -846,23 +846,74 @@ class MockVirtualEngine:
         pending = getattr(self, 'pending_timeout_exits', [])
         if not pending:
             return exits_executed
-        
-        wanted = {str(t).upper() for t in (wanted_tickers or set())}
+
+        max_positions = max_positions or getattr(self, 'MAX_POSITIONS', 20)
+        current_positions = set(self.portfolio.get('positions', {}).keys())
+        pending_set = {str(t).upper() for t, _, _ in pending}
+        non_timeout_positions = current_positions - pending_set
+
+        candidate_scores = {}
+        for s in signals or []:
+            if s.get('action') == 'buy':
+                ticker = str(s.get('ticker', '')).upper()
+                score = s.get('ai_score', s.get('confidence', 0.0))
+                candidate_scores[ticker] = max(candidate_scores.get(ticker, 0.0), score)
+        # Non-timeout current positions keep their slots; score them from signals if available
+        for t in non_timeout_positions:
+            candidate_scores.setdefault(t, 0.0)
+
+        ranked = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
+        top_tickers = {t for t, _ in ranked[:max_positions]}
+
         for ticker, shares, price in pending:
-            if ticker.upper() in wanted:
-                self.logger.info(f"[HOLD-THRU] {ticker}: timed out but AI still ranks it as a buy — holding (churn fix)")
+            if ticker.upper() in top_tickers:
+                self.logger.info(f"[HOLD-THRU] {ticker}: timed out but still top-{max_positions} AI candidate — holding (churn fix)")
                 continue
             result = self.execute_trade(ticker, 'sell', shares, price, 'EXIT: TIMEOUT')
             if result.get('success'):
                 exits_executed.append({'ticker': ticker, 'shares': shares, 'price': price, 'reason': 'TIMEOUT'})
-                self.logger.info(f"[EXIT] Sold {shares} {ticker} @ ${price:.2f} (TIMEOUT — no longer AI-ranked)")
+                self.logger.info(f"[EXIT] Sold {shares} {ticker} @ ${price:.2f} (TIMEOUT — dropped out of top-{max_positions})")
             else:
                 self.logger.error(f"[EXIT] Failed to sell {ticker}: {result.get('error')}")
-        
+
         self.pending_timeout_exits = []
         if exits_executed:
             self.logger.info(f"[EXITS] Resolved deferred timeouts: {len(exits_executed)} sold, {len(pending) - len(exits_executed)} held")
         return exits_executed
+
+    def liquidate_portfolio(self, reason='UNCLE_POINT'):
+        """
+        Liquidate all long positions immediately. Used by the Uncle Point circuit breaker.
+        Returns list of successfully sold tickers.
+        """
+        sold = []
+        positions = list(self.portfolio.get('positions', {}).items())
+        if not positions:
+            return sold
+        for ticker, pos in positions:
+            shares = pos.get('shares', 0)
+            if shares <= 0:
+                continue
+            current_price = pos.get('current_price', 0)
+            if current_price <= 0:
+                try:
+                    import pandas as pd
+                    ppath = Path(self.project_root) / 'data' / 'raw' / f'{ticker}.parquet'
+                    df = pd.read_parquet(ppath)
+                    for col in ('close', 'adjClose', 'Close'):
+                        if col in df.columns:
+                            current_price = float(df[col].iloc[-1])
+                            break
+                except Exception as e:
+                    self.logger.warning(f"[LIQUIDATE] Cannot get price for {ticker}: {e}")
+                    continue
+            result = self.execute_trade(ticker, 'sell', shares, current_price, reason)
+            if result.get('success'):
+                sold.append(ticker)
+                self.logger.info(f"[LIQUIDATE] Sold {shares} {ticker} @ ${current_price:.2f} [{reason}]")
+            else:
+                self.logger.error(f"[LIQUIDATE] Failed to sell {ticker}: {result.get('error')}")
+        return sold
 
     def get_account_info(self):
         """Return current account information"""
@@ -2216,7 +2267,12 @@ This is an automated message from NeuralTrader Paper Trading System.
                 elif dd_pct > uncle_threshold:
                     cool_until = (now + timedelta(days=cooldown_days)).isoformat()
                     portfolio['circuit_breaker_cooldown_until'] = cool_until
-                    self.logger.warning(f"[P19] UNCLE POINT TRIPPED: {dd_pct:.1%} DD > {uncle_threshold:.0%}. New entries blocked for {cooldown_days}d until {cool_until}")
+                    self.logger.warning(f"[P19] UNCLE POINT TRIPPED: {dd_pct:.1%} DD > {uncle_threshold:.0%}. Liquidating portfolio and blocking new entries for {cooldown_days}d until {cool_until}")
+                    liquidated = self.virtual_engine.liquidate_portfolio('UNCLE_POINT')
+                    if liquidated:
+                        self.logger.warning(f"[P19] UNCLE POINT liquidation complete: {len(liquidated)} positions sold")
+                    else:
+                        self.logger.warning("[P19] UNCLE POINT liquidation: no positions to sell")
                 else:
                     self.logger.info("[P19] Uncle Point within limits — new entries allowed")
             except Exception as e:
@@ -2257,7 +2313,7 @@ This is an automated message from NeuralTrader Paper Trading System.
                 if today_weekday != rebalance_day and not force_scan:
                     self.logger.info(f"[P16] Not rebalance day (today={today_weekday}, rebalance={rebalance_day}) — exits done, skipping new entries")
                     # No AI scan today — resolve deferred timeouts as normal sells
-                    self.virtual_engine.resolve_deferred_timeouts(set())
+                    self.virtual_engine.resolve_deferred_timeouts([])
                     # Still save portfolio after exits
                     self.virtual_engine.save_portfolio()
                     session_end = datetime.now()
@@ -2333,12 +2389,13 @@ This is an automated message from NeuralTrader Paper Trading System.
                 
                 self.logger.info(f"[SIGNALS] {len(signals)} AI signals after regime filtering")
 
-                # Phase 18 (churn fix): resolve deferred TIMEOUT exits using AI signal set
-                # A timeout position the AI still ranks above threshold is HELD, not churned.
-                wanted_tickers = {s['ticker'].upper() for s in signals if s.get('action') == 'buy'}
-                resolved = self.virtual_engine.resolve_deferred_timeouts(wanted_tickers)
+                # Phase 18/19 (churn fix): resolve deferred TIMEOUT exits using AI ranking.
+                # A timed-out position is HELD only if it ranks in the top MAX_POSITIONS
+                # AI BUY candidates; otherwise it is sold to avoid churn.
+                max_positions = getattr(self.trading_strategy, 'MAX_POSITIONS', 20)
+                resolved = self.virtual_engine.resolve_deferred_timeouts(signals, max_positions)
                 if resolved:
-                    self.logger.info(f"[P18] Resolved deferred timeouts: {len(resolved)} sold, {len(wanted_tickers)} AI buy candidates used for hold-through filter")
+                    self.logger.info(f"[P18] Resolved deferred timeouts: {len(resolved)} sold, top-{max_positions} AI ranking used for hold-through filter")
 
                 # Re-sync positions in case any timeouts were sold
                 current_positions = set(self.virtual_engine.portfolio.get('positions', {}).keys())
@@ -2504,7 +2561,7 @@ This is an automated message from NeuralTrader Paper Trading System.
                 import traceback
                 self.logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
                 # If signals fail, sell all deferred timeouts rather than leave them in limbo
-                self.virtual_engine.resolve_deferred_timeouts(set())
+                self.virtual_engine.resolve_deferred_timeouts([])
                 self.virtual_engine.save_portfolio()
                 return False
             
@@ -3303,7 +3360,7 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
           <td style="padding:5px;">{'INITIALIZED' if 'orchestrator' in locals() else 'NOT INITIALIZED'}</td></tr>
       <tr style="background:#f9f9f9;">
           <td style="padding:5px;color:#555;"><strong>Risk Management</strong></td>
-          <td style="padding:5px;">ACTIVE (Uncle Point 10% / 8-day cooldown)</td></tr>
+          <td style="padding:5px;">ACTIVE (Uncle Point 20% / 8-day cooldown)</td></tr>
       <tr><td style="padding:5px;color:#555;"><strong>SPY Regime Filter</strong></td>
           <td style="padding:5px;">ACTIVE (100-day SMA)</td></tr>
       <tr style="background:#f9f9f9;">
@@ -3346,9 +3403,72 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
             else:
                 logger.error(f"[EMAIL] [FAIL] Failed to send notification | mode={mode_label}")
 
+            # ---- Single, compact Telegram summary per run ------------------
+            try:
+                portfolio_data = EMAIL_PORTFOLIO_DATA if 'EMAIL_PORTFOLIO_DATA' in globals() else {
+                    'portfolio_value': 0, 'cash': 0, 'total_pnl': 0, 'active_positions': pd.DataFrame()
+                }
+                if isinstance(portfolio_data.get('active_positions'), pd.DataFrame):
+                    active_positions = len(portfolio_data['active_positions'])
+                else:
+                    active_positions = len(portfolio_data.get('active_positions', []))
+
+                buy_signals = EMAIL_BUY_SIGNALS if 'EMAIL_BUY_SIGNALS' in globals() else []
+                sell_signals = EMAIL_SELL_SIGNALS if 'EMAIL_SELL_SIGNALS' in globals() else []
+
+                if exception_caught:
+                    status = "CRASH"
+                elif execution_result:
+                    status = "OK"
+                else:
+                    status = "WARN"
+
+                telegram_summary = {
+                    "mode": mode_label,
+                    "status": status,
+                    "timestamp": timestamp,
+                    "portfolio_value": float(portfolio_data.get('portfolio_value', 0) or 0),
+                    "cash": float(portfolio_data.get('cash', 0) or 0),
+                    "total_pnl": float(portfolio_data.get('total_pnl', 0) or 0),
+                    "active_positions": active_positions,
+                    "buy_signals": len(buy_signals),
+                    "sell_signals": len(sell_signals),
+                    "email_sent": email_sent,
+                    "exception_text": exception_traceback if exception_caught and exception_traceback else "",
+                }
+
+                if notifier.telegram_notifier is not None:
+                    tg_ok = notifier.telegram_notifier.send_run_summary(telegram_summary)
+                    logger.info(f"[TELEGRAM] Summary sent: {tg_ok} | mode={mode_label} | status={status}")
+                else:
+                    logger.info("[TELEGRAM] Notifier not initialized; skipping Telegram summary")
+            except Exception as tg_error:
+                logger.error(f"[TELEGRAM] Failed to build or send summary: {tg_error}")
+
         except Exception as email_error:
             logger.error(f"[EMAIL] [FAIL] CRITICAL - could not send notification: {email_error}")
             logger.error(f"[EMAIL] {traceback.format_exc()}")
+
+            # Attempt a minimal crash-only Telegram if email infrastructure is down
+            try:
+                fallback_notifier = EmailNotifier()
+                if fallback_notifier.telegram_notifier is not None:
+                    crash_summary = {
+                        "mode": (args.mode if 'args' in locals() and args else 'UNKNOWN').upper(),
+                        "status": "CRASH",
+                        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "portfolio_value": 0.0,
+                        "cash": 0.0,
+                        "total_pnl": 0.0,
+                        "active_positions": 0,
+                        "buy_signals": 0,
+                        "sell_signals": 0,
+                        "email_sent": False,
+                        "exception_text": traceback.format_exc(),
+                    }
+                    fallback_notifier.telegram_notifier.send_run_summary(crash_summary)
+            except Exception:
+                logger.exception("[TELEGRAM] Could not send fallback crash summary")
 
         # ===== FINAL LOGGING =====
         logger.info("=" * 80)
