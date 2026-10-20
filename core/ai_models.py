@@ -246,10 +246,11 @@ class EnsemblePredictor:
         self.logger = logging.getLogger('EnsemblePredictor')
         self.use_sentiment = use_sentiment
 
-        # Set models directory
+        # Set models directory (NT_MODELS_DIR env lets walk-forward folds swap models in)
         if models_dir is None:
+            env_dir = os.environ.get('NT_MODELS_DIR')
             project_root = Path(__file__).parent.parent
-            models_dir = project_root / "models"
+            models_dir = Path(env_dir) if env_dir else project_root / "models"
 
         self.models_dir = Path(models_dir)
 

@@ -250,6 +250,59 @@ def _load_portfolio() -> Dict[str, Any]:
     return data
 
 
+def _realized_performance() -> Dict[str, Any]:
+    history = _load_portfolio().get("history", []) or []
+    lots: Dict[str, List[Dict[str, float]]] = {}
+    realized = []
+    unmatched_sells = 0
+    for trade in history:
+        if not isinstance(trade, dict):
+            continue
+        ticker = str(trade.get("ticker", "")).upper()
+        action = str(trade.get("action", "")).lower()
+        quantity = float(trade.get("quantity", 0) or 0)
+        if not ticker or quantity <= 0:
+            continue
+        if action == "buy":
+            total_cost = float(trade.get("cost", 0) or 0)
+            unit_cost = total_cost / quantity if total_cost > 0 else float(trade.get("price", 0) or 0)
+            lots.setdefault(ticker, []).append({"quantity": quantity, "unit_cost": unit_cost})
+            continue
+        if action != "sell":
+            continue
+        remaining = quantity
+        matched_cost = 0.0
+        queue = lots.setdefault(ticker, [])
+        while remaining > 0 and queue:
+            lot = queue[0]
+            used = min(remaining, lot["quantity"])
+            matched_cost += used * lot["unit_cost"]
+            remaining -= used
+            lot["quantity"] -= used
+            if lot["quantity"] <= 1e-9:
+                queue.pop(0)
+        if remaining > 1e-9:
+            unmatched_sells += 1
+            continue
+        proceeds = float(trade.get("proceeds", 0) or 0)
+        pnl = float(trade.get("pnl", proceeds - matched_cost) or 0)
+        realized.append(pnl)
+    wins = [value for value in realized if value > 0]
+    losses = [value for value in realized if value < 0]
+    gross_profit = sum(wins)
+    gross_loss = abs(sum(losses))
+    return {
+        "matched_closed_trades": len(realized),
+        "unmatched_sell_records": unmatched_sells,
+        "realized_pnl": round(sum(realized), 2),
+        "win_rate_pct": round(len(wins) / len(realized) * 100, 2) if realized else 0.0,
+        "average_win": round(gross_profit / len(wins), 2) if wins else 0.0,
+        "average_loss": round(sum(losses) / len(losses), 2) if losses else 0.0,
+        "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss else None,
+        "coverage_complete": unmatched_sells == 0,
+    }
+
+
 def _portfolio_summary() -> Dict[str, Any]:
     data = _load_portfolio()
     cash = float(data.get("cash", 0.0))
@@ -269,6 +322,7 @@ def _portfolio_summary() -> Dict[str, Any]:
         "peak_value": round(peak, 2),
         "drawdown_pct": round(drawdown * 100, 2),
         "positions_count": len(positions),
+        "realized_performance": _realized_performance(),
         "last_saved": data.get("last_saved"),
         "circuit_breaker_cooldown_until": data.get("circuit_breaker_cooldown_until"),
     }
@@ -337,6 +391,8 @@ def _orders_and_trades(limit: int = 50) -> List[Dict[str, Any]]:
                 "quantity": trade.get("quantity"),
                 "price": trade.get("price") or trade.get("exit_price"),
                 "status": "CLOSED",
+                "pnl": trade.get("pnl"),
+                "pnl_pct": trade.get("pnl_pct"),
                 "exit_reason": trade.get("reason") or trade.get("exit_reason"),
             }
         )

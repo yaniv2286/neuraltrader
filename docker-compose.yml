@@ -33,6 +33,7 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
       # US-market-relative schedule used by cron inside the container.
       - TZ=America/New_York
+      - DEPLOYMENT_LABEL=CLOUD
       # IBKR connection point. Use `host.docker.internal` if TWS/IB Gateway
       # runs on the VPS host (requires Docker 20.10+ or `extra_hosts` below).
       - IBKR_HOST=${IBKR_HOST:-host.docker.internal}
@@ -94,6 +95,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
       - TZ=America/New_York
+      - DEPLOYMENT_LABEL=CLOUD
       # The shared secret must be supplied in .env as AGENT_SHARED_SECRET.
       # The HMAC auth dependency will reject all requests if it is missing.
       - CONTROL_API_HOST=0.0.0.0

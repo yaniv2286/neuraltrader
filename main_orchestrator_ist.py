@@ -53,6 +53,9 @@ from core.utils.notifier import EmailNotifier
 # Import Quant Risk Machine
 from core.execution.risk_manager import RiskManager
 
+# Per-ticker data freshness + universe hygiene (Rule 3.1)
+from core.universe_filter import universe_check, staleness_bdays, last_bar_date, MAX_STALE_BDAYS
+
 # Project root directory
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -424,6 +427,7 @@ class MockVirtualEngine:
         raw_data_dir = os.path.join(self.project_root, 'data', 'raw')
         updated_positions = {}
         failed_tickers = []
+        self.stale_positions = {}
         
         for ticker, pos_data in self.portfolio['positions'].items():
             try:
@@ -445,6 +449,12 @@ class MockVirtualEngine:
                     self.logger.error(f"[PRICE SYNC] [FATAL] Empty data for {ticker}")
                     failed_tickers.append(ticker)
                     continue
+
+                # Rule 3.1 per ticker: flag positions whose data stopped updating (delisted/acquired)
+                stale_days = staleness_bdays(df)
+                if stale_days > MAX_STALE_BDAYS:
+                    self.stale_positions[ticker] = stale_days
+                    self.logger.warning(f"[STALE] {ticker}: last bar {last_bar_date(df).date()} is {stale_days} business days old - position will be force-exited")
                 
                 # Get latest close price (adjClose from Tiingo)
                 if 'adjClose' in df.columns:
@@ -658,7 +668,17 @@ class MockVirtualEngine:
             fill_price = round(price * (1 - self.SLIPPAGE_PCT), 4)
             commission = round(max(self.COMMISSION_MIN, self.COMMISSION_PER_SHARE * quantity), 2)
             proceeds = quantity * fill_price - commission
+            entry_cost = float(position.get('cost_basis', price)) * quantity
+            realized_pnl = proceeds - entry_cost
+            realized_pnl_pct = (realized_pnl / entry_cost * 100) if entry_cost > 0 else 0.0
             current_cash = self.portfolio.get('cash', 0)
+            entry_date = position.get('entry_date')
+            hold_days = None
+            if entry_date:
+                try:
+                    hold_days = (datetime.fromisoformat(str(timestamp)[:10]) - datetime.strptime(entry_date, '%Y-%m-%d')).days
+                except Exception:
+                    hold_days = None
             
             # Add cash
             self.portfolio['cash'] = current_cash + proceeds
@@ -691,6 +711,11 @@ class MockVirtualEngine:
                 'quote_price': price,
                 'commission': commission,
                 'proceeds': proceeds,
+                'entry_cost': entry_cost,
+                'pnl': realized_pnl,
+                'pnl_pct': realized_pnl_pct,
+                'entry_date': entry_date,
+                'hold_days': hold_days,
                 'reason': reason,
                 'cash_before': current_cash,
                 'cash_after': self.portfolio['cash']
@@ -709,6 +734,8 @@ class MockVirtualEngine:
                 'quantity': quantity,
                 'price': price,
                 'proceeds': proceeds,
+                'pnl': realized_pnl,
+                'pnl_pct': realized_pnl_pct,
                 'cash_before': current_cash,
                 'cash_after': self.portfolio['cash']
             }
@@ -785,6 +812,14 @@ class MockVirtualEngine:
                 
                 # Update current price
                 pos_data['current_price'] = current_price
+
+                # Rule 3.1 per ticker: stale data = dead symbol. Force exit, never defer.
+                stale_days = staleness_bdays(df)
+                if stale_days > MAX_STALE_BDAYS:
+                    pnl_pct = (current_price - entry_price) / entry_price if entry_price > 0 else 0
+                    self.logger.warning(f"[EXIT] {ticker}: STALE_DATA ({stale_days} bdays, last bar {last_bar_date(df).date()}) | Entry: ${entry_price:.2f} -> ${current_price:.2f} | PnL: {pnl_pct:.1%} | Days: {hold_days}")
+                    positions_to_close.append((ticker, shares, current_price, 'STALE_DATA'))
+                    continue
                 
                 # Phase 19: dynamic stop-loss (fixed 4% floor, ATR-aware if STOP_LOSS_ATR_MULT > 0)
                 dynamic_stop_pct = trading_strategy.calc_atr_stop_pct(df.tail(30)) if hasattr(trading_strategy, 'calc_atr_stop_pct') else trading_strategy.STOP_LOSS_PCT
@@ -1179,10 +1214,154 @@ class MockVirtualEngine:
                 'volatility_blocked': False
             }
     
+    def _generate_momentum_signals(self, trading_strategy):
+        """
+        Phase C momentum mode: 12-1 cross-sectional momentum, top-N equal weight,
+        monthly rebalance. Validated OOS as the surviving benchmark after the AI
+        ensemble failed every walk-forward gate (best Sharpe 0.35 vs SPY 0.68-1.25).
+
+        On non-rebalance days returns [] (daily exits still run: stale force-exit,
+        15% hard stop, Uncle Point). On the first run of each calendar month:
+          * SPY < SMA100 -> liquidate everything, no buys (regime gate to cash)
+          * held names ranked outside top (N + buffer) are SOLD here directly
+          * top-N names not held are returned as BUY signals for the normal
+            entry path (5% equal-weight allocation)
+        """
+        import pandas as pd
+        import numpy as np
+        from core.universe_filter import universe_check
+
+        signals = []
+        top_n = getattr(trading_strategy, 'MOMENTUM_TOP_N', 20)
+        buffer = getattr(trading_strategy, 'MOMENTUM_RANK_BUFFER', 5)
+
+        today = datetime.now()
+        last_reb = self.portfolio.get('momentum_last_rebalance')
+        already_done = last_reb and last_reb[:7] == today.strftime('%Y-%m')
+        positions = self.portfolio.get('positions', {})
+
+        if already_done:
+            self.logger.info(f"[MOMENTUM] Rebalance already done for {last_reb[:7]} — no action")
+            return signals
+
+        raw_dir = Path(self.project_root) / 'data' / 'raw'
+
+        def _load_adj(tk):
+            p = raw_dir / f'{tk}.parquet'
+            if not p.exists():
+                return None
+            df = pd.read_parquet(p)
+            if df.empty:
+                return None
+            if 'adjClose' in df.columns:
+                df['close'] = df['adjClose']
+            if 'adjVolume' in df.columns:
+                df['volume'] = df['adjVolume']
+            return df
+
+        # Regime gate: SPY above SMA100 = invest; below = all cash
+        spy_df = _load_adj('SPY')
+        regime_ok = True
+        if spy_df is not None and len(spy_df) >= 100:
+            spy_close = spy_df['close']
+            sma100 = float(spy_close.iloc[-100:].mean())
+            regime_ok = float(spy_close.iloc[-1]) > sma100
+            self.logger.info(f"[MOMENTUM] Regime gate: SPY ${spy_close.iloc[-1]:.2f} vs SMA100 ${sma100:.2f} -> {'INVEST' if regime_ok else 'CASH'}")
+        else:
+            self.logger.warning("[MOMENTUM] SPY data unavailable — regime gate defaults to INVEST")
+
+        if not regime_ok:
+            # Liquidate everything to cash
+            for ticker, pos in list(positions.items()):
+                shares = int(pos.get('shares', 0))
+                if shares <= 0:
+                    continue
+                df = _load_adj(ticker)
+                if df is None or len(df) == 0:
+                    continue
+                px = float(df['close'].iloc[-1])
+                result = self.execute_trade(ticker, 'sell', shares, px, 'EXIT: REGIME_CASH')
+                if result.get('success'):
+                    signals.append({'ticker': ticker, 'action': 'sell', 'quantity': shares,
+                                    'price': px, 'reason': 'REGIME_CASH', 'ai_score': 1.0})
+                    self.logger.info(f"[MOMENTUM] SELL {ticker} x{shares} @ ${px:.2f} (regime -> cash)")
+            self.portfolio['momentum_last_rebalance'] = today.strftime('%Y-%m-%d')
+            return signals
+
+        # Score the universe: 12-1 momentum (t-21 / t-252 - 1) with hygiene filter
+        scores = {}
+        rejects = {}
+        for pf in sorted(raw_dir.glob('*.parquet')):
+            tk = pf.stem.upper()
+            try:
+                df = pd.read_parquet(pf)
+                ok, reason = universe_check(tk, df)
+                if not ok:
+                    rejects[reason] = rejects.get(reason, 0) + 1
+                    continue
+                closes = df['adjClose'] if 'adjClose' in df.columns else df['close']
+                if len(closes) < 253:
+                    rejects['SHORT_HISTORY'] = rejects.get('SHORT_HISTORY', 0) + 1
+                    continue
+                mom = float(closes.iloc[-21] / closes.iloc[-252] - 1)
+                px = float(closes.iloc[-1])
+                if np.isfinite(mom) and np.isfinite(px) and px > 0:
+                    scores[tk] = (mom, px)
+            except Exception as e:
+                self.logger.debug(f"[MOMENTUM] {tk}: {e}")
+        if rejects:
+            self.logger.info(f"[MOMENTUM] Universe rejects: {dict(sorted(rejects.items()))}")
+
+        ranked = sorted(scores.items(), key=lambda kv: -kv[1][0])
+        rank_of = {t: i for i, (t, _) in enumerate(ranked)}
+        self.logger.info(f"[MOMENTUM] Scored {len(ranked)} tickers | top momentum: "
+                         + ", ".join(f"{t}={s[0]:+.1%}" for t, s in ranked[:5]))
+
+        # Keep held names still inside top (N+buffer); target = top N
+        keep = {t for t in positions if rank_of.get(t, 10**9) < top_n + buffer}
+        target = [t for t, _ in ranked[:top_n]]
+
+        # Sell held positions that dropped out of the keep set
+        for ticker, pos in list(positions.items()):
+            if ticker in keep:
+                continue
+            shares = int(pos.get('shares', 0))
+            df = _load_adj(ticker)
+            if df is None or len(df) == 0 or shares <= 0:
+                continue
+            px = float(df['close'].iloc[-1])
+            rank = rank_of.get(ticker)
+            result = self.execute_trade(ticker, 'sell', shares, px, 'EXIT: RANK_DROP')
+            if result.get('success'):
+                signals.append({'ticker': ticker, 'action': 'sell', 'quantity': shares,
+                                'price': px, 'reason': 'RANK_DROP', 'ai_score': 1.0})
+                self.logger.info(f"[MOMENTUM] SELL {ticker} x{shares} @ ${px:.2f} "
+                                 f"(rank {rank if rank is not None else 'out'} > {top_n + buffer})")
+
+        # BUY signals for target names not held
+        held_now = set(self.portfolio.get('positions', {}).keys())
+        for ticker in target:
+            if ticker in held_now:
+                continue
+            mom, px = scores[ticker]
+            signals.append({'ticker': ticker, 'action': 'buy', 'quantity': 0,
+                            'price': px, 'reason': f'12-1 momentum rank #{rank_of[ticker] + 1}',
+                            'ai_score': 0.99, 'confidence': 0.99,
+                            'details': {'momentum_12_1': mom, 'rank': rank_of[ticker] + 1}})
+
+        self.portfolio['momentum_last_rebalance'] = today.strftime('%Y-%m-%d')
+        self.logger.info(f"[MOMENTUM] Rebalance {today.date()}: {len([s for s in signals if s['action']=='sell'])} sells, "
+                         f"{len([s for s in signals if s['action']=='buy'])} buys | target={len(target)}")
+        return signals
+
     def _generate_trading_signals(self, trading_strategy, data_manager, sector_auth):
         """Generate genuine trading signals using AI model on ticker universe with IBKR integration"""
+        # Phase C: momentum mode bypasses the AI scan entirely
+        if getattr(trading_strategy, 'MOMENTUM_MODE', False):
+            return self._generate_momentum_signals(trading_strategy)
+
         signals = []
-        
+
         self.logger.info(f"[SIGNALS] Starting signal generation process...")
         
         try:
@@ -1265,6 +1444,7 @@ class MockVirtualEngine:
             # Collect all signals with confidence scores
             all_signals = []
             held_position_signals = []  # Track signals for held positions separately
+            universe_rejects = {}
             
             # Suppress sklearn feature-name warnings during scan (saves 4,368 string-format calls)
             import warnings
@@ -1289,6 +1469,14 @@ class MockVirtualEngine:
                     
                     if ticker_data is None or len(ticker_data) < 50:
                         self.logger.debug(f"[SIGNALS] Insufficient data for {ticker}, skipping")
+                        continue
+
+                    # Universe hygiene: no OTC/pink ADRs, no stale (delisted) data, no illiquid names
+                    ok, reject_reason = universe_check(ticker, ticker_data)
+                    if not ok:
+                        universe_rejects[reject_reason] = universe_rejects.get(reject_reason, 0) + 1
+                        if ticker.upper() in held_tickers:
+                            self.logger.warning(f"[UNIVERSE] Held position {ticker} rejected: {reject_reason}")
                         continue
                     
                     # Truncate to last 300 bars — feature engineering only needs ~252 (200d SMA + buffer)
@@ -1343,6 +1531,9 @@ class MockVirtualEngine:
                     self.logger.warning(f"[SIGNALS] Error processing {ticker}: {e}")
                     continue
             
+            if universe_rejects:
+                self.logger.info(f"[UNIVERSE] Rejected before scoring: {dict(sorted(universe_rejects.items()))}")
+
             # Sort signals by confidence (highest first) - AI-driven ranking
             all_signals.sort(key=lambda x: x['confidence'], reverse=True)
             
@@ -1639,10 +1830,11 @@ class TradingOrchestrator:
             from core.sentiment.sentiment_integration import SentimentIntegration
             
             # Configure sentiment analysis
+            sentiment_enabled = os.getenv('ENABLE_EXPERIMENTAL_SENTIMENT', 'false').strip().lower() == 'true'
             sentiment_config = {
-                'enable_economic': True,  # Enable economic data analysis
-                'enable_news': True,      # Enable news sentiment analysis
-                'enable_social': True,    # Enable social media sentiment analysis
+                'enable_economic': sentiment_enabled and bool(os.getenv('FRED_API_KEY')),
+                'enable_news': sentiment_enabled and bool(os.getenv('NEWS_API_KEY')) and os.getenv('NEWS_API_KEY') != 'your_news_api_key_here',
+                'enable_social': sentiment_enabled and all(os.getenv(key) for key in ('TWITTER_API_KEY', 'REDDIT_API_KEY', 'STOCKTWITS_API_KEY')),
                 'cache_ttl': 3600,        # 1 hour cache
                 'fred_api_key': os.getenv('FRED_API_KEY'),  # FRED API key from environment
                 'news_api_key': os.getenv('NEWS_API_KEY'),      # News API key from environment
@@ -1654,10 +1846,14 @@ class TradingOrchestrator:
             }
             
             self.sentiment_integration = SentimentIntegration(sentiment_config)
-            self.logger.info("[PHASE10] Sentiment Integration initialized - Economic Data Analysis ACTIVE")
+            enabled_components = [name for name in ('economic', 'news', 'social') if sentiment_config[f'enable_{name}']]
+            if enabled_components:
+                self.logger.info(f"[PHASE10] Experimental sentiment enabled: {', '.join(enabled_components)}")
+            else:
+                self.logger.info("[PHASE10] Experimental sentiment disabled - base models only")
             
             # Validate configuration
-            if not self.sentiment_integration.validate_configuration():
+            if enabled_components and not self.sentiment_integration.validate_configuration():
                 self.logger.warning("[PHASE10] Sentiment configuration has issues - some features may not work")
             
         except Exception as e:
@@ -2104,6 +2300,7 @@ This is an automated message from NeuralTrader Paper Trading System.
         appends new rows and saves back. Skips tickers already up-to-date.
         Rule 3.1: after update, any parquet still >24h old triggers [FATAL].
         """
+        global RUN_ERROR_TEXT, FETCH_STATS
         import requests
         import pandas as pd
         from pathlib import Path
@@ -2117,15 +2314,19 @@ This is an automated message from NeuralTrader Paper Trading System.
             # Load API key
             tiingo_token = os.getenv('TIINGO_API_KEY')
             if not tiingo_token:
-                self.logger.error("[FATAL] TIINGO_API_KEY not set in environment — check .env file")
+                err = "[FATAL] TIINGO_API_KEY not set in environment — check .env file"
+                self.logger.error(err)
                 self.logger.error("[FATAL] Ensure python-dotenv is installed: pip install python-dotenv")
+                RUN_ERROR_TEXT = err
                 return False
             self.logger.info(f"[FETCH] Tiingo API key loaded: {tiingo_token[:8]}...")
 
             raw_dir = Path(PROJECT_ROOT) / 'data' / 'raw'
             parquet_files = sorted(raw_dir.glob('*.parquet'))
             if not parquet_files:
-                self.logger.error("[FATAL] No parquet files found in data/raw/ — cannot update")
+                err = "[FATAL] No parquet files found in data/raw/ — cannot update"
+                self.logger.error(err)
+                RUN_ERROR_TEXT = err
                 return False
 
             today_str = datetime.now().strftime('%Y-%m-%d')
@@ -2207,30 +2408,49 @@ This is an automated message from NeuralTrader Paper Trading System.
             duration = (datetime.now() - session_start).total_seconds()
             self.logger.info(f"[FETCH] Complete: updated={updated} skipped={skipped} failed={failed} | {duration:.0f}s")
 
+            # Save fetch stats for the summary even on success.
+            FETCH_STATS = {
+                'updated': updated,
+                'skipped': skipped,
+                'failed': failed,
+                'total': total,
+                'duration': duration,
+            }
+
             if updated == 0 and failed > total * 0.5:
-                self.logger.error(f"[FATAL] Fetch failed for >50% of tickers ({failed}/{total}) — check API key")
+                err = f"[FATAL] Fetch failed for >50% of tickers ({failed}/{total}) — check API key"
+                self.logger.error(err)
+                RUN_ERROR_TEXT = err
                 return False
 
             return True
 
         except Exception as e:
             import traceback
-            self.logger.error(f"[ERROR] run_fetch_mode failed: {e}\n{traceback.format_exc()}")
+            err = f"[ERROR] run_fetch_mode failed: {e}\n{traceback.format_exc()}"
+            self.logger.error(err)
+            RUN_ERROR_TEXT = err
             return False
     
     def run_trade_mode(self) -> bool:
         """Run trade mode - Triggers VirtualEngine to execute shadow trades"""
+        global RUN_ERROR_TEXT
         try:
             self.logger.info("[TRADING] Running TRADE MODE - VirtualEngine Shadow Trading")
             session_start = datetime.now()
             
             # Check kill switch
             if self.check_kill_switch():
-                self.logger.warning("[STOP] Kill switch activated - stopping trading session")
+                err = "[STOP] Kill switch activated - stopping trading session"
+                self.logger.warning(err)
+                RUN_ERROR_TEXT = err
                 return False
             
             # Initialize modules
             if not self.initialize_modules():
+                err = "[ERROR] Failed to initialize trading modules"
+                self.logger.error(err)
+                RUN_ERROR_TEXT = err
                 return False
 
             # Paper mode: AI-only trading with Tiingo data (no broker connection)
@@ -2282,16 +2502,18 @@ This is an automated message from NeuralTrader Paper Trading System.
             if not PAPER_TRADING:
                 market_status = self.yfinance_manager.get_market_status()
                 if not market_status.get('is_market_open', False):
-                    self.logger.info("[TIME] Market is closed - no trading")
+                    err = "[TIME] Market is closed - no trading"
+                    self.logger.info(err)
+                    RUN_ERROR_TEXT = err
                     return False
             else:
                 self.logger.info("[PAPER] Bypassing market hours check - paper trading mode")
             
             # Phase 16: Check exits for all existing positions FIRST (daily)
-            # Phase 18: TIMEOUT exits are deferred until AI signals are known (churn fix)
+            # Validated candidate: TIMEOUT exits execute immediately after 15 days.
             self.logger.info("[P16] Checking exit conditions for existing positions...")
             try:
-                exits = self.virtual_engine.check_and_execute_exits(self.trading_strategy, defer_timeout=True)
+                exits = self.virtual_engine.check_and_execute_exits(self.trading_strategy, defer_timeout=False)
                 if exits:
                     self.logger.info(f"[P16] Exited {len(exits)} positions: {[e['ticker'] for e in exits]}")
                 else:
@@ -2542,10 +2764,47 @@ This is an automated message from NeuralTrader Paper Trading System.
                 EMAIL_BUY_SIGNALS = buy_signals
                 EMAIL_SELL_SIGNALS = sell_signals
                 acct = self.virtual_engine.get_account_info()
+                portfolio_value = acct.get('portfolio_value', 0)
+                cash = self.virtual_engine.portfolio.get('cash', 0)
+                initial_cash = 100000.0
+                total_pnl = portfolio_value - initial_cash
+                positions = self.virtual_engine.portfolio.get('positions', {})
+                positions_count = len(positions)
+
+                # Build a DataFrame that the HTML email template and Telegram summary share.
+                active_positions = []
+                for ticker, pos in positions.items():
+                    shares = float(pos.get('shares', 0) or 0)
+                    cost = float(pos.get('cost_basis', 0) or 0)
+                    price = float(pos.get('current_price', 0) or 0)
+                    market_value = shares * price
+                    entry_cost = shares * cost
+                    pnl_usd = market_value - entry_cost
+                    pnl_pct = ((price - cost) / cost * 100) if cost > 0 else 0.0
+                    entry_date = pos.get('entry_date', '')
+                    days_held = 0
+                    if entry_date:
+                        try:
+                            from datetime import datetime as _dt
+                            days_held = (_dt.now() - _dt.strptime(str(entry_date), '%Y-%m-%d')).days
+                        except Exception:
+                            pass
+                    active_positions.append({
+                        'Ticker': str(ticker).upper(),
+                        'Quantity': shares,
+                        'EntryPrice': cost,
+                        'CurrentPrice': price,
+                        'PnL_USD': pnl_usd,
+                        'PnL_Pct': pnl_pct,
+                        'DaysHeld': days_held,
+                    })
+
                 EMAIL_PORTFOLIO_DATA = {
-                    'portfolio_value': acct.get('portfolio_value', 0),
-                    'cash': self.virtual_engine.portfolio.get('cash', 0),
-                    'positions_count': len(self.virtual_engine.portfolio.get('positions', {}))
+                    'portfolio_value': portfolio_value,
+                    'cash': cash,
+                    'total_pnl': total_pnl,
+                    'positions_count': positions_count,
+                    'active_positions': pd.DataFrame(active_positions),
                 }
                 
                 n_pos = len(self.virtual_engine.portfolio.get('positions', {}))
@@ -2557,9 +2816,10 @@ This is an automated message from NeuralTrader Paper Trading System.
                 self.logger.info(f"  Portfolio Positions: {n_pos}")
                     
             except Exception as e:
-                self.logger.error(f"[ERROR] Signal generation failed: {e}")
                 import traceback
-                self.logger.error(f"[ERROR] Traceback: {traceback.format_exc()}")
+                err = f"[ERROR] Signal generation failed: {e}\n{traceback.format_exc()}"
+                self.logger.error(err)
+                RUN_ERROR_TEXT = err
                 # If signals fail, sell all deferred timeouts rather than leave them in limbo
                 self.virtual_engine.resolve_deferred_timeouts([])
                 self.virtual_engine.save_portfolio()
@@ -2580,22 +2840,31 @@ This is an automated message from NeuralTrader Paper Trading System.
             return True
             
         except Exception as e:
-            self.logger.error(f"[ERROR] Error in TRADE MODE: {e}")
+            import traceback
+            err = f"[ERROR] Error in TRADE MODE: {e}\n{traceback.format_exc()}"
+            self.logger.error(err)
+            RUN_ERROR_TEXT = err
             return False
     
     def run_report_mode(self) -> bool:
         """Run report mode - Generate daily executive brief with portfolio information"""
+        global RUN_ERROR_TEXT
         try:
             self.logger.info("[EMAIL] Running REPORT MODE - IST Scheduler 23:15 IST Email")
             session_start = datetime.now()
             
             # Check kill switch
             if self.check_kill_switch():
-                self.logger.warning("[STOP] Kill switch activated - stopping report session")
+                err = "[STOP] Kill switch activated - stopping report session"
+                self.logger.warning(err)
+                RUN_ERROR_TEXT = err
                 return False
             
             # Initialize modules
             if not self.initialize_modules():
+                err = "[ERROR] Failed to initialize report modules"
+                self.logger.error(err)
+                RUN_ERROR_TEXT = err
                 return False
 
             # Paper mode: AI-only trading with Tiingo data (no broker sync needed)
@@ -2611,10 +2880,53 @@ This is an automated message from NeuralTrader Paper Trading System.
             # Get portfolio info from virtual engine (always available in report mode)
             account_info = self.virtual_engine.get_account_info()
             current_positions = self.virtual_engine.get_current_positions()
-            
+            portfolio_positions = self.virtual_engine.portfolio.get('positions', {})
+
             portfolio_value = account_info.get('portfolio_value', 100000.0)
             cash = account_info.get('cash', 100000.0)
             positions_value = account_info.get('positions_value', 0.0)
+            total_pnl = portfolio_value - 100000.0
+
+            # Build a DataFrame that matches the columns the HTML template expects.
+            active_positions = []
+            for pos in current_positions:
+                ticker = pos.get('symbol', '')
+                pos_data = portfolio_positions.get(ticker, {})
+                shares = float(pos_data.get('shares', 0) or 0)
+                cost = float(pos_data.get('cost_basis', 0) or 0)
+                price = float(pos_data.get('current_price', 0) or 0)
+                market_value = shares * price
+                pnl_usd = market_value - (shares * cost)
+                pnl_pct = ((price - cost) / cost * 100) if cost > 0 else 0.0
+                days_held = 0
+                entry_date = pos_data.get('entry_date', '')
+                if entry_date:
+                    try:
+                        from datetime import datetime as _dt
+                        days_held = (_dt.now() - _dt.strptime(str(entry_date), '%Y-%m-%d')).days
+                    except Exception:
+                        pass
+                active_positions.append({
+                    'Ticker': str(ticker).upper(),
+                    'Quantity': shares,
+                    'EntryPrice': cost,
+                    'CurrentPrice': price,
+                    'PnL_USD': pnl_usd,
+                    'PnL_Pct': pnl_pct,
+                    'DaysHeld': days_held,
+                })
+
+            # Populate shared data so the finally block reports real numbers.
+            global EMAIL_PORTFOLIO_DATA, EMAIL_BUY_SIGNALS, EMAIL_SELL_SIGNALS
+            EMAIL_BUY_SIGNALS = []
+            EMAIL_SELL_SIGNALS = []
+            EMAIL_PORTFOLIO_DATA = {
+                'portfolio_value': portfolio_value,
+                'cash': cash,
+                'total_pnl': total_pnl,
+                'positions_count': len(active_positions),
+                'active_positions': pd.DataFrame(active_positions),
+            }
             
             # Format active positions
             active_positions_str = ""
@@ -2711,7 +3023,10 @@ NeuralTrader Automated Trading System v5.3 - Phase 10 Economic Data Integration 
             return True
             
         except Exception as e:
-            self.logger.error(f"[ERROR] Error in REPORT MODE: {e}")
+            import traceback
+            err = f"[ERROR] Error in REPORT MODE: {e}\n{traceback.format_exc()}"
+            self.logger.error(err)
+            RUN_ERROR_TEXT = err
             return False
     
     def _get_sentiment_analysis_string(self) -> str:
@@ -3057,6 +3372,7 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
     This function wraps the entire daily execution sequence in a massive try...except block
     to ensure email notifications are sent whether the pipeline succeeds or catastrophically fails.
     """
+    global RUN_ERROR_TEXT, FETCH_STATS
     # Get the logger (already set up in main())
     logger = logging.getLogger('NeuralTrader_Automation')
     
@@ -3248,6 +3564,10 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
                     'cash': 0,
                     'total_pnl': 0
                 }
+            if 'FETCH_STATS' not in globals():
+                FETCH_STATS = {}
+            if 'RUN_ERROR_TEXT' not in globals():
+                RUN_ERROR_TEXT = ""
             
             timestamp  = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             mode_label = (args.mode if 'args' in locals() and args.mode else 'UNKNOWN').upper()
@@ -3390,58 +3710,94 @@ def ironclad_main(real_ai, real_strategy, log_file_path):
             
             # Attach portfolio file (managed portfolio) instead of daily signals
             attachment_to_use = portfolio_file if portfolio_file else tradingview_file
-            
-            email_sent = notifier._send_email(
-                subject=subject,
-                html_content=html_body,
-                log_file_path=log_file_path,
-                attachment_file=attachment_to_use,
-            )
 
-            if email_sent:
-                logger.info(f"[EMAIL] [OK] Notification sent | mode={mode_label} | status={status_tag}")
+            # Fetch mode is a scheduled housekeeping job with no portfolio to report.
+            # Sending email/Telegram for every data fetch creates empty messages and
+            # unnecessary SMTP attempts, especially when the network is intermittent.
+            if mode_label == 'FETCH' and not exception_caught:
+                logger.info("[NOTIFY] Fetch mode: skipping email/Telegram notification")
+                email_sent = False
             else:
-                logger.error(f"[EMAIL] [FAIL] Failed to send notification | mode={mode_label}")
+                email_sent = notifier._send_email(
+                    subject=subject,
+                    html_content=html_body,
+                    log_file_path=log_file_path,
+                    attachment_file=attachment_to_use,
+                )
+
+            # Surface internal fatal/error text for the summary even when the
+            # orchestrator handled it gracefully and did not raise to the top level.
+            error_text = ""
+            if exception_caught and exception_traceback:
+                error_text = exception_traceback
+            elif not execution_result and 'RUN_ERROR_TEXT' in globals() and RUN_ERROR_TEXT:
+                error_text = RUN_ERROR_TEXT
 
             # ---- Single, compact Telegram summary per run ------------------
             try:
-                portfolio_data = EMAIL_PORTFOLIO_DATA if 'EMAIL_PORTFOLIO_DATA' in globals() else {
-                    'portfolio_value': 0, 'cash': 0, 'total_pnl': 0, 'active_positions': pd.DataFrame()
-                }
-                if isinstance(portfolio_data.get('active_positions'), pd.DataFrame):
-                    active_positions = len(portfolio_data['active_positions'])
+                if mode_label == 'FETCH' and not exception_caught:
+                    # Fetch success: lightweight data-refresh confirmation, no email.
+                    fetch_stats = FETCH_STATS if 'FETCH_STATS' in globals() and FETCH_STATS else {}
+                    telegram_summary = {
+                        "mode": mode_label,
+                        "status": "OK",
+                        "timestamp": timestamp,
+                        "fetch_updated": int(fetch_stats.get('updated', 0)),
+                        "fetch_skipped": int(fetch_stats.get('skipped', 0)),
+                        "fetch_failed": int(fetch_stats.get('failed', 0)),
+                        "fetch_total": int(fetch_stats.get('total', 0)),
+                        "fetch_duration": float(fetch_stats.get('duration', 0)),
+                        "email_sent": False,
+                        "exception_text": "",
+                    }
+                    if notifier.telegram_notifier is not None:
+                        tg_ok = notifier.telegram_notifier.send_run_summary(telegram_summary)
+                        logger.info(f"[TELEGRAM] Fetch summary sent: {tg_ok} | updated={fetch_stats.get('updated')} skipped={fetch_stats.get('skipped')} failed={fetch_stats.get('failed')}")
+                    else:
+                        logger.info("[TELEGRAM] Notifier not initialized; skipping fetch summary")
                 else:
-                    active_positions = len(portfolio_data.get('active_positions', []))
+                    if email_sent:
+                        logger.info(f"[EMAIL] [OK] Notification sent | mode={mode_label} | status={status_tag}")
+                    else:
+                        logger.error(f"[EMAIL] [FAIL] Failed to send notification | mode={mode_label}")
 
-                buy_signals = EMAIL_BUY_SIGNALS if 'EMAIL_BUY_SIGNALS' in globals() else []
-                sell_signals = EMAIL_SELL_SIGNALS if 'EMAIL_SELL_SIGNALS' in globals() else []
+                    portfolio_data = EMAIL_PORTFOLIO_DATA if 'EMAIL_PORTFOLIO_DATA' in globals() else {
+                        'portfolio_value': 0, 'cash': 0, 'total_pnl': 0, 'active_positions': pd.DataFrame()
+                    }
+                    if isinstance(portfolio_data.get('active_positions'), pd.DataFrame):
+                        active_positions = len(portfolio_data['active_positions'])
+                    else:
+                        active_positions = len(portfolio_data.get('active_positions', []))
 
-                if exception_caught:
-                    status = "CRASH"
-                elif execution_result:
-                    status = "OK"
-                else:
-                    status = "WARN"
+                    buy_signals = EMAIL_BUY_SIGNALS if 'EMAIL_BUY_SIGNALS' in globals() else []
+                    sell_signals = EMAIL_SELL_SIGNALS if 'EMAIL_SELL_SIGNALS' in globals() else []
 
-                telegram_summary = {
-                    "mode": mode_label,
-                    "status": status,
-                    "timestamp": timestamp,
-                    "portfolio_value": float(portfolio_data.get('portfolio_value', 0) or 0),
-                    "cash": float(portfolio_data.get('cash', 0) or 0),
-                    "total_pnl": float(portfolio_data.get('total_pnl', 0) or 0),
-                    "active_positions": active_positions,
-                    "buy_signals": len(buy_signals),
-                    "sell_signals": len(sell_signals),
-                    "email_sent": email_sent,
-                    "exception_text": exception_traceback if exception_caught and exception_traceback else "",
-                }
+                    if exception_caught:
+                        status = "CRASH"
+                    elif execution_result:
+                        status = "OK"
+                    else:
+                        status = "WARN"
 
-                if notifier.telegram_notifier is not None:
-                    tg_ok = notifier.telegram_notifier.send_run_summary(telegram_summary)
-                    logger.info(f"[TELEGRAM] Summary sent: {tg_ok} | mode={mode_label} | status={status}")
-                else:
-                    logger.info("[TELEGRAM] Notifier not initialized; skipping Telegram summary")
+                    telegram_summary = {
+                        "mode": mode_label,
+                        "status": status,
+                        "timestamp": timestamp,
+                        "portfolio_value": float(portfolio_data.get('portfolio_value', 0) or 0),
+                        "cash": float(portfolio_data.get('cash', 0) or 0),
+                        "total_pnl": float(portfolio_data.get('total_pnl', 0) or 0),
+                        "active_positions": active_positions,
+                        "buy_signals": len(buy_signals),
+                        "sell_signals": len(sell_signals),
+                        "email_sent": email_sent,
+                        "exception_text": error_text,
+                    }
+
+                    if notifier.telegram_notifier is not None:
+                        tg_ok = notifier.telegram_notifier.send_run_summary(telegram_summary)
+                        logger.info(f"[TELEGRAM] Summary sent: {tg_ok} | mode={mode_label} | status={status}")
+                    else:
+                        logger.info("[TELEGRAM] Notifier not initialized; skipping Telegram summary")
             except Exception as tg_error:
                 logger.error(f"[TELEGRAM] Failed to build or send summary: {tg_error}")
 

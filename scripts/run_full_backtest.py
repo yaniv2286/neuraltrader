@@ -74,6 +74,7 @@ logger = logging.getLogger('backtest')
 # ---------------------------------------------------------------------------
 from core.feature_engineer import FeatureEngineer
 from core.ai_models import EnsemblePredictor
+from core.universe_filter import is_otc_ticker, MAX_STALE_BDAYS, MIN_DOLLAR_VOLUME
 
 
 # ===========================================================================
@@ -81,10 +82,10 @@ from core.ai_models import EnsemblePredictor
 # ===========================================================================
 
 def _model_mtime_hash() -> str:
-    """Hash of all model pkl mtimes — changes when models are retrained."""
-    models_dir = PROJECT_ROOT / 'models'
+    """Hash of all model pkl mtimes (+ dir path) — changes when models are retrained or swapped."""
+    models_dir = Path(os.environ.get('NT_MODELS_DIR', PROJECT_ROOT / 'models'))
     mtimes = sorted(str(f.stat().st_mtime) for f in models_dir.glob('*.pkl'))
-    return hashlib.md5('|'.join(mtimes).encode()).hexdigest()[:8]
+    return hashlib.md5(f'{models_dir}|'.encode() + '|'.join(mtimes).encode()).hexdigest()[:8]
 
 
 def _ticker_cache_key(parquet_path: Path, model_hash: str) -> str:
@@ -187,6 +188,11 @@ def load_all_parquet(data_dir: Path,
             df.columns = [c.lower() for c in df.columns]
             if 'close' not in df.columns:
                 continue   # skip tickers with no close price
+            # Same as live (_load_parquet): features on split/dividend-adjusted series
+            for raw, adj in (('close', 'adjclose'), ('open', 'adjopen'), ('high', 'adjhigh'),
+                             ('low', 'adjlow'), ('volume', 'adjvolume')):
+                if adj in df.columns:
+                    df[raw] = df[adj]
             market_data[ticker] = df
         except Exception as e:
             logger.warning(f'[WARN] Could not load {fpath.name}: {e}')
@@ -275,9 +281,10 @@ class UnifiedBacktest:
         self._regime_meta   = None
         self._regime_feat_names: List[str] = []
         self._regime_cache: Dict[pd.Timestamp, int] = {}  # date -> regime code
-        _clf_path    = MODELS_DIR / 'regime_classifier.pkl'
-        _scaler_path = MODELS_DIR / 'regime_scaler.pkl'
-        _meta_path   = MODELS_DIR / 'regime_classifier_meta.json'
+        _regime_dir  = Path(os.environ.get('NT_MODELS_DIR', MODELS_DIR))
+        _clf_path    = _regime_dir / 'regime_classifier.pkl'
+        _scaler_path = _regime_dir / 'regime_scaler.pkl'
+        _meta_path   = _regime_dir / 'regime_classifier_meta.json'
         if _clf_path.exists() and _scaler_path.exists():
             try:
                 import pickle as _pkl
@@ -396,6 +403,33 @@ class UnifiedBacktest:
                 if not hist.empty:
                     return float(hist.iloc[-1])
         return None
+
+    def _stale_bdays(self, ticker: str, as_of: pd.Timestamp) -> int:
+        """Business days since the ticker's last bar on/before as_of (10_000 if none)."""
+        df = self.market_data.get(ticker)
+        if df is None:
+            return 10_000
+        idx = df.index[df.index <= as_of]
+        if len(idx) == 0:
+            return 10_000
+        last = idx[-1]
+        if last >= as_of:
+            return 0
+        return int(np.busday_count(last.date(), as_of.date()))
+
+    def _dollar_volume(self, ticker: str, as_of: pd.Timestamp, window: int = 20) -> float:
+        df = self.market_data.get(ticker)
+        if df is None:
+            return 0.0
+        past = df.loc[:as_of]
+        if len(past) < window:
+            return 0.0
+        close_col = 'adjclose' if 'adjclose' in past.columns else 'close'
+        vol_col = 'adjvolume' if 'adjvolume' in past.columns else 'volume'
+        if vol_col not in past.columns:
+            return 0.0
+        tail = past.iloc[-window:]
+        return float((tail[close_col] * tail[vol_col]).mean())
 
     def _calc_portfolio_value(self, as_of: pd.Timestamp) -> float:
         total = self.cash
@@ -735,6 +769,10 @@ class UnifiedBacktest:
                 price = self._get_price(ticker, date)
                 if not price:
                     continue
+                # Rule 3.1 per ticker: data stopped updating = delisted/acquired. Exit at last print.
+                if self._stale_bdays(ticker, date) > MAX_STALE_BDAYS:
+                    self._sell(ticker, date, price, 'DELISTED')
+                    continue
                 pnl_pct   = (price - pos['entry_price']) / pos['entry_price']
                 hold_days = (date - pos['entry_date']).days
 
@@ -776,8 +814,13 @@ class UnifiedBacktest:
                     continue
                 if ticker in self._stopped_out and date < self._stopped_out[ticker]:
                     continue
+                if is_otc_ticker(ticker):
+                    continue
                 conf = self._get_confidence(ticker, date)
                 if conf < regime_thr:
+                    continue
+                # Must have a bar on this date (no forward-filled zombies)
+                if self._stale_bdays(ticker, date) > 0:
                     continue
                 price = self._get_price(ticker, date)
                 if not price or price < MIN_PRICE:
@@ -789,6 +832,8 @@ class UnifiedBacktest:
                         avg_vol = past['volume'].iloc[-20:].mean()
                         if avg_vol < MIN_AVG_VOLUME:
                             continue
+                if self._dollar_volume(ticker, date) < MIN_DOLLAR_VOLUME:
+                    continue
                 candidate_list.append((ticker, conf, price))
             candidate_list.sort(key=lambda x: x[1], reverse=True)
 
@@ -951,9 +996,18 @@ def main():
                         help='Override MAX_HOLD_DAYS (e.g. 5 or 15)')
     parser.add_argument('--threshold', type=float, default=None,
                         help='Override AI confidence entry threshold (e.g. 0.35 or 0.44)')
+    parser.add_argument('--slippage-bps', type=float, default=None,
+                        help='Override per-side slippage in basis points (default 5; use 15-20 for small caps)')
+    parser.add_argument('--models-dir', default=None,
+                        help='Load ensemble from this directory instead of models/ (walk-forward folds)')
     args = parser.parse_args()
 
     # Apply CLI overrides to module-level constants
+    global SLIPPAGE_PCT
+    if args.slippage_bps is not None:
+        SLIPPAGE_PCT = args.slippage_bps / 10_000.0
+    if args.models_dir:
+        os.environ['NT_MODELS_DIR'] = str(Path(args.models_dir).resolve())
     if args.atr_mult is not None:
         STOP_LOSS_ATR_MULT = args.atr_mult
     if args.trail_stop_pct is not None:
@@ -967,7 +1021,7 @@ def main():
         BEAR_CONFIDENCE_THRESHOLD = args.threshold
 
     logger.info('[START] NeuralTrader Unified Backtest Engine')
-    logger.info(f'[PARAMS] SL_ATR_MULT={STOP_LOSS_ATR_MULT} | Trail={TRAIL_STOP_PCT*100:.1f}% | Activate={TRAIL_ACTIVATE_PCT*100:.0f}% | Hold={MAX_HOLD_DAYS}d')
+    logger.info(f'[PARAMS] SL_ATR_MULT={STOP_LOSS_ATR_MULT} | Trail={TRAIL_STOP_PCT*100:.1f}% | Activate={TRAIL_ACTIVATE_PCT*100:.0f}% | Hold={MAX_HOLD_DAYS}d | Slippage={SLIPPAGE_PCT*1e4:.0f}bps | Models={os.environ.get("NT_MODELS_DIR", "models/")}')
     bt = UnifiedBacktest(
         start_date=args.start,
         end_date=args.end,

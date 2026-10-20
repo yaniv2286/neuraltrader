@@ -44,7 +44,7 @@ class TradingStrategy:
         self.TRAIL_STOP_PCT       = 0.04   # Phase 19: 4.0% trailing stop — let winners run (backtest validated)
         self.TRAIL_ACTIVATE_PCT   = 0.02   # Trailing stop activates at +2% profit
         self.TAKE_PROFIT_PCT      = 0.08   # 8% take-profit — harvest winners before they reverse
-        self.MAX_HOLD_DAYS        = 5      # 5-day timeout — high-turnover weekly rotation (Phase 16 v11 backtest)
+        self.MAX_HOLD_DAYS        = 15     # 15-day timeout — validated lower-churn candidate
         self.MAX_RISK_PER_TRADE   = 0.008  # 0.8% portfolio risk per trade
         self.BASE_POSITION_PCT    = 0.05   # 5% base allocation per position
         self.MIN_POSITION_PCT     = 0.03   # 3% portfolio floor per position
@@ -57,23 +57,46 @@ class TradingStrategy:
         self.MIN_AVG_VOLUME       = 500_000 # 500k minimum average volume
         self.SHORTS_ENABLED       = False  # Shorts DISABLED — 49.8% WR = net negative
         self.REBALANCE_DAY        = None   # DISABLED - AI decides entries/exits every day
+
+        # Phase C: STRATEGY_MODE=momentum pivots the production book to the
+        # validated 12-1 momentum top-20 monthly benchmark. The AI ensemble
+        # failed every OOS walk-forward gate (Sharpe <= 0.35 vs SPY 0.68-1.25),
+        # so the momentum engine replaces AI scanning when enabled.
+        import os as _os
+        self.STRATEGY_MODE        = _os.environ.get('STRATEGY_MODE', 'ai').lower()
+        self.MOMENTUM_MODE        = self.STRATEGY_MODE == 'momentum'
+        if self.MOMENTUM_MODE:
+            self.MOMENTUM_TOP_N        = int(_os.environ.get('MOMENTUM_TOP_N', '20'))
+            self.MOMENTUM_RANK_BUFFER  = int(_os.environ.get('MOMENTUM_RANK_BUFFER', '5'))
+            self.STOP_LOSS_PCT         = 0.15   # wide catastrophic stop only (validated: helped fold2)
+            self.STOP_LOSS_MIN_PCT     = 0.15
+            self.STOP_LOSS_MAX_PCT     = 0.15
+            self.STOP_LOSS_ATR_MULT    = 0
+            self.TRAIL_STOP_PCT        = None   # disabled — rank drop handles winners
+            self.TRAIL_ACTIVATE_PCT    = None
+            self.TAKE_PROFIT_PCT       = None   # disabled — let winners run
+            self.MAX_HOLD_DAYS         = None   # disabled — monthly rebalance governs tenure
         
         # Phase 16 Regime-Adaptive Thresholds
         self.CRISIS_THRESHOLD     = None   # CRISIS: No entries allowed
         self.BEAR_THRESHOLD       = 0.42   # BEAR: Strict threshold
-        self.BULL_THRESHOLD       = 0.35   # BULL: Lower threshold = more trades = more CAGR
-        self.DEFAULT_THRESHOLD    = 0.38   # DEFAULT: Conservative fallback (v12 config)
+        self.BULL_THRESHOLD       = 0.40   # BULL: validated balanced entry threshold
+        self.DEFAULT_THRESHOLD    = 0.40   # DEFAULT: validated balanced fallback
         
         # Legacy thresholds (kept for compatibility)
-        self.CONFIDENCE_THRESHOLD = 0.35   # Standard entry threshold (Phase 16 v11)
+        self.CONFIDENCE_THRESHOLD = 0.40   # Standard entry threshold
         
         # [ARCH] INSTITUTIONAL SCHEDULE & DATA VALIDATION
         self.PRE_EXECUTION_DATA_CHECK = True  # Enable pre-execution data validation
         
         # Strategy lock confirmation
-        logger.info("[P16] STRATEGY LOCK: Phase 16 Optimized (v11: +15.88% CAGR, v12: -13.93% DD)")
-        logger.info(f"   Stop Loss: {self.STOP_LOSS_PCT*100:.0f}% fixed | Trail: {self.TRAIL_STOP_PCT*100:.1f}% (activates at +{self.TRAIL_ACTIVATE_PCT*100:.0f}%)")
-        logger.info(f"   Take Profit: {self.TAKE_PROFIT_PCT*100:.0f}% | Max Hold: {self.MAX_HOLD_DAYS}d")
+        if self.MOMENTUM_MODE:
+            logger.info(f"[P-C] STRATEGY MODE: MOMENTUM — 12-1 top-{self.MOMENTUM_TOP_N} monthly, "
+                        f"buffer={self.MOMENTUM_RANK_BUFFER}, SPY>SMA100 gate, {self.STOP_LOSS_PCT*100:.0f}% hard stop")
+        else:
+            logger.info("[P16] STRATEGY LOCK: Phase 16 Optimized (v11: +15.88% CAGR, v12: -13.93% DD)")
+            logger.info(f"   Stop Loss: {self.STOP_LOSS_PCT*100:.0f}% fixed | Trail: {self.TRAIL_STOP_PCT*100:.1f}% (activates at +{self.TRAIL_ACTIVATE_PCT*100:.0f}%)")
+            logger.info(f"   Take Profit: {self.TAKE_PROFIT_PCT*100:.0f}% | Max Hold: {self.MAX_HOLD_DAYS}d")
         logger.info(f"   Risk/Trade: {self.MAX_RISK_PER_TRADE*100:.1f}% | Base Pos: {self.BASE_POSITION_PCT*100:.0f}%")
         logger.info(f"   Uncle Point: ENABLED {self.UNCLE_POINT_DD*100:.0f}% / {self.COOLDOWN_DAYS}d cooldown | Shorts: DISABLED | Max Positions: {self.MAX_POSITIONS}")
         logger.info(f"   Rebalance: Weekly (Monday) | Regime Thresholds: BULL={self.BULL_THRESHOLD} BEAR={self.BEAR_THRESHOLD}")
@@ -186,20 +209,21 @@ class TradingStrategy:
                 return {'should_exit': True, 'reason': 'STOP_LOSS'}
 
             # 2. Trailing stop (activates once position is >=2% in profit, trails 4.0% from peak)
-            _peak = peak_price if peak_price is not None else current_price
-            if _peak > entry_price * (1 + self.TRAIL_ACTIVATE_PCT):
-                trail_pct = (_peak - current_price) / _peak
-                if trail_pct >= self.TRAIL_STOP_PCT:
-                    logger.info(f"[TRAIL] Trailing stop: {trail_pct:.1%} from peak ${_peak:.2f}")
-                    return {'should_exit': True, 'reason': 'TRAIL_STOP'}
+            if self.TRAIL_STOP_PCT is not None and self.TRAIL_ACTIVATE_PCT is not None:
+                _peak = peak_price if peak_price is not None else current_price
+                if _peak > entry_price * (1 + self.TRAIL_ACTIVATE_PCT):
+                    trail_pct = (_peak - current_price) / _peak
+                    if trail_pct >= self.TRAIL_STOP_PCT:
+                        logger.info(f"[TRAIL] Trailing stop: {trail_pct:.1%} from peak ${_peak:.2f}")
+                        return {'should_exit': True, 'reason': 'TRAIL_STOP'}
 
             # 3. Take-profit (8%)
-            if pnl_pct >= self.TAKE_PROFIT_PCT:
+            if self.TAKE_PROFIT_PCT is not None and pnl_pct >= self.TAKE_PROFIT_PCT:
                 logger.info(f"[TP] Take-profit: pnl={pnl_pct:.1%} >= {self.TAKE_PROFIT_PCT:.0%}")
                 return {'should_exit': True, 'reason': 'TAKE_PROFIT'}
 
             # 4. Timeout (5 days — fast churn)
-            if hold_days >= self.MAX_HOLD_DAYS:
+            if self.MAX_HOLD_DAYS is not None and hold_days >= self.MAX_HOLD_DAYS:
                 logger.info(f"[TIMEOUT] Hold days {hold_days} >= {self.MAX_HOLD_DAYS}")
                 return {'should_exit': True, 'reason': 'TIMEOUT'}
 

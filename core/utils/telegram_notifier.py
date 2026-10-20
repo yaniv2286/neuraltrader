@@ -108,9 +108,11 @@ class TelegramNotifier:
             return False
 
         url = TELEGRAM_API_URL.format(token=self.token)
+        deployment_label = os.getenv("DEPLOYMENT_LABEL", "LOCAL").strip().upper() or "LOCAL"
+        labeled_text = f"[{deployment_label}]\n{text}"
         payload = {
             "chat_id": self.chat_id,
-            "text": text[:MAX_TEXT_LENGTH],
+            "text": labeled_text[:MAX_TEXT_LENGTH],
             "disable_web_page_preview": True,
         }
         if parse_mode:
@@ -180,12 +182,23 @@ class TelegramNotifier:
         mode = str(summary.get("mode", "UNKNOWN")).upper()
         status = summary.get("status", "UNKNOWN")
         portfolio_value = float(summary.get("portfolio_value", 0) or 0)
+        cash = float(summary.get("cash", 0) or 0)
         total_pnl = float(summary.get("total_pnl", 0) or 0)
+        # Some modes don't set total_pnl; infer it from portfolio value minus cash
+        # minus the standard $100K starting capital when it is missing or zero.
+        if total_pnl == 0 and portfolio_value > 0 and cash >= 0:
+            total_pnl = portfolio_value - cash - 100000.0
         timestamp = summary.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Round to the nearest $100 for deduplication so tiny market wiggles
-        # do not cause repeated messages.
-        sig = f"{mode}:{status}:{round(portfolio_value / 100):.0f}:{round(total_pnl / 100):.0f}"
+        # Fetch mode uses data-refresh stats for dedup, not portfolio/P&L.
+        fetch_updated = int(summary.get("fetch_updated", 0) or 0)
+        fetch_failed = int(summary.get("fetch_failed", 0) or 0)
+        if mode == "FETCH":
+            sig = f"{mode}:{status}:{fetch_updated}:{fetch_failed}"
+        else:
+            # Round to the nearest $100 for deduplication so tiny market wiggles
+            # do not cause repeated messages.
+            sig = f"{mode}:{status}:{round(portfolio_value / 100):.0f}:{round(total_pnl / 100):.0f}"
         last_path = Path("logs/last_telegram.json")
         now = datetime.now()
         try:
@@ -205,19 +218,42 @@ class TelegramNotifier:
         else:
             header = f"[CRASH] NeuralTrader {mode} FAILED - {timestamp}"
 
-        lines = [
-            header,
-            f"",
-            f"Portfolio: ${portfolio_value:,.2f}",
-            f"Cash: ${float(summary.get('cash', 0) or 0):,.2f}",
-            f"P&L: ${total_pnl:,.2f}",
-            f"Active Positions: {int(summary.get('active_positions', 0) or 0)}",
-            f"Buy Signals: {int(summary.get('buy_signals', 0) or 0)}",
-            f"Sell Signals: {int(summary.get('sell_signals', 0) or 0)}",
-        ]
+        if mode == "FETCH":
+            # Data-refresh summary: show how many tickers were updated/skipped/failed.
+            updated = int(summary.get("fetch_updated", 0) or 0)
+            skipped = int(summary.get("fetch_skipped", 0) or 0)
+            failed = int(summary.get("fetch_failed", 0) or 0)
+            total = int(summary.get("fetch_total", 0) or 0)
+            duration = float(summary.get("fetch_duration", 0) or 0)
+            lines = [
+                header,
+                "",
+                f"Data refresh: {updated} updated, {skipped} skipped, {failed} failed (of {total})",
+                f"Duration: {duration:.0f}s",
+            ]
+        elif mode == "SATURDAY_RETRAIN":
+            lines = [header, "", "Model retraining completed; portfolio was not evaluated by this job."]
+        else:
+            # active_positions may be missing; fall back to the explicit positions_count.
+            active_positions = int(summary.get('active_positions', 0) or 0)
+            if active_positions == 0:
+                active_positions = int(summary.get('positions_count', 0) or 0)
+
+            lines = [
+                header,
+                f"",
+                f"Portfolio: ${portfolio_value:,.2f}",
+                f"Cash: ${cash:,.2f}",
+                f"P&L: ${total_pnl:,.2f}",
+                f"Active Positions: {active_positions}",
+                f"Buy Signals: {int(summary.get('buy_signals', 0) or 0)}",
+                f"Sell Signals: {int(summary.get('sell_signals', 0) or 0)}",
+            ]
 
         email_sent = bool(summary.get("email_sent"))
-        if email_sent:
+        if mode == "FETCH" and status == "OK":
+            lines.append("Email: skipped for data refresh")
+        elif email_sent:
             lines.append("Email: sent")
         else:
             lines.append("Email: failed (see log file)")
